@@ -50,6 +50,8 @@ const targets = [
 function copyStatic() {
   mkdirSync('dist/renderer', { recursive: true })
   cpSync('src/index.html', 'dist/renderer/index.html')
+  mkdirSync('dist/main/models-dev', { recursive: true })
+  cpSync('electron/main/models-dev/snapshot.json', 'dist/main/models-dev/snapshot.json')
 }
 
 if (watch) {
