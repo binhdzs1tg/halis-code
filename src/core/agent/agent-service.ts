@@ -1,8 +1,11 @@
 import type { ChatMessage } from '../../../electron/shared/types'
+import type { ModelSelection } from '../../../electron/shared/models'
 
 export interface AgentRequest {
   prompt: string
   history: ChatMessage[]
+  /** Model picked in the chat composer, e.g. anthropic/claude-sonnet-4-5. */
+  model?: ModelSelection
 }
 
 export interface AgentResponse {

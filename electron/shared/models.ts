@@ -11,8 +11,15 @@ export type ModelModality = 'text' | 'audio' | 'image' | 'video' | 'pdf'
 
 export type ModelStatus = 'alpha' | 'beta' | 'deprecated' | 'active'
 
-export type ReasoningOption =
+/** As it appears in the upstream snapshot. */
+export type RawReasoningOption =
   | { type: 'effort'; values?: readonly (string | null)[] }
+  | { type: 'toggle' }
+  | { type: 'budget_tokens'; min?: number; max?: number }
+
+/** After null values are stripped. */
+export type ReasoningOption =
+  | { type: 'effort'; values?: readonly string[] }
   | { type: 'toggle' }
   | { type: 'budget_tokens'; min?: number; max?: number }
 
@@ -48,7 +55,7 @@ export interface SourceModel {
   readonly release_date: string
   readonly attachment: boolean
   readonly reasoning: boolean
-  readonly reasoning_options?: readonly ReasoningOption[]
+  readonly reasoning_options?: readonly RawReasoningOption[]
   readonly temperature?: boolean
   readonly tool_call: boolean
   readonly interleaved?: boolean | string | { field: string }
@@ -124,7 +131,7 @@ export interface ModelEntry {
   structuredOutput?: boolean
   openWeights?: boolean
   knowledge?: string
-  status: Exclude<ModelStatus, 'deprecated'>
+  status: ModelStatus
   limit: { context: number; input?: number; output: number }
   cost: ModelCost
   modalities: { input: string[]; output: string[] }

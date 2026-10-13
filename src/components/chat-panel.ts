@@ -3,6 +3,8 @@ import { icons } from '../app/icons'
 import { store } from '../app/store'
 import type { ChatMessage } from '../../electron/shared/types'
 import { agentService, AgentNotReadyError } from '../core/agent/agent-service'
+import * as catalog from '../core/models/catalog'
+import { openModelDialog } from './model-picker'
 
 let counter = 0
 
@@ -39,7 +41,11 @@ export function mountChatPanel(): HTMLElement {
     store.update({ agentStatus: 'thinking' })
 
     try {
-      const response = await agentService.run({ prompt: text, history: [...messages] })
+      const response = await agentService.run({
+        prompt: text,
+        history: [...messages],
+        model: store.get().selectedModel ?? undefined
+      })
       const reply = makeMessage('assistant', response.message)
       messages.push(reply)
       list.appendChild(renderMessage(reply))
@@ -110,7 +116,54 @@ function buildComposer(onSend: (text: string) => Promise<void>): HTMLElement {
 
   inputBox.append(textarea, sendBtn)
   composer.appendChild(inputBox)
-  composer.appendChild(el('div', 'hint', 'Enter to send · Shift+Enter for a new line'))
+
+  // Model row under the input, mirroring opencode's `model · provider` metadata.
+  const modelBtn = el('button', 'model-button') as HTMLButtonElement
+  modelBtn.type = 'button'
+  modelBtn.title = 'Select model'
+  const modelLabel = el('span', 'model-label', 'Loading models…')
+  modelBtn.append(modelLabel, svg(icons.chevronDown, 12))
+  modelBtn.addEventListener('click', () => {
+    openModelDialog()
+  })
+
+  const hint = el('div', 'hint', 'Enter to send · Shift+Enter for a new line')
+  const bar = el('div', 'composer-bar')
+  bar.append(modelBtn, hint)
+  composer.appendChild(bar)
+
+  const refreshModelButton = (): void => {
+    const selection = store.get().selectedModel
+    if (!selection || !catalog.isValid(selection)) {
+      modelLabel.textContent = 'Select model'
+      return
+    }
+    const variant = selection.variant
+    const parts = [catalog.selectionLabel(selection), catalog.providerLabel(selection)]
+    modelLabel.textContent = variant ? `${parts.join(' · ')} · ${variant}` : parts.join(' · ')
+  }
+  refreshModelButton()
+  store.subscribe(refreshModelButton)
+
+  void catalog.ensureCatalog().then(() => {
+    if (!store.get().selectedModel) {
+      const fallback = catalog.defaultSelection()
+      if (fallback) store.update({ selectedModel: fallback })
+    }
+    refreshModelButton()
+  })
+
+  window.halis.onModelsUpdated(() => {
+    catalog.invalidate()
+    void catalog.ensureCatalog().then(() => {
+      const selection = store.get().selectedModel
+      if (!catalog.isValid(selection)) {
+        const fallback = catalog.defaultSelection()
+        if (fallback) store.update({ selectedModel: fallback })
+      }
+      refreshModelButton()
+    })
+  })
 
   return composer
 }

@@ -19,6 +19,8 @@ export const icons = {
   maximize: icon('<rect x="5.5" y="5.5" width="13" height="13" rx="1.5"/>'),
   restore: icon('<rect x="4.5" y="7.5" width="12" height="12" rx="1.5"/><path d="M8 4.5h11.5V16"/>'),
   terminal: icon('<rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="M7 9.5l3 2.7-3 2.7M12.5 15H17"/>'),
+  star: icon('<path d="M12 4.5l2.2 4.7 5.1.7-3.7 3.6.9 5.1-4.5-2.4-4.5 2.4.9-5.1-3.7-3.6 5.1-.7z"/>'),
+  starFilled: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="%SIZE%" height="%SIZE%" fill="currentColor" stroke="none"><path d="M12 4.5l2.2 4.7 5.1.7-3.7 3.6.9 5.1-4.5-2.4-4.5 2.4.9-5.1-3.7-3.6 5.1-.7z"/></svg>',
   dot: icon('<circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/>')
 }
 

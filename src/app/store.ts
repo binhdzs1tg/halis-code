@@ -1,4 +1,5 @@
 import type { AppInfo } from '../../electron/shared/types'
+import type { ModelSelection } from '../../electron/shared/models'
 
 export type SidebarView = 'explorer' | 'search' | 'settings'
 export type AgentStatus = 'idle' | 'thinking' | 'error'
@@ -12,6 +13,7 @@ export interface AppState {
   terminalOpen: boolean
   openFile: string | null
   agentStatus: AgentStatus
+  selectedModel: ModelSelection | null
 }
 
 type Listener = (state: AppState, prev: AppState) => void
@@ -25,7 +27,8 @@ function initialState(): AppState {
     chatOpen: true,
     terminalOpen: false,
     openFile: null,
-    agentStatus: 'idle'
+    agentStatus: 'idle',
+    selectedModel: null
   }
 }
 

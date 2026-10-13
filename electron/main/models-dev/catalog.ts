@@ -261,14 +261,13 @@ function supportsText(model: ModelEntry): boolean {
 }
 
 function readSupports(raw: SourceModel): ReasoningOption[] {
-  return (raw.reasoning_options ?? []).map((option) =>
-    option.type === 'effort'
-      ? {
-          type: 'effort' as const,
-          values: option.values?.filter((value): value is string => value !== null && value !== 'null')
-        }
-      : option
-  )
+  return (raw.reasoning_options ?? []).map((option): ReasoningOption => {
+    if (option.type !== 'effort') return option
+    return {
+      type: 'effort',
+      values: option.values?.filter((value): value is string => value !== null && value !== 'null')
+    }
+  })
 }
 
 /**
