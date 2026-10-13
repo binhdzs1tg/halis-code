@@ -640,7 +640,7 @@ body.is-mac .window-controls {
 }
 
 .chat-panel .bubble.md .code-block.open pre::after,
-.chat-panel .bubble.streaming .bubble-tail {
+.chat-panel .bubble.streaming::after {
   content: '';
   display: inline-block;
   width: 7px;
@@ -710,6 +710,81 @@ body.is-mac .window-controls {
 
 .chat-panel .composer .send:not(:disabled):hover {
   filter: brightness(1.12);
+}
+
+.chat-panel .composer .send.stop {
+  background: var(--bg-3);
+  color: var(--fg-0);
+}
+
+.chat-panel .composer .send.stop:hover {
+  background: var(--red);
+  color: #fff;
+  filter: none;
+}
+
+.chat-panel .msg .meta .copy-msg {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 2px;
+  border-radius: 4px;
+  vertical-align: middle;
+  color: var(--fg-2);
+}
+
+.chat-panel .msg .meta .copy-msg:hover {
+  background: var(--bg-hover);
+  color: var(--fg-0);
+}
+
+.chat-panel .msg.system .bubble .note-action {
+  display: block;
+  margin: 8px auto 0;
+  padding: 4px 14px;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.chat-panel .msg.system .bubble .note-action:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.chat-panel .panel-header .key-chip {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--fg-1);
+}
+
+.chat-panel .panel-header .key-chip:hover {
+  background: var(--bg-2);
+  color: var(--fg-0);
+}
+
+.chat-panel .panel-header .key-chip .key-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--fg-2);
+}
+
+.chat-panel .panel-header .key-chip.ok .key-dot {
+  background: var(--green);
+}
+
+.chat-panel .panel-header .key-chip.missing .key-dot {
+  background: var(--yellow);
 }
 
 .chat-panel .composer-bar {
@@ -929,6 +1004,132 @@ body.is-mac .window-controls {
 .chat-panel .chat-empty .logo {
   color: var(--accent);
   display: flex;
+}
+
+/* ---------- key dialog ---------- */
+
+.key-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(4, 6, 10, 0.55);
+}
+
+.key-dialog {
+  display: flex;
+  flex-direction: column;
+  width: 420px;
+  max-width: calc(100vw - 48px);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45);
+  padding: 14px;
+}
+
+.key-dialog .dialog-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fg-0);
+  margin-bottom: 10px;
+}
+
+.key-dialog .key-status {
+  margin-bottom: 10px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.key-dialog .key-status.ok {
+  background: rgba(63, 185, 104, 0.1);
+  color: var(--green);
+}
+
+.key-dialog .key-status.missing {
+  background: rgba(217, 165, 63, 0.1);
+  color: var(--yellow);
+}
+
+.key-dialog .key-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.key-dialog .key-row {
+  display: flex;
+  gap: 8px;
+}
+
+.key-dialog .key-input {
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-0);
+  color: var(--fg-0);
+  font-size: 12.3px;
+  outline: none;
+}
+
+.key-dialog .key-input:focus {
+  border-color: var(--accent);
+}
+
+.key-dialog .key-save {
+  padding: 0 16px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  font-size: 12.3px;
+}
+
+.key-dialog .key-save:hover {
+  filter: brightness(1.12);
+}
+
+.key-dialog .key-save:disabled,
+.key-dialog .key-remove:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.key-dialog .key-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.key-dialog .key-remove {
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--fg-1);
+}
+
+.key-dialog .key-remove:hover {
+  background: var(--bg-hover);
+  color: var(--red);
+}
+
+.key-dialog .key-hint {
+  margin-top: 12px;
+  font-size: 11.3px;
+  line-height: 1.5;
+  color: var(--fg-2);
+}
+
+.key-dialog .key-hint a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.key-dialog .key-hint a:hover {
+  text-decoration: underline;
 }
 
 /* ---------- terminal ---------- */

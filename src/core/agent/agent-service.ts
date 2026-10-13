@@ -1,35 +1,81 @@
-import type { ChatMessage } from '../../../electron/shared/types'
-import type { ModelSelection } from '../../../electron/shared/models'
+import type { AgentTurnRequest, ChatErrorCode } from '../../../electron/shared/types'
 
-export interface AgentRequest {
-  prompt: string
-  history: ChatMessage[]
-  /** Model picked in the chat composer, e.g. anthropic/claude-sonnet-4-5. */
-  model?: ModelSelection
-}
+export type AgentErrorCode = ChatErrorCode | 'busy' | 'bridge'
 
-export interface AgentResponse {
-  message: string
-}
-
-export class AgentNotReadyError extends Error {
-  constructor() {
-    super('Agent runtime is not wired to a model yet')
-    this.name = 'AgentNotReadyError'
+export class AgentError extends Error {
+  constructor(
+    readonly code: AgentErrorCode,
+    message: string,
+    /** Text that had already streamed in when the run failed. */
+    readonly partial: string
+  ) {
+    super(message)
+    this.name = 'AgentError'
   }
 }
 
+export interface AgentStreamHandlers {
+  onDelta(chunk: string): void
+}
+
 /**
- * Skeleton agent gateway.
+ * Renderer-side gateway to the agent runtime in the main process.
  *
- * This intentionally does nothing useful yet. Later phases will add:
- * - model provider layer (pluggable providers, API key vault)
- * - tool harness (workspace tools, permissions, sandboxing)
- * - streaming responses
+ * `run` resolves with the full reply once the stream completes and rejects
+ * with an `AgentError` (carrying any partial text) when it fails. Cancelling
+ * resolves normally with whatever had streamed so far.
  */
 export class AgentService {
-  async run(_request: AgentRequest): Promise<AgentResponse> {
-    throw new AgentNotReadyError()
+  private activeRunId: string | null = null
+
+  get running(): boolean {
+    return this.activeRunId !== null
+  }
+
+  async run(request: AgentTurnRequest, handlers?: AgentStreamHandlers): Promise<string> {
+    if (this.activeRunId) {
+      throw new AgentError('busy', 'The agent is already answering — stop it first', '')
+    }
+
+    let runId: string
+    try {
+      const started = await window.halis.sendChat(request)
+      runId = started.runId
+    } catch (err) {
+      throw new AgentError('bridge', err instanceof Error ? err.message : String(err), '')
+    }
+    this.activeRunId = runId
+
+    return await new Promise<string>((resolve, reject) => {
+      let text = ''
+      const offDelta = window.halis.onChatDelta((event) => {
+        if (event.runId !== runId) return
+        text += event.text
+        handlers?.onDelta(event.text)
+      })
+      const offDone = window.halis.onChatDone((event) => {
+        if (event.runId !== runId) return
+        cleanup()
+        resolve(text)
+      })
+      const offError = window.halis.onChatError((event) => {
+        if (event.runId !== runId) return
+        cleanup()
+        reject(new AgentError(event.code, event.message, text))
+      })
+      const cleanup = (): void => {
+        this.activeRunId = null
+        offDelta()
+        offDone()
+        offError()
+      }
+    })
+  }
+
+  cancel(): void {
+    if (this.activeRunId) {
+      window.halis.cancelChat(this.activeRunId)
+    }
   }
 }
 

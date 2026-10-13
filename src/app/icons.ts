@@ -21,7 +21,12 @@ export const icons = {
   terminal: icon('<rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="M7 9.5l3 2.7-3 2.7M12.5 15H17"/>'),
   star: icon('<path d="M12 4.5l2.2 4.7 5.1.7-3.7 3.6.9 5.1-4.5-2.4-4.5 2.4.9-5.1-3.7-3.6 5.1-.7z"/>'),
   starFilled: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="%SIZE%" height="%SIZE%" fill="currentColor" stroke="none"><path d="M12 4.5l2.2 4.7 5.1.7-3.7 3.6.9 5.1-4.5-2.4-4.5 2.4.9-5.1-3.7-3.6 5.1-.7z"/></svg>',
-  dot: icon('<circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/>')
+  dot: icon('<circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/>'),
+  arrowUp: icon('<path d="M12 19V5M5.5 11.5L12 5l6.5 6.5"/>'),
+  stop: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="%SIZE%" height="%SIZE%" fill="currentColor" stroke="none"><rect x="6.5" y="6.5" width="11" height="11" rx="1.5"/></svg>',
+  key: icon('<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/>'),
+  copy: icon('<rect x="9" y="9" width="11" height="11" rx="1.5"/><path d="M5 15H4.5A1.5 1.5 0 0 1 3 13.5v-9A1.5 1.5 0 0 1 4.5 3h9A1.5 1.5 0 0 1 15 4.5V5"/>'),
+  check: icon('<path d="M4.5 12.5l5 5L19.5 7"/>')
 }
 
 export type IconName = keyof typeof icons
