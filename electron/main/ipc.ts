@@ -7,6 +7,7 @@ import {
   readFileContent
 } from './workspace'
 import * as modelsCatalog from './models-dev/catalog'
+import * as keyStore from './keys/store'
 
 function senderWindow(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): BrowserWindow | null {
   return BrowserWindow.fromWebContents(event.sender)
@@ -70,5 +71,28 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(IpcChannel.ModelsRefresh, () => {
     return modelsCatalog.refresh(true)
+  })
+
+  ipcMain.handle(IpcChannel.KeysStatus, async () => {
+    const { providers } = await modelsCatalog.list()
+    return keyStore.statuses(providers)
+  })
+
+  ipcMain.handle(IpcChannel.KeysSet, async (_event, providerId: unknown, value: unknown) => {
+    if (typeof providerId !== 'string' || typeof value !== 'string') {
+      throw new Error('keys:set expects (providerId, value) strings')
+    }
+    await keyStore.set(providerId, value)
+    const { providers } = await modelsCatalog.list()
+    return keyStore.statuses(providers)
+  })
+
+  ipcMain.handle(IpcChannel.KeysRemove, async (_event, providerId: unknown) => {
+    if (typeof providerId !== 'string') {
+      throw new Error('keys:remove expects a providerId string')
+    }
+    await keyStore.remove(providerId)
+    const { providers } = await modelsCatalog.list()
+    return keyStore.statuses(providers)
   })
 }

@@ -9,7 +9,16 @@ export const IpcChannel = {
   FileRead: 'file:read',
   ModelsList: 'models:list',
   ModelsRefresh: 'models:refresh',
-  ModelsUpdated: 'models:updated'
+  ModelsUpdated: 'models:updated',
+  ChatSend: 'chat:send',
+  ChatCancel: 'chat:cancel',
+  ChatDelta: 'chat:delta',
+  ChatDone: 'chat:done',
+  ChatError: 'chat:error',
+  KeysStatus: 'keys:status',
+  KeysSet: 'keys:set',
+  KeysRemove: 'keys:remove',
+  KeysChanged: 'keys:changed'
 } as const
 
 export type IpcChannel = (typeof IpcChannel)[keyof typeof IpcChannel]

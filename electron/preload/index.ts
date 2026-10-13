@@ -22,6 +22,17 @@ const api: HalisApi = {
     return () => {
       ipcRenderer.off(IpcChannel.ModelsUpdated, handler)
     }
+  },
+
+  getKeyStatuses: () => ipcRenderer.invoke(IpcChannel.KeysStatus),
+  setProviderKey: (providerId, value) => ipcRenderer.invoke(IpcChannel.KeysSet, providerId, value),
+  removeProviderKey: (providerId) => ipcRenderer.invoke(IpcChannel.KeysRemove, providerId),
+  onKeysChanged: (listener) => {
+    const handler = (): void => listener()
+    ipcRenderer.on(IpcChannel.KeysChanged, handler)
+    return () => {
+      ipcRenderer.off(IpcChannel.KeysChanged, handler)
+    }
   }
 }
 

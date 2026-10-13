@@ -1,4 +1,8 @@
-import type { AppInfo, WorkspaceEntry } from './types'
+import type {
+  AppInfo,
+  ProviderKeyStatuses,
+  WorkspaceEntry
+} from './types'
 import type { ModelCatalog } from './models'
 
 /**
@@ -22,4 +26,11 @@ export interface HalisApi {
   refreshModels(): Promise<ModelCatalog>
   /** Fired on the renderer whenever the catalog changes in the main process. */
   onModelsUpdated(listener: () => void): () => void
+
+  /** Providers that currently have a key, either from the vault or the env. */
+  getKeyStatuses(): Promise<ProviderKeyStatuses>
+  setProviderKey(providerId: string, value: string): Promise<ProviderKeyStatuses>
+  removeProviderKey(providerId: string): Promise<ProviderKeyStatuses>
+  /** Fired whenever a vault key is added or removed. */
+  onKeysChanged(listener: () => void): () => void
 }
