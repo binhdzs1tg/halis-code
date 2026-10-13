@@ -8,6 +8,7 @@ import {
 } from './workspace'
 import * as modelsCatalog from './models-dev/catalog'
 import * as keyStore from './keys/store'
+import { cancelRun, startRun } from './agent/run'
 
 function senderWindow(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): BrowserWindow | null {
   return BrowserWindow.fromWebContents(event.sender)
@@ -71,6 +72,16 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(IpcChannel.ModelsRefresh, () => {
     return modelsCatalog.refresh(true)
+  })
+
+  ipcMain.handle(IpcChannel.ChatSend, (event, request: unknown) => {
+    return startRun(request, senderWindow(event))
+  })
+
+  ipcMain.handle(IpcChannel.ChatCancel, (_event, runId: unknown) => {
+    if (typeof runId === 'string') {
+      cancelRun(runId)
+    }
   })
 
   ipcMain.handle(IpcChannel.KeysStatus, async () => {

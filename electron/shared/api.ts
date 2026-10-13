@@ -1,5 +1,10 @@
 import type {
+  AgentTurnRequest,
   AppInfo,
+  ChatDeltaEvent,
+  ChatDoneEvent,
+  ChatErrorEvent,
+  ChatRunStarted,
   ProviderKeyStatuses,
   WorkspaceEntry
 } from './types'
@@ -26,6 +31,13 @@ export interface HalisApi {
   refreshModels(): Promise<ModelCatalog>
   /** Fired on the renderer whenever the catalog changes in the main process. */
   onModelsUpdated(listener: () => void): () => void
+
+  /** Start an agent run; text arrives through `onChatDelta` until done/error. */
+  sendChat(request: AgentTurnRequest): Promise<ChatRunStarted>
+  cancelChat(runId: string): void
+  onChatDelta(listener: (event: ChatDeltaEvent) => void): () => void
+  onChatDone(listener: (event: ChatDoneEvent) => void): () => void
+  onChatError(listener: (event: ChatErrorEvent) => void): () => void
 
   /** Providers that currently have a key, either from the vault or the env. */
   getKeyStatuses(): Promise<ProviderKeyStatuses>

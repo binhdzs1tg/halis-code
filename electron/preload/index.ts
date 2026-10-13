@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IpcChannel } from '../shared/ipc-channels'
+import type { ChatDeltaEvent, ChatDoneEvent, ChatErrorEvent } from '../shared/types'
 import type { HalisApi } from '../shared/api'
 
 const api: HalisApi = {
@@ -32,6 +33,32 @@ const api: HalisApi = {
     ipcRenderer.on(IpcChannel.KeysChanged, handler)
     return () => {
       ipcRenderer.off(IpcChannel.KeysChanged, handler)
+    }
+  },
+
+  sendChat: (request) => ipcRenderer.invoke(IpcChannel.ChatSend, request),
+  cancelChat: (runId) => {
+    void ipcRenderer.invoke(IpcChannel.ChatCancel, runId)
+  },
+  onChatDelta: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: ChatDeltaEvent): void => listener(payload)
+    ipcRenderer.on(IpcChannel.ChatDelta, handler)
+    return () => {
+      ipcRenderer.off(IpcChannel.ChatDelta, handler)
+    }
+  },
+  onChatDone: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: ChatDoneEvent): void => listener(payload)
+    ipcRenderer.on(IpcChannel.ChatDone, handler)
+    return () => {
+      ipcRenderer.off(IpcChannel.ChatDone, handler)
+    }
+  },
+  onChatError: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: ChatErrorEvent): void => listener(payload)
+    ipcRenderer.on(IpcChannel.ChatError, handler)
+    return () => {
+      ipcRenderer.off(IpcChannel.ChatError, handler)
     }
   }
 }
