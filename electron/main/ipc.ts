@@ -6,6 +6,7 @@ import {
   openWorkspaceByPath,
   readFileContent
 } from './workspace'
+import * as modelsCatalog from './models-dev/catalog'
 
 function senderWindow(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): BrowserWindow | null {
   return BrowserWindow.fromWebContents(event.sender)
@@ -61,5 +62,13 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(IpcChannel.FileRead, (_event, relPath: string): string => {
     return readFileContent(relPath)
+  })
+
+  ipcMain.handle(IpcChannel.ModelsList, () => {
+    return modelsCatalog.list()
+  })
+
+  ipcMain.handle(IpcChannel.ModelsRefresh, () => {
+    return modelsCatalog.refresh(true)
   })
 }

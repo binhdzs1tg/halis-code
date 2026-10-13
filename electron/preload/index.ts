@@ -12,7 +12,17 @@ const api: HalisApi = {
   pickWorkspace: () => ipcRenderer.invoke(IpcChannel.WorkspacePick),
   openWorkspace: (absolutePath) => ipcRenderer.invoke(IpcChannel.WorkspaceOpen, absolutePath),
   readDir: (relPath) => ipcRenderer.invoke(IpcChannel.WorkspaceReadDir, relPath),
-  readFile: (relPath) => ipcRenderer.invoke(IpcChannel.FileRead, relPath)
+  readFile: (relPath) => ipcRenderer.invoke(IpcChannel.FileRead, relPath),
+
+  getModels: () => ipcRenderer.invoke(IpcChannel.ModelsList),
+  refreshModels: () => ipcRenderer.invoke(IpcChannel.ModelsRefresh),
+  onModelsUpdated: (listener) => {
+    const handler = (): void => listener()
+    ipcRenderer.on(IpcChannel.ModelsUpdated, handler)
+    return () => {
+      ipcRenderer.off(IpcChannel.ModelsUpdated, handler)
+    }
+  }
 }
 
 contextBridge.exposeInMainWorld('halis', api)
