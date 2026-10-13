@@ -2,22 +2,25 @@
 
 Halis Code — a desktop coding agent, built with Electron and TypeScript.
 
-> Current status: project skeleton. The app shell runs, but the agent itself is not wired up yet.
+> Current status: the agent chats with real models. Tools and editing arrive next.
 
 ## What works today
 
 - Borderless desktop window with custom titlebar (Windows/Linux traffic lights handled, macOS native)
 - Activity bar, sidebar with a live file explorer (open folder, lazy tree), status bar
 - Editor area: open files in a read-only viewer with line numbers
-- Agent chat panel with local message flow and status indicator
+- Streaming agent chat backed by real models, with markdown rendering, copy actions and a stop button
+- Provider layer: Anthropic Messages plus any OpenAI-compatible endpoint, reasoning variants (effort / thinking / budget) included
+- API key vault: per-provider keys encrypted with safeStorage, falling back to the provider's env vars
+- Model picker with fuzzy search, favorites and recents on top of the models.dev catalog
 - Terminal panel placeholder, keyboard shortcuts (`Ctrl+\``, `Ctrl+B`, `Ctrl+J`)
 - Secure IPC bridge (context isolation + sandbox on), typed end to end
 
 ## What comes next
 
-- [ ] Model provider layer (pluggable providers, API key vault)
+- [x] Model provider layer (pluggable providers, API key vault)
+- [x] Streaming chat backed by a real model
 - [ ] Agent harness (workspace tools, permissions, run loop)
-- [ ] Streaming chat backed by a real model
 - [ ] Code editor integration (Monaco)
 - [ ] Terminal integration
 
@@ -47,11 +50,13 @@ npm run watch       # esbuild watch mode
 ```
 electron/
   main/       app entry, window, ipc handlers, workspace fs
+  main/agent/ provider adapters + streaming run loop
+  main/keys/  provider api key vault
   preload/    context bridge (window.halis)
   shared/     ipc channels, api contract, shared types
 src/
   app/        store, dom helpers, icons
   components/ titlebar, sidebar, editor, chat, terminal, statusbar
-  core/       agent + config services (stubs for now)
+  core/       agent gateway, key statuses, markdown, config services
 scripts/      esbuild build/watch
 ```
