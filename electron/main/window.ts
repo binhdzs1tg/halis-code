@@ -1,7 +1,11 @@
-import { BrowserWindow, shell } from 'electron'
+import { BrowserWindow, app, dialog, nativeImage, shell } from 'electron'
+import fs from 'node:fs'
 import path from 'node:path'
+import { isQuitting } from './quit'
+import { shellSettings } from './settings'
 
 const DIST = path.join(__dirname, '..')
+const RESOURCES = path.join(app.getAppPath(), 'resources')
 
 export function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -13,6 +17,7 @@ export function createMainWindow(): BrowserWindow {
     titleBarStyle: 'hidden',
     backgroundColor: '#0e1014',
     title: 'Halis Code',
+    icon: path.join(RESOURCES, 'icon.png'),
     webPreferences: {
       preload: path.join(DIST, 'preload', 'index.js'),
       contextIsolation: true,
@@ -31,6 +36,15 @@ export function createMainWindow(): BrowserWindow {
     return { action: 'deny' }
   })
 
+  // Closing the window keeps the app alive in the tray (Windows/Linux) so
+  // running tasks continue; the confirmation explains that on the first hide.
+  win.on('close', (event) => {
+    if (isQuitting() || process.platform === 'darwin') return
+    if (!shellSettings().closeToTray) return
+    event.preventDefault()
+    void hideToTray(win)
+  })
+
   // Dev server hook for later hot-reload tooling.
   const devUrl = process.env.HALIS_DEV_URL
   if (devUrl) {
@@ -42,10 +56,69 @@ export function createMainWindow(): BrowserWindow {
   return win
 }
 
-export function focusMainWindow(): void {
+/** Show and focus the primary window, restoring it from tray or taskbar first. */
+export function showMainWindow(): void {
   const [win] = BrowserWindow.getAllWindows()
-  if (win) {
-    if (win.isMinimized()) win.restore()
-    win.focus()
+  if (!win) {
+    createMainWindow()
+    return
   }
+  if (win.isMinimized()) win.restore()
+  if (!win.isVisible()) win.show()
+  win.focus()
+}
+
+// Keep the old name working for the second-instance handler.
+export const focusMainWindow = showMainWindow
+
+async function hideToTray(win: BrowserWindow): Promise<void> {
+  if (!backgroundCloseConfirmed()) {
+    const confirmed = await askBackgroundClose(win)
+    if (!confirmed) return
+    markBackgroundCloseConfirmed()
+  }
+  if (!win.isDestroyed()) {
+    win.hide()
+  }
+}
+
+/* ---------- one-time background-close notice (Windows parity with Harness) ---------- */
+
+const MARKER = 'background-close-confirmed'
+
+function markerPath(): string {
+  return path.join(app.getPath('userData'), MARKER)
+}
+
+function backgroundCloseConfirmed(): boolean {
+  try {
+    return fs.existsSync(markerPath())
+  } catch {
+    return false
+  }
+}
+
+function markBackgroundCloseConfirmed(): void {
+  try {
+    fs.writeFileSync(markerPath(), new Date().toISOString(), { mode: 0o600 })
+  } catch (error) {
+    console.warn('shell: background-close marker could not be written', error)
+  }
+}
+
+async function askBackgroundClose(win: BrowserWindow): Promise<boolean> {
+  const result = await dialog.showMessageBox(win, {
+    type: 'info',
+    icon: nativeImage.createFromPath(path.join(RESOURCES, 'icon.png')),
+    title: 'Halis Code',
+    message: 'Close the window?',
+    detail:
+      'Halis Code keeps running in the system tray. ' +
+      'Running tasks continue, and the tray icon brings the window back.',
+    buttons: ['Hide to tray', 'Cancel'],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true
+  })
+  return result.response === 0
 }

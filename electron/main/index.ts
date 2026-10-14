@@ -1,8 +1,11 @@
 import { app, BrowserWindow } from 'electron'
+import path from 'node:path'
 import { createMainWindow, focusMainWindow } from './window'
 import { registerIpcHandlers } from './ipc'
 import { refresh as refreshModels } from './models-dev/catalog'
 import { requestQuit, isQuitting } from './quit'
+import { initShellSettings } from './settings'
+import { createTray, destroyTray } from './tray'
 
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
@@ -20,9 +23,15 @@ if (!gotLock) {
     requestQuit()
   })
 
+  initShellSettings(app.getPath('userData'))
+
   app.whenReady().then(() => {
     registerIpcHandlers()
     createMainWindow()
+
+    if (process.platform !== 'darwin') {
+      createTray(path.join(app.getAppPath(), 'resources', 'tray.png'))
+    }
 
     // Warm up the model catalog; errors are handled inside the service.
     void refreshModels()
@@ -38,5 +47,9 @@ if (!gotLock) {
     if (process.platform !== 'darwin') {
       app.quit()
     }
+  })
+
+  app.on('will-quit', () => {
+    destroyTray()
   })
 }
