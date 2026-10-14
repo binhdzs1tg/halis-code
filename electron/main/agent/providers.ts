@@ -1,9 +1,33 @@
 import type { ModelEntry, ModelVariant, ProviderEntry } from '../../shared/models'
+import type { ToolSpec } from '../../shared/types'
 import { isUnsupported, resolveEndpoint, type Endpoint } from './endpoints'
+
+export interface ProviderToolCall {
+  id: string
+  name: string
+  input: Record<string, unknown>
+}
+
+export interface ProviderToolResult {
+  callId: string
+  output: string
+  ok: boolean
+}
 
 export interface ProviderMessage {
   role: 'user' | 'assistant'
   content: string
+  /** Tool invocations made in this assistant turn. */
+  toolCalls?: ProviderToolCall[]
+  /** Tool results carried by the user turn that follows them. */
+  toolResults?: ProviderToolResult[]
+}
+
+export interface ProviderStreamResult {
+  /** Full assistant text; the same chunks were already delivered via onDelta. */
+  text: string
+  /** Tool calls requested by the model, empty for plain answers. */
+  toolCalls: ProviderToolCall[]
 }
 
 export interface ProviderStreamRequest {
@@ -13,6 +37,8 @@ export interface ProviderStreamRequest {
   apiKey: string
   system: string
   messages: ProviderMessage[]
+  /** Omit to run a plain, tool-less completion. */
+  tools?: ToolSpec[]
   signal: AbortSignal
   onDelta: (text: string) => void
 }
@@ -33,7 +59,7 @@ export class ProviderError extends Error {
 /** Anthropic requires the thinking budget to stay below max_tokens. */
 const ANTHROPIC_MIN_BUDGET = 1024
 
-export async function streamChat(request: ProviderStreamRequest): Promise<void> {
+export async function streamChat(request: ProviderStreamRequest): Promise<ProviderStreamResult> {
   if (isUnsupported(request.provider.id)) {
     throw new ProviderError(
       'unsupported-provider',
@@ -42,10 +68,9 @@ export async function streamChat(request: ProviderStreamRequest): Promise<void> 
   }
   try {
     if (request.provider.id === 'anthropic') {
-      await streamAnthropic(request)
-    } else {
-      await streamOpenAiCompatible(request)
+      return await streamAnthropic(request)
     }
+    return await streamOpenAiCompatible(request)
   } catch (err) {
     if (err instanceof ProviderError) throw err
     if (err instanceof Error && err.name === 'AbortError') {
@@ -58,15 +83,65 @@ export async function streamChat(request: ProviderStreamRequest): Promise<void> 
 /* ---------- OpenAI-compatible chat completions ---------- */
 
 interface OpenAiChunk {
-  choices?: Array<{ delta?: { content?: string } }>
+  choices?: Array<{
+    delta?: {
+      content?: string
+      tool_calls?: Array<{ index?: number; id?: string; function?: { name?: string; arguments?: string } }>
+    }
+  }>
 }
 
-async function streamOpenAiCompatible(request: ProviderStreamRequest): Promise<void> {
+/** Streams argument fragments for tool calls, indexed like the provider sends them. */
+class ToolCallCollector {
+  private slots = new Map<number, { id: string; name: string; args: string }>()
+
+  add(index: number, id: string | undefined, name: string | undefined, args: string | undefined): void {
+    const slot = this.slots.get(index) ?? { id: '', name: '', args: '' }
+    if (id) slot.id = id
+    if (name) slot.name = name
+    if (args) slot.args += args
+    this.slots.set(index, slot)
+  }
+
+  calls(): ProviderToolCall[] {
+    return [...this.slots.entries()]
+      .sort(([a], [b]) => a - b)
+      .filter(([, slot]) => slot.name.length > 0)
+      .map(([index, slot], position) => ({
+        id: slot.id || `call-${index}`,
+        name: slot.name,
+        input: parseInput(slot.args, `call-${index}-${position}`)
+      }))
+  }
+}
+
+function parseInput(raw: string, fallbackId: string): Record<string, unknown> {
+  if (raw.trim().length === 0) return {}
+  try {
+    const parsed = JSON.parse(raw)
+    return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : {}
+  } catch {
+    return { _malformed: true, _raw: raw, _note: `arguments failed to parse (id ${fallbackId})` }
+  }
+}
+
+async function streamOpenAiCompatible(request: ProviderStreamRequest): Promise<ProviderStreamResult> {
   const endpoint = requireEndpoint(request.provider, request.model)
   const body: Record<string, unknown> = {
     model: request.model.id,
-    messages: [{ role: 'system', content: request.system }, ...request.messages],
+    messages: toOpenAiMessages(request),
     stream: true
+  }
+  if (request.tools?.length) {
+    body.tools = request.tools.map((tool) => ({
+      type: 'function',
+      function: {
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters
+      }
+    }))
+    body.tool_choice = 'auto'
   }
   // OpenAI's newer models reject the legacy max_tokens parameter.
   if (request.provider.id === 'openai') {
@@ -95,17 +170,56 @@ async function streamOpenAiCompatible(request: ProviderStreamRequest): Promise<v
     await failResponse(response, request.provider)
   }
 
+  let text = ''
+  const collector = new ToolCallCollector()
   for await (const event of readSse(response)) {
-    if (event.data === '[DONE]') return
+    if (event.data === '[DONE]') break
     let chunk: OpenAiChunk
     try {
       chunk = JSON.parse(event.data) as OpenAiChunk
     } catch {
       continue // keep-alive noise or a stray line
     }
-    const content = chunk.choices?.[0]?.delta?.content
-    if (content) request.onDelta(content)
+    const delta = chunk.choices?.[0]?.delta
+    if (delta?.content) {
+      text += delta.content
+      request.onDelta(delta.content)
+    }
+    for (const part of delta?.tool_calls ?? []) {
+      collector.add(part.index ?? 0, part.id, part.function?.name, part.function?.arguments)
+    }
   }
+  return { text, toolCalls: collector.calls() }
+}
+
+/** Flatten the harness message shape into the OpenAI wire format. */
+function toOpenAiMessages(request: ProviderStreamRequest): unknown[] {
+  const out: Array<Record<string, unknown>> = [{ role: 'system', content: request.system }]
+  for (const message of request.messages) {
+    if (message.role === 'assistant') {
+      if (message.toolCalls?.length) {
+        out.push({
+          role: 'assistant',
+          content: message.content,
+          tool_calls: message.toolCalls.map((call) => ({
+            id: call.id,
+            type: 'function',
+            function: { name: call.name, arguments: JSON.stringify(call.input) }
+          }))
+        })
+      } else if (message.content) {
+        out.push({ role: 'assistant', content: message.content })
+      }
+      continue
+    }
+    for (const result of message.toolResults ?? []) {
+      out.push({ role: 'tool', tool_call_id: result.callId, content: result.output })
+    }
+    if (message.content) {
+      out.push({ role: 'user', content: message.content })
+    }
+  }
+  return out
 }
 
 function openAiUrl(request: ProviderStreamRequest, endpoint: Endpoint): string {
@@ -145,18 +259,27 @@ function applyReasoning(body: Record<string, unknown>, request: ProviderStreamRe
 
 interface AnthropicStreamEvent {
   type?: string
-  delta?: { type?: string; text?: string }
+  index?: number
+  content_block?: { type?: string; id?: string; name?: string }
+  delta?: { type?: string; text?: string; partial_json?: string }
   error?: { message?: string }
 }
 
-async function streamAnthropic(request: ProviderStreamRequest): Promise<void> {
+async function streamAnthropic(request: ProviderStreamRequest): Promise<ProviderStreamResult> {
   const endpoint = requireEndpoint(request.provider, request.model)
   const body: Record<string, unknown> = {
     model: request.model.id,
     max_tokens: request.model.limit.output,
     stream: true,
     system: request.system,
-    messages: request.messages
+    messages: toAnthropicMessages(request)
+  }
+  if (request.tools?.length) {
+    body.tools = request.tools.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      input_schema: tool.parameters
+    }))
   }
 
   const variant = request.variant
@@ -187,6 +310,8 @@ async function streamAnthropic(request: ProviderStreamRequest): Promise<void> {
     await failResponse(response, request.provider)
   }
 
+  let text = ''
+  const toolBlocks = new Map<number, { id: string; name: string; json: string }>()
   for await (const event of readSse(response)) {
     let payload: AnthropicStreamEvent
     try {
@@ -197,12 +322,63 @@ async function streamAnthropic(request: ProviderStreamRequest): Promise<void> {
     if (event.event === 'error') {
       throw new ProviderError('http', payload.error?.message ?? 'stream error')
     }
-    if (event.event === 'message_stop') return
-    if (event.event === 'content_block_delta' && payload.delta?.type === 'text_delta') {
-      const text = payload.delta.text
-      if (text) request.onDelta(text)
+    if (event.event === 'message_stop') break
+    if (event.event === 'content_block_start' && payload.content_block?.type === 'tool_use') {
+      toolBlocks.set(payload.index ?? 0, {
+        id: payload.content_block.id ?? '',
+        name: payload.content_block.name ?? '',
+        json: ''
+      })
+    }
+    if (event.event === 'content_block_delta') {
+      if (payload.delta?.type === 'text_delta' && payload.delta.text) {
+        text += payload.delta.text
+        request.onDelta(payload.delta.text)
+      }
+      if (payload.delta?.type === 'input_json_delta' && payload.delta.partial_json) {
+        const block = toolBlocks.get(payload.index ?? 0)
+        if (block) block.json += payload.delta.partial_json
+      }
     }
   }
+
+  const toolCalls: ProviderToolCall[] = [...toolBlocks.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([index, block]) => ({
+      id: block.id || `call-${index}`,
+      name: block.name,
+      input: parseInput(block.json, `call-${index}`)
+    }))
+    .filter((call) => call.name.length > 0)
+  return { text, toolCalls }
+}
+
+/** Flatten the harness message shape into Anthropic content blocks. */
+function toAnthropicMessages(request: ProviderStreamRequest): unknown[] {
+  const out: Array<Record<string, unknown>> = []
+  for (const message of request.messages) {
+    if (message.role === 'assistant') {
+      const blocks: Array<Record<string, unknown>> = []
+      if (message.content) blocks.push({ type: 'text', text: message.content })
+      for (const call of message.toolCalls ?? []) {
+        blocks.push({ type: 'tool_use', id: call.id, name: call.name, input: call.input })
+      }
+      if (blocks.length) out.push({ role: 'assistant', content: blocks })
+      continue
+    }
+    const blocks: Array<Record<string, unknown>> = []
+    for (const result of message.toolResults ?? []) {
+      blocks.push({
+        type: 'tool_result',
+        tool_use_id: result.callId,
+        content: result.output,
+        is_error: !result.ok
+      })
+    }
+    if (message.content) blocks.push({ type: 'text', text: message.content })
+    if (blocks.length) out.push({ role: 'user', content: blocks })
+  }
+  return out
 }
 
 /** Somewhere between the model floor and a quarter of its output window. */
