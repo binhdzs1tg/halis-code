@@ -90,8 +90,17 @@ export function mountFileTree(container: HTMLElement): void {
 
     row.appendChild(el('span', 'label', entry.name))
 
+    if (entry.path === store.get().openFile) {
+      row.classList.add('active')
+    }
+
     row.addEventListener('click', () => {
-      store.update({ openFile: entry.path })
+      const state = store.get()
+      store.update({
+        openFiles: state.openFiles.includes(entry.path) ? state.openFiles : [...state.openFiles, entry.path],
+        openFile: entry.path,
+        openFileLine: null
+      })
       tree.querySelectorAll('.tree-item.active').forEach((n) => n.classList.remove('active'))
       row.classList.add('active')
     })

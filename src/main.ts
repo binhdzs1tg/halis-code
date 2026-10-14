@@ -77,12 +77,17 @@ async function boot(): Promise<void> {
     }
   })
 
-  // The agent edits files on its own; fan the change out through the store
+  // The agent or the user edits files; fan the change out through the store
   // so the tree and any open editor stay in sync.
   window.halis.onWorkspaceChanged((event) => {
     const previous = store.get().lastTouchedFile
     store.update({
-      lastTouchedFile: { path: event.path, seq: (previous?.seq ?? 0) + 1 }
+      lastTouchedFile: {
+        path: event.path,
+        seq: (previous?.seq ?? 0) + 1,
+        change: event.change,
+        from: event.from
+      }
     })
   })
 

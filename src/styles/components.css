@@ -351,12 +351,13 @@ body.is-mac .window-controls {
   flex: 1;
   display: flex;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   background: var(--bg-0);
 }
 
 .editor-area .gutter {
   flex: none;
+  overflow: hidden;
   padding: 14px 10px 14px 16px;
   text-align: right;
   color: var(--fg-2);
@@ -364,17 +365,46 @@ body.is-mac .window-controls {
   font-size: 12.5px;
   line-height: 1.6;
   user-select: none;
+  white-space: pre;
 }
 
-.editor-area pre.code {
+.editor-area textarea.editor-input {
   flex: 1;
   padding: 14px 18px;
   font-family: var(--font-mono);
   font-size: 12.5px;
   line-height: 1.6;
   color: var(--fg-0);
+  caret-color: var(--accent);
+  background: var(--bg-0);
+  border: none;
+  outline: none;
+  resize: none;
+  white-space: pre;
+  overflow: auto;
   user-select: text;
   cursor: text;
+}
+
+.editor-area .tab .dirty {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: none;
+}
+
+.editor-area .save-status {
+  margin-left: auto;
+  align-self: center;
+  padding: 0 10px;
+  font-size: 11.5px;
+  color: var(--fg-2);
+  white-space: nowrap;
+}
+
+.editor-area .save-status.error {
+  color: var(--red);
 }
 
 .editor-area .notice {

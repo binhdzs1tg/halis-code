@@ -4,10 +4,14 @@ import type { ModelSelection } from '../../electron/shared/models'
 export type SidebarView = 'explorer' | 'search' | 'settings'
 export type AgentStatus = 'idle' | 'thinking' | 'working' | 'error'
 
-/** A workspace file the agent just created or modified. */
+/** A workspace file the agent or the user just changed. */
 export interface TouchedFile {
   path: string
   seq: number
+  /** Mirrors WorkspaceChangedEvent.change when the main process reports it. */
+  change?: 'write' | 'create' | 'rename' | 'delete'
+  /** Previous path, only set for renames. */
+  from?: string
 }
 
 export interface AppState {
@@ -17,7 +21,12 @@ export interface AppState {
   sidebarVisible: boolean
   chatOpen: boolean
   terminalOpen: boolean
+  /** Tabs in the editor, in order. */
+  openFiles: string[]
+  /** Active tab. */
   openFile: string | null
+  /** Line to reveal when the active file opens (search result jumps). */
+  openFileLine: number | null
   agentStatus: AgentStatus
   selectedModel: ModelSelection | null
   lastTouchedFile: TouchedFile | null
@@ -33,7 +42,9 @@ function initialState(): AppState {
     sidebarVisible: true,
     chatOpen: true,
     terminalOpen: false,
+    openFiles: [],
     openFile: null,
+    openFileLine: null,
     agentStatus: 'idle',
     selectedModel: null,
     lastTouchedFile: null
