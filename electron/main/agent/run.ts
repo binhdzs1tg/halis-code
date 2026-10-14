@@ -60,6 +60,11 @@ export function cancelRun(runId: string): void {
   runs.get(runId)?.abort()
 }
 
+/** Runs currently in flight; the quit confirmation reports these as active work. */
+export function activeRuns(): number {
+  return runs.size
+}
+
 async function execute(
   runId: string,
   turn: Turn,

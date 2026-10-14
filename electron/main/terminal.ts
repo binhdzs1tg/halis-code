@@ -72,6 +72,11 @@ export function kill(): boolean {
   return true
 }
 
+/** True while a command is in flight; the quit confirmation reports it as active work. */
+export function isRunning(): boolean {
+  return child !== null
+}
+
 function finish(win: BrowserWindow | null, id: string, code: number | null): void {
   if (child) {
     child = null

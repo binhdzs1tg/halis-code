@@ -2,6 +2,7 @@ import { app, BrowserWindow } from 'electron'
 import { createMainWindow, focusMainWindow } from './window'
 import { registerIpcHandlers } from './ipc'
 import { refresh as refreshModels } from './models-dev/catalog'
+import { requestQuit, isQuitting } from './quit'
 
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
@@ -9,6 +10,14 @@ if (!gotLock) {
 } else {
   app.on('second-instance', () => {
     focusMainWindow()
+  })
+
+  // Every quit entry funnels through here, so a running agent or terminal
+  // command is always confirmed before the process goes away.
+  app.on('before-quit', (event) => {
+    if (isQuitting()) return
+    event.preventDefault()
+    requestQuit()
   })
 
   app.whenReady().then(() => {
