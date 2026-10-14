@@ -107,6 +107,15 @@ async function hideToTray(win: BrowserWindow): Promise<void> {
     if (!confirmed) return
     markBackgroundCloseConfirmed()
   }
+  // Hiding a fullscreen window leaves a black rectangle behind on macOS, so
+  // leave fullscreen first and hide on the resulting event instead.
+  if (win.isFullScreen()) {
+    win.once('leave-full-screen', () => {
+      if (!win.isDestroyed()) win.hide()
+    })
+    win.setFullScreen(false)
+    return
+  }
   if (!win.isDestroyed()) {
     win.hide()
   }
