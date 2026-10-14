@@ -29,6 +29,7 @@ export function mountSettingsView(container: HTMLElement): void {
   container.appendChild(view)
 
   renderAppSection(view)
+  renderAgentSection(view)
   renderWorkspaceSection(view)
   renderModelsSection(view)
   renderKeysSection(view)
@@ -59,6 +60,47 @@ function renderAppSection(view: HTMLElement): void {
   body.appendChild(factRow('Version', info ? `v${info.version}` : 'v0.1.0'))
   body.appendChild(factRow('Electron', info?.electron ?? '—'))
   body.appendChild(factRow('Platform', info?.platform ?? '—'))
+  view.appendChild(root)
+}
+
+function renderAgentSection(view: HTMLElement): void {
+  const { root, body } = section('Agent')
+
+  const row = el('div', 'settings-row')
+  row.appendChild(el('span', 'settings-label', 'Command approval'))
+  const toggle = el('div', 'settings-actions segmented')
+  const askBtn = el('button', 'btn') as HTMLButtonElement
+  const fullBtn = el('button', 'btn') as HTMLButtonElement
+  askBtn.type = 'button'
+  fullBtn.type = 'button'
+  toggle.append(askBtn, fullBtn)
+  row.appendChild(toggle)
+  body.appendChild(row)
+
+  const paint = (mode: 'ask' | 'fullAccess'): void => {
+    askBtn.textContent = 'Ask first'
+    fullBtn.textContent = 'Full access'
+    askBtn.classList.toggle('active', mode === 'ask')
+    fullBtn.classList.toggle('active', mode === 'fullAccess')
+  }
+
+  askBtn.addEventListener('click', () => {
+    void window.halis
+      .setAgentSettings({ commandApproval: 'ask' })
+      .then((settings) => paint(settings.commandApproval))
+  })
+  fullBtn.addEventListener('click', () => {
+    void window.halis
+      .setAgentSettings({ commandApproval: 'fullAccess' })
+      .then((settings) => paint(settings.commandApproval))
+  })
+
+  void window.halis.getAgentSettings().then((settings) => paint(settings.commandApproval))
+
+  const hint = el('div', 'settings-hint')
+  hint.textContent =
+    '"Ask first" shows a prompt whenever the agent runs a command that looks destructive. "Full access" runs everything without asking.'
+  body.appendChild(hint)
   view.appendChild(root)
 }
 

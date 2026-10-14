@@ -2192,3 +2192,196 @@ body.is-mac .window-controls {
 .term-out .ansi-bg13 { background-color: #e8a3e8; }
 .term-out .ansi-bg14 { background-color: #7cdce4; }
 .term-out .ansi-bg15 { background-color: #f0f2f5; }
+
+/* ---------- slash command menu ---------- */
+
+.chat-panel .composer {
+  position: relative;
+}
+
+.chat-panel .slash-pop {
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: 12px;
+  right: 12px;
+  z-index: 30;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-2);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.chat-panel .slash-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.chat-panel .slash-row:hover,
+.chat-panel .slash-row.active {
+  background: var(--bg-hover);
+}
+
+.chat-panel .slash-name {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.chat-panel .slash-desc {
+  font-size: 11.5px;
+  color: var(--fg-2);
+}
+
+/* ---------- approval card ---------- */
+
+.chat-panel .approval-host {
+  flex: none;
+  padding: 0 12px 6px;
+}
+
+.chat-panel .approval-card {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-panel .approval-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.chat-panel .approval-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: approval-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes approval-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.chat-panel .approval-reason {
+  font-size: 12px;
+  color: var(--fg-0);
+}
+
+.chat-panel .approval-command {
+  font-family: var(--mono, monospace);
+  font-size: 11.5px;
+  padding: 7px 9px;
+  border-radius: 6px;
+  background: var(--bg-0);
+  border: 1px solid var(--border-soft);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-panel .approval-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.chat-panel .approval-deny {
+  background: var(--bg-3);
+  color: var(--fg-0);
+}
+
+.chat-panel .approval-allow {
+  min-width: 96px;
+}
+
+.chat-panel .input-box.locked {
+  opacity: 0.55;
+}
+
+/* ---------- real diff hunks ---------- */
+
+.chat-panel .tool-diff .diff-line.ctx {
+  color: var(--fg-2);
+}
+
+/* ---------- compaction checkpoint ---------- */
+
+.chat-panel .msg.system .checkpoint-card {
+  width: 100%;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+}
+
+.chat-panel .msg.system .checkpoint-card summary {
+  cursor: pointer;
+  padding: 7px 10px;
+  font-size: 11.8px;
+  color: var(--fg-2);
+  text-align: center;
+}
+
+.chat-panel .msg.system .checkpoint-card summary:hover {
+  color: var(--fg-0);
+}
+
+.chat-panel .checkpoint-body {
+  margin: 0;
+  padding: 4px 12px 10px;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--fg-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+/* ---------- settings: approval mode ---------- */
+
+.sidebar .settings-actions.segmented {
+  display: inline-flex;
+  gap: 0;
+  padding: 0;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.sidebar .settings-actions.segmented .btn {
+  border-radius: 0;
+  background: var(--bg-1);
+  color: var(--fg-2);
+  font-weight: 500;
+  padding: 5px 12px;
+}
+
+.sidebar .settings-actions.segmented .btn.active {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}

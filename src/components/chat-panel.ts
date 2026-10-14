@@ -1,7 +1,7 @@
 import { el, svg, clear } from '../app/dom'
 import { icons } from '../app/icons'
 import { store } from '../app/store'
-import type { ChatMessage, TodoItem, ToolTrace } from '../../electron/shared/types'
+import type { ApprovalDecision, ApprovalRequestEvent, ChatMessage, TodoItem, ToolTrace } from '../../electron/shared/types'
 import { agentService, AgentError } from '../core/agent/agent-service'
 import * as catalog from '../core/models/catalog'
 import { keyStatusOf, refreshKeyStatuses } from '../core/keys'
@@ -166,14 +166,186 @@ export function mountChatPanel(): HTMLElement {
   // Rows in the history dropdown open through this hook.
   sessionOpener = openSession
 
+  /* ---------- slash commands ---------- */
+
+  interface SlashCommand {
+    name: string
+    description: string
+    /** Commands that touch the conversation wait for the agent to settle. */
+    requireIdle?: boolean
+    run(): void | Promise<void>
+  }
+
+  const compactFlow = async (): Promise<void> => {
+    if (running) {
+      appendSystemNote('Stop the agent before compacting.')
+      return
+    }
+    const selection = store.get().selectedModel
+    if (!selection || !catalog.isValid(selection)) {
+      appendSystemNote('No model selected yet — pick one to start.', {
+        label: 'Select model',
+        onClick: () => openModelDialog()
+      })
+      return
+    }
+    appendSystemNote('Compacting this conversation…')
+    try {
+      const result = await agentService.compact({ history: [...messages], model: selection })
+      messages.splice(0, messages.length)
+      const checkpoint = makeMessage('system', result.checkpoint)
+      messages.push(checkpoint)
+      clear(list)
+      list.appendChild(renderMessage(checkpoint))
+      appendSystemNote(
+        `Compacted: about ${result.beforeTokens.toLocaleString()} tokens down to about ${result.afterTokens.toLocaleString()}.`
+      )
+      await persist()
+    } catch (err) {
+      appendSystemNote(`Compaction failed: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  const exportFlow = async (): Promise<void> => {
+    if (messages.length === 0) {
+      appendSystemNote('Nothing to export yet.')
+      return
+    }
+    const body = messages
+      .map((message) => {
+        const label = message.role === 'user' ? 'User' : message.role === 'assistant' ? 'Halis' : 'Note'
+        const time = new Date(message.createdAt).toLocaleString()
+        return `## ${label} · ${time}\n\n${message.content}`
+      })
+      .join('\n\n---\n\n')
+    const markdown = `# ${sessionTitle(messages)}\n\n${body}\n`
+    const base = (sessionTitle(messages) || 'chat').replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase()
+    try {
+      const path = await window.halis.exportConversation(`${base || 'chat'}.md`, markdown)
+      if (path) appendSystemNote(`Exported to ${path}`)
+    } catch (err) {
+      appendSystemNote(`Export failed: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  const getCommands = (): SlashCommand[] => [
+    { name: 'new', description: 'Start a new chat', requireIdle: true, run: () => void newChat() },
+    { name: 'model', description: 'Switch model', run: () => void openModelDialog() },
+    { name: 'key', description: 'Manage API keys', run: () => openKeyDialog() },
+    { name: 'compact', description: 'Fold this conversation into a checkpoint', requireIdle: true, run: () => void compactFlow() },
+    { name: 'export', description: 'Save this conversation as Markdown', run: () => void exportFlow() },
+    {
+      name: 'help',
+      description: 'List the commands',
+      run: () =>
+        appendSystemNote(
+          `Commands: ${['/new', '/model', '/key', '/compact', '/export', '/help']
+            .map((name) => name)
+            .join(', ')} — @path in a message attaches that file.`
+        )
+    }
+  ]
+
+  const runCommand = async (text: string): Promise<void> => {
+    const name = text.slice(1).split(/\s/)[0]?.toLowerCase() ?? ''
+    const command = getCommands().find((item) => item.name === name)
+    if (!command) {
+      appendSystemNote(
+        `Unknown command "${name}". Try ${getCommands().map((item) => `/${item.name}`).join(', ')}.`
+      )
+      return
+    }
+    if (command.requireIdle && running) {
+      appendSystemNote('Stop the agent before running that command.')
+      return
+    }
+    await command.run()
+  }
+
+  /* ---------- approvals (composer takeover) ---------- */
+
+  let pendingApproval: ApprovalRequestEvent | null = null
+  const approvalHost = el('div', 'approval-host')
+  approvalHost.hidden = true
+
+  const clearApprovalCard = (): void => {
+    pendingApproval = null
+    approvalHost.hidden = true
+    clear(approvalHost)
+    composer.setLocked(false)
+  }
+
+  const paintApprovalCard = (): void => {
+    clear(approvalHost)
+    approvalHost.hidden = !pendingApproval
+    if (!pendingApproval) return
+    const request = pendingApproval
+    const card = el('div', 'approval-card')
+    const head = el('div', 'approval-head')
+    head.append(el('span', 'approval-dot'), el('span', 'approval-title', 'Waiting for your approval'))
+    card.appendChild(head)
+    card.appendChild(
+      el('div', 'approval-reason', `This command needs your ok — ${request.reason}.`)
+    )
+    if (request.command) {
+      card.appendChild(el('code', 'approval-command', request.command))
+    }
+    const actions = el('div', 'approval-actions')
+    const deny = el('button', 'btn approval-deny') as HTMLButtonElement
+    deny.type = 'button'
+    deny.textContent = 'Deny'
+    const allow = el('button', 'btn primary approval-allow') as HTMLButtonElement
+    allow.type = 'button'
+    allow.textContent = 'Allow once'
+    const decide = (decision: ApprovalDecision): void => {
+      if (pendingApproval?.requestId !== request.requestId) return
+      agentService.respondApproval(request.requestId, decision)
+      clearApprovalCard()
+    }
+    deny.addEventListener('click', () => decide('rejected'))
+    allow.addEventListener('click', () => decide('allowed-once'))
+    actions.append(deny, allow)
+    card.appendChild(actions)
+    approvalHost.appendChild(card)
+    allow.focus()
+    // Enter approves, Escape rejects — the same keys as DeepSeek Harness's
+    // approval panel; the composer is taken over until the user decides.
+    const onKey = (event: KeyboardEvent): void => {
+      if (pendingApproval?.requestId !== request.requestId) {
+        document.removeEventListener('keydown', onKey)
+        return
+      }
+      if (event.key === 'Enter' && !event.isComposing) {
+        event.preventDefault()
+        decide('allowed-once')
+      } else if (event.key === 'Escape') {
+        event.preventDefault()
+        decide('rejected')
+      }
+    }
+    document.addEventListener('keydown', onKey)
+  }
+
   const composer = buildComposer({
     onSubmit: (text) => void send(text),
     onStop: () => {
       // A manual stop also holds the queue back; the user decides what runs next.
       stoppedManually = true
       agentService.cancel()
-    }
+    },
+    onEscape: () => {
+      // While an approval is pending, Escape belongs to the approval card.
+      if (pendingApproval) {
+        agentService.respondApproval(pendingApproval.requestId, 'rejected')
+        clearApprovalCard()
+        return true
+      }
+      return false
+    },
+    getCommands
   })
+
+  panel.appendChild(approvalHost)
 
   /* ---------- queued sends (while a run is in flight) ---------- */
 
@@ -205,6 +377,11 @@ export function mountChatPanel(): HTMLElement {
   panel.appendChild(queueBox)
 
   const send = async (text: string): Promise<void> => {
+    // Slash commands route to their own handlers instead of the model.
+    if (text.startsWith('/')) {
+      await runCommand(text)
+      return
+    }
     if (running) {
       // Like a queue dock: typing while the agent runs parks the message
       // instead of dropping it, and it is sent when the run settles.
@@ -313,6 +490,13 @@ export function mountChatPanel(): HTMLElement {
           onTodo: (event) => {
             liveTodos = event.todos
             paintTodos()
+          },
+          onNotice: (event) => {
+            appendSystemNote(event.text)
+          },
+          onApproval: (event) => {
+            pendingApproval = event
+            paintApprovalCard()
           }
         }
       )
@@ -356,6 +540,7 @@ export function mountChatPanel(): HTMLElement {
       if (frame) cancelAnimationFrame(frame)
       running = false
       composer.setRunning(false)
+      clearApprovalCard()
       if (store.get().agentStatus !== 'error') {
         store.update({ agentStatus: 'idle' })
       }
@@ -493,9 +678,15 @@ function buildKeyChip(): HTMLElement {
 interface ComposerHandlers {
   onSubmit(text: string): void
   onStop(): void
+  /** Return true when Escape was already consumed (an approval is pending). */
+  onEscape?(): boolean
+  /** Slash commands for the composer menu, fetched lazily. */
+  getCommands?(): Array<{ name: string; description: string }>
 }
 
-function buildComposer(handlers: ComposerHandlers): { root: HTMLElement; setRunning(running: boolean): void } {
+function buildComposer(
+  handlers: ComposerHandlers
+): { root: HTMLElement; setRunning(running: boolean): void; setLocked(locked: boolean): void } {
   const composer = el('div', 'composer')
 
   const inputBox = el('div', 'input-box')
@@ -508,6 +699,7 @@ function buildComposer(handlers: ComposerHandlers): { root: HTMLElement; setRunn
   sendBtn.type = 'button'
 
   let running = false
+  let locked = false
   const paintButton = (): void => {
     sendBtn.title = running ? 'Stop' : 'Send'
     sendBtn.className = running ? 'send stop' : 'send'
@@ -515,7 +707,7 @@ function buildComposer(handlers: ComposerHandlers): { root: HTMLElement; setRunn
   }
 
   const submit = (): void => {
-    if (running) return
+    if (running || locked) return
     const text = textarea.value.trim()
     if (!text) return
     textarea.value = ''
@@ -535,16 +727,102 @@ function buildComposer(handlers: ComposerHandlers): { root: HTMLElement; setRunn
       submit()
     }
   })
+
+  /* ---------- slash command menu ---------- */
+
+  const slashPop = el('div', 'slash-pop')
+  slashPop.hidden = true
+  let slashItems: Array<{ name: string; description: string }> = []
+  let slashIndex = 0
+
+  const closeSlash = (): void => {
+    slashPop.hidden = true
+    slashItems = []
+  }
+
+  const paintSlash = (): void => {
+    clear(slashPop)
+    slashItems.forEach((item, index) => {
+      const row = el('div', `slash-row${index === slashIndex ? ' active' : ''}`)
+      row.append(
+        el('span', 'slash-name', `/${item.name}`),
+        el('span', 'slash-desc', item.description)
+      )
+      row.addEventListener('click', () => {
+        acceptSlash(index)
+      })
+      slashPop.appendChild(row)
+    })
+  }
+
+  const acceptSlash = (index: number): void => {
+    const item = slashItems[index]
+    if (!item) return
+    textarea.value = `/${item.name} `
+    autoGrow()
+    closeSlash()
+    textarea.focus()
+  }
+
+  const refreshSlash = (): void => {
+    const value = textarea.value
+    if (!value.startsWith('/') || value.includes('\n')) {
+      closeSlash()
+      return
+    }
+    const query = value.slice(1).toLowerCase()
+    const all = handlers.getCommands?.() ?? []
+    slashItems = all.filter((item) => item.name.startsWith(query))
+    if (slashItems.length === 0) {
+      closeSlash()
+      return
+    }
+    slashIndex = Math.min(slashIndex, slashItems.length - 1)
+    paintSlash()
+    slashPop.hidden = false
+  }
+
   textarea.addEventListener('keydown', (event) => {
+    if (!slashPop.hidden) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault()
+        slashIndex = (slashIndex + 1) % slashItems.length
+        paintSlash()
+        return
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault()
+        slashIndex = (slashIndex - 1 + slashItems.length) % slashItems.length
+        paintSlash()
+        return
+      }
+      if (event.key === 'Tab' || event.key === 'Enter') {
+        event.preventDefault()
+        acceptSlash(slashIndex)
+        return
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        closeSlash()
+        return
+      }
+    }
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
       submit()
       return
     }
-    // Escape stops the run, the same contract the composer's stop button has.
-    if (event.key === 'Escape' && running) {
-      event.preventDefault()
-      handlers.onStop()
+    // Escape first offers itself to pending approvals, then stops the run —
+    // the same contract the composer's stop button has.
+    if (event.key === 'Escape') {
+      if (handlers.onEscape?.()) {
+        event.preventDefault()
+        return
+      }
+      if (running) {
+        event.preventDefault()
+        handlers.onStop()
+      }
     }
   })
 
@@ -577,10 +855,13 @@ function buildComposer(handlers: ComposerHandlers): { root: HTMLElement; setRunn
   textarea.addEventListener('input', () => {
     autoGrow()
     saveDraft()
+    slashIndex = 0
+    refreshSlash()
   })
 
   inputBox.append(textarea, sendBtn)
   composer.appendChild(inputBox)
+  composer.appendChild(slashPop)
 
   // Model row under the input, mirroring opencode's `model · provider` metadata.
   const modelBtn = el('button', 'model-button') as HTMLButtonElement
@@ -636,6 +917,10 @@ function buildComposer(handlers: ComposerHandlers): { root: HTMLElement; setRunn
     setRunning(value: boolean): void {
       running = value
       paintButton()
+    },
+    setLocked(value: boolean): void {
+      locked = value
+      inputBox.classList.toggle('locked', locked)
     }
   }
 }
@@ -657,6 +942,17 @@ function renderEmptyState(list: HTMLElement): void {
 
 function renderMessage(message: ChatMessage): HTMLElement {
   const wrap = el('div', `msg ${message.role}`)
+
+  // A compaction checkpoint is stored as a system message; show it as a
+  // collapsible card instead of a wall of summary text.
+  if (message.role === 'system' && message.content.includes('<compacted-summary>')) {
+    const details = el('details', 'checkpoint-card')
+    details.appendChild(el('summary', undefined, 'Conversation checkpoint'))
+    const body = el('pre', 'checkpoint-body', message.content)
+    details.appendChild(body)
+    wrap.appendChild(details)
+    return wrap
+  }
 
   if (message.role === 'assistant') {
     const bubble = el('div', 'bubble md selectable')
@@ -792,7 +1088,7 @@ function renderToolRow(trace: ToolTrace, running: boolean): HTMLElement {
 /* ---------- edit diffs ---------- */
 
 interface DiffLine {
-  kind: 'add' | 'del'
+  kind: 'add' | 'del' | 'ctx'
   text: string
 }
 
@@ -804,13 +1100,30 @@ interface ToolDiff {
 
 const DIFF_MAX_LINES = 24
 
+/** The harness collapses diff cards beyond nine lines. */
+const CHAT_DIFF_MAX_LINES = 9
+
 /**
- * Build a small add/remove view for tools that change file content: edit_file
- * pairs old_text with new_text, write_file replaces the whole file. Returns
- * null for tools whose output should be shown instead.
+ * Build a small add/remove view for tools that change file content. Real
+ * hunk diffs from the main process win when present; edit_file's paired
+ * old_text/new_text and write_file's full content are the legacy fallback
+ * for conversations saved before diffs were persisted.
  */
 function toolDiff(trace: ToolTrace): ToolDiff | null {
   if (!trace.ok) return null
+  if (trace.diff && trace.diff.length > 0) {
+    const lines: DiffLine[] = []
+    for (const file of trace.diff) {
+      file.lines.forEach((line, index) => {
+        if (index > 0 || lines.length > 0) {
+          if (index === 0) lines.push({ kind: 'del', text: '…' })
+        }
+        lines.push({ kind: line.kind, text: line.text })
+      })
+    }
+    if (lines.length === 0) return null
+    return capDiff(lines, CHAT_DIFF_MAX_LINES)
+  }
   if (trace.name === 'edit_file') {
     const oldText = typeof trace.input.old_text === 'string' ? trace.input.old_text : ''
     const newText =
@@ -822,12 +1135,15 @@ function toolDiff(trace: ToolTrace): ToolDiff | null {
       ...splitDiffLines(oldText).map((text) => ({ kind: 'del' as const, text })),
       ...splitDiffLines(newText).map((text) => ({ kind: 'add' as const, text }))
     ]
-    return capDiff(lines)
+    return capDiff(lines, DIFF_MAX_LINES)
   }
   if (trace.name === 'write_file') {
     const content = typeof trace.input.content === 'string' ? trace.input.content : null
     if (content === null) return null
-    return capDiff(splitDiffLines(content).map((text) => ({ kind: 'add' as const, text })))
+    return capDiff(
+      splitDiffLines(content).map((text) => ({ kind: 'add' as const, text })),
+      DIFF_MAX_LINES
+    )
   }
   return null
 }
@@ -842,17 +1158,17 @@ function splitDiffLines(text: string): string[] {
 }
 
 /** Head/tail cap so a huge rewrite cannot flood the conversation. */
-function capDiff(lines: DiffLine[]): ToolDiff {
+function capDiff(lines: DiffLine[], maxLines: number): ToolDiff {
   const added = lines.filter((line) => line.kind === 'add').length
   const removed = lines.length - added
-  if (lines.length <= DIFF_MAX_LINES) {
+  if (lines.length <= maxLines) {
     return { lines, added, removed }
   }
-  const head = Math.ceil(DIFF_MAX_LINES / 2)
-  const tail = DIFF_MAX_LINES - head
+  const head = Math.ceil(maxLines / 2)
+  const tail = maxLines - head
   const gap: DiffLine[] = [
     ...lines.slice(0, head),
-    { kind: 'del', text: `… ${lines.length - DIFF_MAX_LINES} more lines` },
+    { kind: 'del', text: `… ${lines.length - maxLines} more lines` },
     ...lines.slice(lines.length - tail)
   ]
   return { lines: gap, added, removed }
@@ -861,7 +1177,7 @@ function capDiff(lines: DiffLine[]): ToolDiff {
 function renderDiffBlock(diff: ToolDiff): HTMLElement {
   const block = el('div', 'tool-diff')
   for (const line of diff.lines) {
-    if (line.text.startsWith('… ') && line.kind === 'del') {
+    if (line.kind === 'del' && (line.text === '…' || line.text.startsWith('… '))) {
       block.appendChild(el('div', 'diff-gap', line.text))
       continue
     }

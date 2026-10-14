@@ -1,4 +1,14 @@
-import type { AgentTurnRequest, ChatErrorCode, ChatToolEvent, TodoUpdatedEvent } from '../../../electron/shared/types'
+import type {
+  AgentTurnRequest,
+  ApprovalDecision,
+  ApprovalRequestEvent,
+  ChatErrorCode,
+  ChatNoticeEvent,
+  ChatToolEvent,
+  CompactRequest,
+  CompactResult,
+  TodoUpdatedEvent
+} from '../../../electron/shared/types'
 
 export type AgentErrorCode = ChatErrorCode | 'busy' | 'bridge'
 
@@ -20,6 +30,10 @@ export interface AgentStreamHandlers {
   onTool?(event: ChatToolEvent): void
   /** Whole-list todo snapshots as the agent rewrites its plan. */
   onTodo?(event: TodoUpdatedEvent): void
+  /** Runtime information like automatic compaction. */
+  onNotice?(event: ChatNoticeEvent): void
+  /** A flagged command is waiting for the user's say-so. */
+  onApproval?(event: ApprovalRequestEvent): void
 }
 
 /**
@@ -65,6 +79,14 @@ export class AgentService {
         if (event.runId !== runId) return
         handlers?.onTodo?.(event)
       })
+      const offNotice = window.halis.onChatNotice((event) => {
+        if (event.runId !== runId) return
+        handlers?.onNotice?.(event)
+      })
+      const offApproval = window.halis.onApprovalRequest((event) => {
+        if (event.runId !== runId) return
+        handlers?.onApproval?.(event)
+      })
       const offDone = window.halis.onChatDone((event) => {
         if (event.runId !== runId) return
         cleanup()
@@ -80,6 +102,8 @@ export class AgentService {
         offDelta()
         offTool()
         offTodo()
+        offNotice()
+        offApproval()
         offDone()
         offError()
       }
@@ -90,6 +114,16 @@ export class AgentService {
     if (this.activeRunId) {
       window.halis.cancelChat(this.activeRunId)
     }
+  }
+
+  /** Answer a pending approval exactly once. */
+  respondApproval(requestId: string, decision: ApprovalDecision): void {
+    window.halis.respondApproval(requestId, decision)
+  }
+
+  /** Fold the given conversation into a checkpoint right now. */
+  async compact(request: CompactRequest): Promise<CompactResult> {
+    return await window.halis.compactConversation(request)
   }
 }
 
