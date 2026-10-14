@@ -8,6 +8,7 @@ import { initShellSettings } from './settings'
 import { createTray, destroyTray } from './tray'
 import { installApplicationMenu } from './menu'
 import { installCrashHandlers, markRunning } from './crash'
+import { applyLoginShellEnvironment } from './login-shell-env'
 
 const gotLock = app.requestSingleInstanceLock()
 installCrashHandlers()
@@ -27,6 +28,10 @@ if (!gotLock) {
   })
 
   initShellSettings(app.getPath('userData'))
+
+  // Terminal and agent spawns read `process.env` per command, so merging the
+  // login shell env late is harmless — everything started afterwards benefits.
+  void applyLoginShellEnvironment()
 
   app.whenReady().then(() => {
     installApplicationMenu()
