@@ -1,7 +1,7 @@
 import { BrowserWindow, app, dialog, nativeImage, shell } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
-import { isQuitting } from './quit'
+import { isQuitting, markSessionEnding, clearSessionEnding } from './quit'
 import { shellSettings } from './settings'
 import { saveWindowState, windowBoundsOptions } from './window-state'
 import { attachWindowDiagnostics } from './crash'
@@ -33,6 +33,15 @@ export function createMainWindow(): BrowserWindow {
   // Renderer console errors, crashed render processes and failed loads all
   // land in the crash-report pipeline instead of vanishing silently.
   attachWindowDiagnostics(win)
+
+  // Windows: 'session-end' is the shutdown notification on the window itself;
+  // it does not count as a real close, so it only flags the quit path.
+  if (process.platform === 'win32') {
+    win.on('session-end', markSessionEnding)
+  }
+  // macOS power-off can be cancelled; when the user backs out, the next
+  // window focus restores the normal quit confirmation.
+  win.on('focus', clearSessionEnding)
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http://') || url.startsWith('https://')) {

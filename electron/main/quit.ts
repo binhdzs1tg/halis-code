@@ -27,6 +27,24 @@ function describeActiveWork(): string[] {
 
 let pending: Promise<boolean> | null = null
 
+/** Set while the OS is shutting down; quit prompts are skipped entirely. */
+let sessionEnding = false
+
+/**
+ * Mark an in-progress OS shutdown (powerMonitor 'shutdown', or the Windows
+ * 'session-end' window event). Shutting down is not the moment to hold the
+ * process hostage for a confirmation, so the next quit goes straight through.
+ * Like Harness, a cancelled macOS power-off clears the flag on the next
+ * window focus.
+ */
+export function markSessionEnding(): void {
+  sessionEnding = true
+}
+
+export function clearSessionEnding(): void {
+  sessionEnding = false
+}
+
 /**
  * Decide whether the quit may proceed. The inspection runs once per decision;
  * work that starts or ends while the dialog is open does not change its copy,
@@ -77,6 +95,13 @@ export function markQuitting(): void {
 
 /** Interceptable quit entry: asks once, then lets the quit through. */
 export function requestQuit(): void {
+  if (sessionEnding) {
+    // The OS owns this shutdown; prompting would only risk data loss when
+    // the deadline kills the process anyway.
+    markQuitting()
+    app.quit()
+    return
+  }
   void confirmQuit().then((ok) => {
     if (!ok) {
       return

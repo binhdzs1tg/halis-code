@@ -1,9 +1,9 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, powerMonitor } from 'electron'
 import path from 'node:path'
 import { createMainWindow, focusMainWindow } from './window'
 import { registerIpcHandlers } from './ipc'
 import { refresh as refreshModels } from './models-dev/catalog'
-import { requestQuit, isQuitting } from './quit'
+import { requestQuit, isQuitting, markSessionEnding } from './quit'
 import { initShellSettings } from './settings'
 import { createTray, destroyTray } from './tray'
 import { installApplicationMenu } from './menu'
@@ -34,6 +34,9 @@ if (!gotLock) {
   void applyLoginShellEnvironment()
 
   app.whenReady().then(() => {
+    // OS shutdowns quit without the confirmation prompt.
+    powerMonitor.on('shutdown', markSessionEnding)
+
     installApplicationMenu()
     registerIpcHandlers()
     createMainWindow()
