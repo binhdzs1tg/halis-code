@@ -107,6 +107,15 @@ const api: HalisApi = {
     return () => {
       ipcRenderer.off(IpcChannel.WorkspaceChanged, handler)
     }
+  },
+
+  onMenuCommand: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, command: string): void =>
+      listener(command as Parameters<typeof listener>[0])
+    ipcRenderer.on(IpcChannel.MenuCommand, handler)
+    return () => {
+      ipcRenderer.off(IpcChannel.MenuCommand, handler)
+    }
   }
 }
 

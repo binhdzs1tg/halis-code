@@ -29,7 +29,8 @@ export const IpcChannel = {
   TerminalRun: 'terminal:run',
   TerminalKill: 'terminal:kill',
   TerminalData: 'terminal:data',
-  TerminalExit: 'terminal:exit'
+  TerminalExit: 'terminal:exit',
+  MenuCommand: 'menu:command'
 } as const
 
 export type IpcChannel = (typeof IpcChannel)[keyof typeof IpcChannel]

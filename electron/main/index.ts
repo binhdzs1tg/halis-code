@@ -6,6 +6,7 @@ import { refresh as refreshModels } from './models-dev/catalog'
 import { requestQuit, isQuitting } from './quit'
 import { initShellSettings } from './settings'
 import { createTray, destroyTray } from './tray'
+import { installApplicationMenu } from './menu'
 
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
@@ -26,6 +27,7 @@ if (!gotLock) {
   initShellSettings(app.getPath('userData'))
 
   app.whenReady().then(() => {
+    installApplicationMenu()
     registerIpcHandlers()
     createMainWindow()
 

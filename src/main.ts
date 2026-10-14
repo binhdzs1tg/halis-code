@@ -92,6 +92,23 @@ async function boot(): Promise<void> {
   })
 
   installKeymap()
+
+  // Commands arriving from the native application menu.
+  window.halis.onMenuCommand((command) => {
+    if (command === 'open-workspace') {
+      void window.halis.pickWorkspace().then((root) => {
+        if (root) {
+          store.update({ workspaceRoot: root })
+        }
+      })
+    } else if (command === 'toggle-sidebar') {
+      store.update({ sidebarVisible: !store.get().sidebarVisible })
+    } else if (command === 'toggle-terminal') {
+      store.update({ terminalOpen: !store.get().terminalOpen })
+    } else if (command === 'toggle-chat') {
+      store.update({ chatOpen: !store.get().chatOpen })
+    }
+  })
 }
 
 function installKeymap(): void {

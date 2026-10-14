@@ -70,4 +70,9 @@ export interface HalisApi {
   removeProviderKey(providerId: string): Promise<ProviderKeyStatuses>
   /** Fired whenever a vault key is added or removed. */
   onKeysChanged(listener: () => void): () => void
+
+  /** Commands pushed by the native application menu. */
+  onMenuCommand(
+    listener: (command: 'open-workspace' | 'toggle-sidebar' | 'toggle-terminal' | 'toggle-chat') => void
+  ): () => void
 }
