@@ -1,10 +1,21 @@
 import path from 'node:path'
 import fs from 'node:fs'
-import type { WorkspaceEntry } from '../shared/types'
+import type { SearchHit, SearchResponse, WorkspaceEntry, WorkspaceEntryKind } from '../shared/types'
 
 let workspaceRoot: string | null = null
 
 const IGNORED = new Set(['node_modules', '.git', 'dist', 'out'])
+
+/** Shared with the agent tools and the search endpoint. */
+export const SKIP_DIRS = new Set([
+  'node_modules', '.git', 'dist', 'out', 'build', 'coverage', '.next', '.cache', 'target'
+])
+
+export const BINARY_EXTENSIONS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.bmp', '.pdf', '.zip', '.gz', '.tgz',
+  '.tar', '.7z', '.wasm', '.exe', '.dll', '.so', '.dylib', '.woff', '.woff2', '.ttf', '.otf',
+  '.eot', '.mp3', '.mp4', '.wav', '.ogg', '.avi', '.mov', '.sqlite', '.db', '.lock'
+])
 
 export function getWorkspaceRoot(): string | null {
   return workspaceRoot
@@ -67,4 +78,124 @@ export function readFileContent(relPath: string): string {
     throw new Error('File is too large to preview (max 1 MB)')
   }
   return fs.readFileSync(target, 'utf8')
+}
+
+/** Create missing parents and write a file inside the workspace. */
+export function writeFileContent(relPath: string, content: string): void {
+  const target = resolveInWorkspace(relPath)
+  fs.mkdirSync(path.dirname(target), { recursive: true })
+  fs.writeFileSync(target, content, 'utf8')
+}
+
+/** Create an empty file or a folder (with parents) inside the workspace. */
+export function createEntry(relPath: string, kind: WorkspaceEntryKind): void {
+  const target = resolveInWorkspace(relPath)
+  if (fs.existsSync(target)) {
+    throw new Error(`"${relPath}" already exists`)
+  }
+  if (kind === 'directory') {
+    fs.mkdirSync(target, { recursive: true })
+    return
+  }
+  fs.mkdirSync(path.dirname(target), { recursive: true })
+  fs.writeFileSync(target, '', 'utf8')
+}
+
+export function renameEntry(from: string, to: string): void {
+  const source = resolveInWorkspace(from)
+  const target = resolveInWorkspace(to)
+  if (!fs.existsSync(source)) {
+    throw new Error(`"${from}" does not exist`)
+  }
+  if (fs.existsSync(target)) {
+    throw new Error(`"${to}" already exists`)
+  }
+  fs.mkdirSync(path.dirname(target), { recursive: true })
+  fs.renameSync(source, target)
+}
+
+/** Validate a delete target and return its absolute path for the caller to trash. */
+export function resolveForDelete(relPath: string): string {
+  const target = resolveInWorkspace(relPath)
+  if (!workspaceRoot || target === workspaceRoot) {
+    throw new Error('The workspace root cannot be deleted')
+  }
+  if (!fs.existsSync(target)) {
+    throw new Error(`"${relPath}" does not exist`)
+  }
+  return target
+}
+
+/* ---------- workspace search ---------- */
+
+const MAX_SEARCH_HITS = 200
+const MAX_SEARCH_FILE_SIZE = 512 * 1024
+const MAX_SEARCH_DEPTH = 12
+
+export function searchWorkspace(
+  query: string,
+  options: { scope?: string; caseSensitive?: boolean } = {}
+): SearchResponse {
+  const scope = options.scope ?? ''
+  const caseSensitive = options.caseSensitive ?? false
+  const root = resolveInWorkspace(scope)
+  const needle = caseSensitive ? query : query.toLowerCase()
+
+  const hits: SearchHit[] = []
+  let truncated = false
+
+  const walk = (dir: string, rel: string, depth: number): void => {
+    if (truncated || depth > MAX_SEARCH_DEPTH) return
+    let entries: fs.Dirent[]
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      if (truncated) return
+      if (entry.name.startsWith('.') || SKIP_DIRS.has(entry.name)) continue
+
+      const childRel = rel ? `${rel}/${entry.name}` : entry.name
+      const childAbs = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        walk(childAbs, childRel, depth + 1)
+        continue
+      }
+      if (!entry.isFile() || BINARY_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) continue
+
+      let stat: fs.Stats
+      try {
+        stat = fs.statSync(childAbs)
+      } catch {
+        continue
+      }
+      if (stat.size > MAX_SEARCH_FILE_SIZE) continue
+
+      let text: string
+      try {
+        text = fs.readFileSync(childAbs, 'utf8')
+      } catch {
+        continue
+      }
+      if (text.includes('\u0000')) continue // binary in disguise
+
+      const lines = text.split('\n')
+      for (let i = 0; i < lines.length; i += 1) {
+        const line = lines[i]
+        const haystack = caseSensitive ? line : line.toLowerCase()
+        if (!haystack.includes(needle)) continue
+        if (hits.length >= MAX_SEARCH_HITS) {
+          truncated = true
+          return
+        }
+        hits.push({ path: childRel, line: i + 1, text: line.trim().slice(0, 240) })
+      }
+    }
+  }
+
+  if (query.length > 0) {
+    walk(root, scope, 0)
+  }
+  return { hits, truncated }
 }

@@ -108,9 +108,13 @@ export interface ChatToolEvent {
   durationMs?: number
 }
 
-/** Pushed after the agent creates or modifies a workspace file. */
+/** Pushed after the agent or the user changes a workspace file. */
 export interface WorkspaceChangedEvent {
   path: string
+  /** What produced the change; absent for agent-driven writes from older builds. */
+  change?: 'write' | 'create' | 'rename' | 'delete'
+  /** Previous path, only set for renames. */
+  from?: string
 }
 
 /* ---------- provider keys ---------- */
@@ -125,3 +129,41 @@ export interface ProviderKeyStatus {
 
 /** Only providers with a resolvable key appear in the status map. */
 export type ProviderKeyStatuses = Record<string, ProviderKeyStatus>
+
+/* ---------- workspace search ---------- */
+
+export interface SearchHit {
+  /** Path relative to the workspace root. */
+  path: string
+  /** 1-based line number of the match. */
+  line: number
+  /** The matching line, trimmed for display. */
+  text: string
+}
+
+export interface SearchOptions {
+  /** Folder to search in, relative to the root. Defaults to the whole workspace. */
+  scope?: string
+  caseSensitive?: boolean
+}
+
+export interface SearchResponse {
+  hits: SearchHit[]
+  /** True when the result list was cut off; narrow the query to see more. */
+  truncated: boolean
+}
+
+/* ---------- terminal ---------- */
+
+/** A chunk of output from a running terminal command. */
+export interface TerminalDataEvent {
+  id: string
+  chunk: string
+}
+
+/** A terminal command finished; carries the shell cwd after builtins like cd. */
+export interface TerminalExitEvent {
+  id: string
+  code: number | null
+  cwd?: string
+}

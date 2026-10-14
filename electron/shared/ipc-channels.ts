@@ -6,7 +6,12 @@ export const IpcChannel = {
   WorkspacePick: 'workspace:pick',
   WorkspaceOpen: 'workspace:open',
   WorkspaceReadDir: 'workspace:read-dir',
+  WorkspaceSearch: 'workspace:search',
   FileRead: 'file:read',
+  FileWrite: 'file:write',
+  FileCreate: 'file:create',
+  FileRename: 'file:rename',
+  FileDelete: 'file:delete',
   ModelsList: 'models:list',
   ModelsRefresh: 'models:refresh',
   ModelsUpdated: 'models:updated',
@@ -20,7 +25,11 @@ export const IpcChannel = {
   KeysStatus: 'keys:status',
   KeysSet: 'keys:set',
   KeysRemove: 'keys:remove',
-  KeysChanged: 'keys:changed'
+  KeysChanged: 'keys:changed',
+  TerminalRun: 'terminal:run',
+  TerminalKill: 'terminal:kill',
+  TerminalData: 'terminal:data',
+  TerminalExit: 'terminal:exit'
 } as const
 
 export type IpcChannel = (typeof IpcChannel)[keyof typeof IpcChannel]

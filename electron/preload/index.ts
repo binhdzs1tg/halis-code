@@ -5,6 +5,8 @@ import type {
   ChatDoneEvent,
   ChatErrorEvent,
   ChatToolEvent,
+  TerminalDataEvent,
+  TerminalExitEvent,
   WorkspaceChangedEvent
 } from '../shared/types'
 import type { HalisApi } from '../shared/api'
@@ -20,6 +22,31 @@ const api: HalisApi = {
   openWorkspace: (absolutePath) => ipcRenderer.invoke(IpcChannel.WorkspaceOpen, absolutePath),
   readDir: (relPath) => ipcRenderer.invoke(IpcChannel.WorkspaceReadDir, relPath),
   readFile: (relPath) => ipcRenderer.invoke(IpcChannel.FileRead, relPath),
+  writeFile: (relPath, content) => ipcRenderer.invoke(IpcChannel.FileWrite, relPath, content),
+  createEntry: (relPath, kind) => ipcRenderer.invoke(IpcChannel.FileCreate, relPath, kind),
+  renameEntry: (from, to) => ipcRenderer.invoke(IpcChannel.FileRename, from, to),
+  deleteEntry: (relPath) => ipcRenderer.invoke(IpcChannel.FileDelete, relPath),
+  searchWorkspace: (query, options) =>
+    ipcRenderer.invoke(IpcChannel.WorkspaceSearch, query, options ?? {}),
+
+  runTerminalCommand: (command) => ipcRenderer.invoke(IpcChannel.TerminalRun, command),
+  killTerminalCommand: () => ipcRenderer.invoke(IpcChannel.TerminalKill),
+  onTerminalData: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: TerminalDataEvent): void =>
+      listener(payload)
+    ipcRenderer.on(IpcChannel.TerminalData, handler)
+    return () => {
+      ipcRenderer.off(IpcChannel.TerminalData, handler)
+    }
+  },
+  onTerminalExit: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: TerminalExitEvent): void =>
+      listener(payload)
+    ipcRenderer.on(IpcChannel.TerminalExit, handler)
+    return () => {
+      ipcRenderer.off(IpcChannel.TerminalExit, handler)
+    }
+  },
 
   getModels: () => ipcRenderer.invoke(IpcChannel.ModelsList),
   refreshModels: () => ipcRenderer.invoke(IpcChannel.ModelsRefresh),

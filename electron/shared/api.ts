@@ -7,8 +7,13 @@ import type {
   ChatRunStarted,
   ChatToolEvent,
   ProviderKeyStatuses,
+  SearchOptions,
+  SearchResponse,
+  TerminalDataEvent,
+  TerminalExitEvent,
   WorkspaceChangedEvent,
-  WorkspaceEntry
+  WorkspaceEntry,
+  WorkspaceEntryKind
 } from './types'
 import type { ModelCatalog } from './models'
 
@@ -26,6 +31,20 @@ export interface HalisApi {
   openWorkspace(absolutePath: string): Promise<string | null>
   readDir(relPath: string): Promise<WorkspaceEntry[]>
   readFile(relPath: string): Promise<string>
+  writeFile(relPath: string, content: string): Promise<void>
+  createEntry(relPath: string, kind: WorkspaceEntryKind): Promise<void>
+  renameEntry(from: string, to: string): Promise<void>
+  /** Move a workspace entry to the OS trash. */
+  deleteEntry(relPath: string): Promise<void>
+  /** Plain-text search across the workspace; runs in the main process. */
+  searchWorkspace(query: string, options?: SearchOptions): Promise<SearchResponse>
+
+  /** Spawn one command line; output arrives through onTerminalData/Exit. */
+  runTerminalCommand(command: string): Promise<string>
+  /** Abort the running command; false when the terminal is idle. */
+  killTerminalCommand(): Promise<boolean>
+  onTerminalData(listener: (event: TerminalDataEvent) => void): () => void
+  onTerminalExit(listener: (event: TerminalExitEvent) => void): () => void
 
   /** Full models.dev catalog (providers + models), normalized. */
   getModels(): Promise<ModelCatalog>

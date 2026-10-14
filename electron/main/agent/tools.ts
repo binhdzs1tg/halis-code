@@ -2,7 +2,13 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { ToolCall, ToolSpec } from '../../shared/types'
-import { getWorkspaceRoot, listDir, readFileContent, resolveInWorkspace } from '../workspace'
+import {
+  getWorkspaceRoot,
+  listDir,
+  readFileContent,
+  resolveInWorkspace,
+  searchWorkspace
+} from '../workspace'
 
 /** What a single tool invocation produced. `changedPath` marks mutations the UI should refresh. */
 export interface ToolOutcome {
@@ -14,20 +20,9 @@ export interface ToolOutcome {
 /** Tool results are fed back into the model, so keep them within a sane budget. */
 const MAX_OUTPUT = 24_000
 const MAX_READ_LINES = 1_200
-const MAX_SEARCH_RESULTS = 80
 const MAX_COMMAND_OUTPUT = 24_000
 const DEFAULT_COMMAND_TIMEOUT = 60_000
 const MAX_COMMAND_TIMEOUT = 300_000
-
-const SKIP_DIRS = new Set([
-  'node_modules', '.git', 'dist', 'out', 'build', 'coverage', '.next', '.cache', 'target'
-])
-
-const BINARY_EXTENSIONS = new Set([
-  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.bmp', '.pdf', '.zip', '.gz', '.tgz',
-  '.tar', '.7z', '.wasm', '.exe', '.dll', '.so', '.dylib', '.woff', '.woff2', '.ttf', '.otf',
-  '.eot', '.mp3', '.mp4', '.wav', '.ogg', '.avi', '.mov', '.sqlite', '.db', '.lock'
-])
 
 export function toolSpecs(): ToolSpec[] {
   return [
@@ -212,65 +207,16 @@ async function searchTool(input: Record<string, unknown>): Promise<ToolOutcome> 
   const query = requireString(input.query, 'query')
   const scope = optString(input.path) ?? ''
   const caseSensitive = input.case_sensitive === true
-  const root = requireWorkspace().resolve(scope)
+  requireWorkspace().resolve(scope)
 
-  const needle = caseSensitive ? query : query.toLowerCase()
-  const matches: string[] = []
-  let scanned = 0
-
-  const walk = (dir: string, rel: string, depth: number): void => {
-    if (matches.length >= MAX_SEARCH_RESULTS || depth > 12) return
-    let entries: fs.Dirent[]
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true })
-    } catch {
-      return
-    }
-    for (const entry of entries) {
-      if (matches.length >= MAX_SEARCH_RESULTS) return
-      if (entry.name.startsWith('.') || SKIP_DIRS.has(entry.name)) continue
-
-      const childRel = rel ? `${rel}/${entry.name}` : entry.name
-      const childAbs = path.join(dir, entry.name)
-      if (entry.isDirectory()) {
-        walk(childAbs, childRel, depth + 1)
-      } else if (entry.isFile()) {
-        if (BINARY_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) continue
-        let stat: fs.Stats
-        try {
-          stat = fs.statSync(childAbs)
-        } catch {
-          continue
-        }
-        if (stat.size > 512 * 1024) continue
-        let text: string
-        try {
-          text = fs.readFileSync(childAbs, 'utf8')
-        } catch {
-          continue
-        }
-        if (text.includes('\u0000')) continue // binary in disguise
-        scanned += 1
-        const lines = text.split('\n')
-        for (let i = 0; i < lines.length; i += 1) {
-          if (matches.length >= MAX_SEARCH_RESULTS) break
-          const line = lines[i]
-          const haystack = caseSensitive ? line : line.toLowerCase()
-          if (haystack.includes(needle)) {
-            matches.push(`${childRel}:${i + 1}: ${line.trim().slice(0, 200)}`)
-          }
-        }
-      }
-    }
+  const { hits, truncated } = searchWorkspace(query, { scope, caseSensitive })
+  if (hits.length === 0) {
+    return { ok: true, output: `No matches for "${query}".` }
   }
-
-  walk(root, scope, 0)
-  if (matches.length === 0) {
-    return { ok: true, output: `No matches for "${query}"${scanned > 0 ? ` in ${scanned} file${scanned === 1 ? '' : 's'}` : ''}.` }
-  }
-  let output = `${matches.length} match${matches.length === 1 ? '' : 'es'} for "${query}":\n${matches.join('\n')}`
-  if (matches.length >= MAX_SEARCH_RESULTS) {
-    output += `\n… (result list capped at ${MAX_SEARCH_RESULTS} — narrow the query or the scope)`
+  const lines = hits.map((hit) => `${hit.path}:${hit.line}: ${hit.text}`)
+  let output = `${lines.length} match${lines.length === 1 ? '' : 'es'} for "${query}":\n${lines.join('\n')}`
+  if (truncated) {
+    output += '\n… (result list capped — narrow the query or the scope)'
   }
   return { ok: true, output }
 }
