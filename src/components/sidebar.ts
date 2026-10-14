@@ -3,6 +3,7 @@ import { icons } from '../app/icons'
 import { store } from '../app/store'
 import { mountFileTree } from './explorer/file-tree'
 import { mountSearchView } from './search-view'
+import { mountSettingsView } from './settings-view'
 
 const TITLES: Record<string, string> = {
   explorer: 'Explorer',
@@ -53,11 +54,7 @@ function renderView(view: string, body: HTMLElement): void {
   } else if (view === 'search') {
     mountSearchView(body)
   } else {
-    renderPlanned(
-      body,
-      'Settings',
-      'General preferences, appearance and model provider configuration will live in this view. Model and API key management is planned for a later phase.'
-    )
+    mountSettingsView(body)
   }
 }
 
@@ -82,11 +79,4 @@ function renderExplorer(body: HTMLElement): void {
   }
 
   mountFileTree(body)
-}
-
-function renderPlanned(body: HTMLElement, title: string, text: string): void {
-  const note = el('div', 'planned')
-  const heading = el('b', undefined, title)
-  note.append(heading, el('span', undefined, text))
-  body.appendChild(note)
 }
