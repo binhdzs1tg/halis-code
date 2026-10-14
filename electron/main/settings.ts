@@ -6,14 +6,19 @@
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import type { AgentSettings, CommandApprovalMode } from '../shared/types'
 
-export interface ShellSettings {
+export interface ShellSettings extends AgentSettings {
   /** Closing the window hides it to the tray instead of quitting (Windows/Linux). */
   closeToTray: boolean
 }
 
 function defaults(): ShellSettings {
-  return { closeToTray: process.platform !== 'darwin' }
+  return { closeToTray: process.platform !== 'darwin', commandApproval: 'ask' }
+}
+
+function approvalMode(value: unknown, fallback: CommandApprovalMode): CommandApprovalMode {
+  return value === 'ask' || value === 'fullAccess' ? value : fallback
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -21,10 +26,12 @@ function record(value: unknown): value is Record<string, unknown> {
 }
 
 let current: ShellSettings | null = null
+let settingsPath: string | null = null
 
 /** Read `userData/settings.json`, creating the default document when missing. */
 export function initShellSettings(userData: string): ShellSettings {
   const path = join(userData, 'settings.json')
+  settingsPath = path
   const fallback = defaults()
   try {
     let raw: string
@@ -48,7 +55,10 @@ export function initShellSettings(userData: string): ShellSettings {
     if (value.closeToTray !== undefined && typeof value.closeToTray !== 'boolean') {
       throw new Error('closeToTray must be true or false')
     }
-    current = { closeToTray: value.closeToTray ?? fallback.closeToTray }
+    current = {
+      closeToTray: value.closeToTray ?? fallback.closeToTray,
+      commandApproval: approvalMode(value.commandApproval, fallback.commandApproval)
+    }
     return current
   } catch (error) {
     console.warn(`shell settings: ${path}: using defaults because settings could not be loaded`, error)
@@ -60,4 +70,24 @@ export function initShellSettings(userData: string): ShellSettings {
 /** Settings of the running process; defaults before `initShellSettings` ran. */
 export function shellSettings(): ShellSettings {
   return current ?? defaults()
+}
+
+/** Patch and persist settings; the process reads the new values right away. */
+export function updateShellSettings(patch: Partial<AgentSettings>): ShellSettings {
+  const base = current ?? defaults()
+  const next: ShellSettings = {
+    ...base,
+    commandApproval: patch.commandApproval
+      ? approvalMode(patch.commandApproval, base.commandApproval)
+      : base.commandApproval
+  }
+  current = next
+  if (settingsPath) {
+    try {
+      writeFileSync(settingsPath, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 })
+    } catch (error) {
+      console.warn('shell settings: the change applies to this session but could not be saved', error)
+    }
+  }
+  return next
 }

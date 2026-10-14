@@ -68,6 +68,21 @@ export interface ChatSession {
   messages: ChatMessage[]
 }
 
+/** Request payload for `chat:compact` — compact the given conversation now. */
+export interface CompactRequest {
+  history: ChatMessage[]
+  model: ModelSelection
+}
+
+/** Result of a manual compaction. */
+export interface CompactResult {
+  /** The framed checkpoint to splice into the conversation. */
+  checkpoint: string
+  /** Rough token estimate of the original span, for the confirmation note. */
+  beforeTokens: number
+  afterTokens: number
+}
+
 export interface WorkspaceState {
   root: string | null
 }
@@ -128,6 +143,28 @@ export interface ToolCall {
   input: Record<string, unknown>
 }
 
+/** One rendered line of a file diff hunk. */
+export interface DiffLine {
+  kind: 'add' | 'del' | 'ctx'
+  text: string
+}
+
+/**
+ * A hunk-level diff of a file the agent changed, computed in the main
+ * process and persisted on the tool trace so replay shows the same card
+ * the live run did — the way DeepSeek Harness stores diff meta on tool
+ * results.
+ */
+export interface FileDiff {
+  /** File path relative to the workspace root. */
+  path: string
+  /** create = the file did not exist before this call. */
+  op: 'create' | 'update'
+  lines: DiffLine[]
+  added: number
+  removed: number
+}
+
 /** What a tool did, kept on the message so the UI can replay it. */
 export interface ToolTrace {
   name: string
@@ -135,6 +172,8 @@ export interface ToolTrace {
   output: string
   ok: boolean
   durationMs: number
+  /** Hunk diffs for tools that changed file content. */
+  diff?: FileDiff[]
 }
 
 /** Tool lifecycle pushed to the renderer while a run is in flight. */
@@ -147,6 +186,36 @@ export interface ChatToolEvent {
   output?: string
   ok?: boolean
   durationMs?: number
+  /** Hunk diffs for tools that changed file content. */
+  diff?: FileDiff[]
+}
+
+export type ApprovalDecision = 'allowed-once' | 'rejected'
+
+/** Pushed to the renderer when a tool call needs the user's say-so. */
+export interface ApprovalRequestEvent {
+  requestId: string
+  runId: string
+  callId: string
+  toolName: string
+  /** Human-readable reason the call was flagged. */
+  reason: string
+  /** The exact command line, when the flagged tool is run_command. */
+  command?: string
+}
+
+/** Non-chat information the runtime pushes into the conversation. */
+export interface ChatNoticeEvent {
+  runId: string
+  kind: 'compacted' | 'info'
+  text: string
+}
+
+export type CommandApprovalMode = 'ask' | 'fullAccess'
+
+export interface AgentSettings {
+  /** Ask before the agent runs a flagged command, or run everything unchecked. */
+  commandApproval: CommandApprovalMode
 }
 
 /** Pushed after the agent or the user changes a workspace file. */

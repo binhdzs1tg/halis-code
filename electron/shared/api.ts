@@ -1,13 +1,19 @@
 import type {
+  AgentSettings,
   AgentTurnRequest,
   AppInfo,
+  ApprovalDecision,
+  ApprovalRequestEvent,
   ChatDeltaEvent,
   ChatDoneEvent,
   ChatErrorEvent,
+  ChatNoticeEvent,
   ChatRunStarted,
   ChatSession,
   ChatSessionMeta,
   ChatToolEvent,
+  CompactRequest,
+  CompactResult,
   ProviderKeyStatuses,
   SearchOptions,
   SearchResponse,
@@ -61,6 +67,8 @@ export interface HalisApi {
   /** Start an agent run; text arrives through `onChatDelta` until done/error. */
   sendChat(request: AgentTurnRequest): Promise<ChatRunStarted>
   cancelChat(runId: string): void
+  /** Fold a conversation into a checkpoint right now and return it. */
+  compactConversation(request: CompactRequest): Promise<CompactResult>
   onChatDelta(listener: (event: ChatDeltaEvent) => void): () => void
   onChatDone(listener: (event: ChatDoneEvent) => void): () => void
   onChatError(listener: (event: ChatErrorEvent) => void): () => void
@@ -68,8 +76,20 @@ export interface HalisApi {
   onChatTool(listener: (event: ChatToolEvent) => void): () => void
   /** Whole-list todo snapshots the agent publishes while a run is in flight. */
   onChatTodo(listener: (event: TodoUpdatedEvent) => void): () => void
+  /** Runtime information like automatic compaction, pushed mid-conversation. */
+  onChatNotice(listener: (event: ChatNoticeEvent) => void): () => void
+  /** A tool call is waiting for the user's say-so. */
+  onApprovalRequest(listener: (event: ApprovalRequestEvent) => void): () => void
+  /** Answer a pending approval; 'allowed-once' or 'rejected', one shot. */
+  respondApproval(requestId: string, decision: ApprovalDecision): void
   /** Fired when the agent creates or modifies a workspace file. */
   onWorkspaceChanged(listener: (event: WorkspaceChangedEvent) => void): () => void
+
+  /** Agent-facing settings, currently the command approval mode. */
+  getAgentSettings(): Promise<AgentSettings>
+  setAgentSettings(patch: Partial<AgentSettings>): Promise<AgentSettings>
+  /** Save a conversation as Markdown through a native save dialog. */
+  exportConversation(suggestedName: string, content: string): Promise<string | null>
 
   /** Providers that currently have a key, either from the vault or the env. */
   getKeyStatuses(): Promise<ProviderKeyStatuses>

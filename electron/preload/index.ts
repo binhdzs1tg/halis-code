@@ -1,9 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IpcChannel } from '../shared/ipc-channels'
 import type {
+  ApprovalDecision,
+  ApprovalRequestEvent,
   ChatDeltaEvent,
   ChatDoneEvent,
   ChatErrorEvent,
+  ChatNoticeEvent,
   ChatToolEvent,
   TerminalDataEvent,
   TerminalExitEvent,
@@ -87,6 +90,7 @@ const api: HalisApi = {
   cancelChat: (runId) => {
     void ipcRenderer.invoke(IpcChannel.ChatCancel, runId)
   },
+  compactConversation: (request) => ipcRenderer.invoke(IpcChannel.ChatCompact, request),
   onChatDelta: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: ChatDeltaEvent): void => listener(payload)
     ipcRenderer.on(IpcChannel.ChatDelta, handler)
@@ -122,6 +126,28 @@ const api: HalisApi = {
       ipcRenderer.off(IpcChannel.ChatTodo, handler)
     }
   },
+  onChatNotice: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: ChatNoticeEvent): void => listener(payload)
+    ipcRenderer.on(IpcChannel.ChatNotice, handler)
+    return () => {
+      ipcRenderer.off(IpcChannel.ChatNotice, handler)
+    }
+  },
+  onApprovalRequest: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: ApprovalRequestEvent): void =>
+      listener(payload)
+    ipcRenderer.on(IpcChannel.ApprovalRequest, handler)
+    return () => {
+      ipcRenderer.off(IpcChannel.ApprovalRequest, handler)
+    }
+  },
+  respondApproval: (requestId, decision: ApprovalDecision) => {
+    ipcRenderer.send(IpcChannel.ApprovalRespond, requestId, decision)
+  },
+  getAgentSettings: () => ipcRenderer.invoke(IpcChannel.SettingsGet),
+  setAgentSettings: (patch) => ipcRenderer.invoke(IpcChannel.SettingsSet, patch),
+  exportConversation: (suggestedName, content) =>
+    ipcRenderer.invoke(IpcChannel.ConversationExport, suggestedName, content),
   onWorkspaceChanged: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: WorkspaceChangedEvent): void => listener(payload)
     ipcRenderer.on(IpcChannel.WorkspaceChanged, handler)
