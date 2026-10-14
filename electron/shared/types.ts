@@ -23,6 +23,8 @@ export interface ChatMessage {
   role: ChatRole
   content: string
   createdAt: number
+  /** Tool calls the assistant made during this message, for display only. */
+  tools?: ToolTrace[]
 }
 
 export interface WorkspaceState {
@@ -67,6 +69,48 @@ export interface ChatErrorEvent {
   runId: string
   code: ChatErrorCode
   message: string
+}
+
+/* ---------- agent tools ---------- */
+
+/** A tool the model may call, with a JSON schema describing its input. */
+export interface ToolSpec {
+  name: string
+  description: string
+  parameters: Record<string, unknown>
+}
+
+/** One tool invocation requested by the model. */
+export interface ToolCall {
+  id: string
+  name: string
+  input: Record<string, unknown>
+}
+
+/** What a tool did, kept on the message so the UI can replay it. */
+export interface ToolTrace {
+  name: string
+  input: Record<string, unknown>
+  output: string
+  ok: boolean
+  durationMs: number
+}
+
+/** Tool lifecycle pushed to the renderer while a run is in flight. */
+export interface ChatToolEvent {
+  runId: string
+  callId: string
+  name: string
+  phase: 'start' | 'end'
+  input?: Record<string, unknown>
+  output?: string
+  ok?: boolean
+  durationMs?: number
+}
+
+/** Pushed after the agent creates or modifies a workspace file. */
+export interface WorkspaceChangedEvent {
+  path: string
 }
 
 /* ---------- provider keys ---------- */
