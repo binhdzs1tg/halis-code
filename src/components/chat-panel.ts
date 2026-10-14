@@ -517,6 +517,12 @@ function buildComposer(handlers: ComposerHandlers): { root: HTMLElement; setRunn
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
       submit()
+      return
+    }
+    // Escape stops the run, the same contract the composer's stop button has.
+    if (event.key === 'Escape' && running) {
+      event.preventDefault()
+      handlers.onStop()
     }
   })
 
