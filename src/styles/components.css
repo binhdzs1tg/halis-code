@@ -2140,3 +2140,55 @@ body.is-mac .window-controls {
   color: var(--fg-0);
   background: var(--bg-hover);
 }
+
+/* ---------- ansi terminal colors ---------- */
+
+.term-out .ansi-bold {
+  font-weight: 600;
+}
+
+.term-out .ansi-dim {
+  opacity: 0.68;
+}
+
+.term-out .ansi-italic {
+  font-style: italic;
+}
+
+.term-out .ansi-underline {
+  text-decoration: underline;
+}
+
+.term-out .ansi-fg0 { color: #414855; }
+.term-out .ansi-fg1 { color: #ec6a88; }
+.term-out .ansi-fg2 { color: #3fdaa4; }
+.term-out .ansi-fg3 { color: #f9c859; }
+.term-out .ansi-fg4 { color: #6d95f1; }
+.term-out .ansi-fg5 { color: #d175d1; }
+.term-out .ansi-fg6 { color: #56c8d8; }
+.term-out .ansi-fg7 { color: #c5cbd8; }
+.term-out .ansi-fg8 { color: #6c7480; }
+.term-out .ansi-fg9 { color: #f08484; }
+.term-out .ansi-fg10 { color: #6ce8b1; }
+.term-out .ansi-fg11 { color: #ffd98e; }
+.term-out .ansi-fg12 { color: #93b3ff; }
+.term-out .ansi-fg13 { color: #e8a3e8; }
+.term-out .ansi-fg14 { color: #7cdce4; }
+.term-out .ansi-fg15 { color: #f0f2f5; }
+
+.term-out .ansi-bg0 { background-color: #414855; }
+.term-out .ansi-bg1 { background-color: #ec6a88; }
+.term-out .ansi-bg2 { background-color: #3fdaa4; }
+.term-out .ansi-bg3 { background-color: #f9c859; }
+.term-out .ansi-bg4 { background-color: #6d95f1; }
+.term-out .ansi-bg5 { background-color: #d175d1; }
+.term-out .ansi-bg6 { background-color: #56c8d8; }
+.term-out .ansi-bg7 { background-color: #c5cbd8; }
+.term-out .ansi-bg8 { background-color: #6c7480; }
+.term-out .ansi-bg9 { background-color: #f08484; }
+.term-out .ansi-bg10 { background-color: #6ce8b1; }
+.term-out .ansi-bg11 { background-color: #ffd98e; }
+.term-out .ansi-bg12 { background-color: #93b3ff; }
+.term-out .ansi-bg13 { background-color: #e8a3e8; }
+.term-out .ansi-bg14 { background-color: #7cdce4; }
+.term-out .ansi-bg15 { background-color: #f0f2f5; }

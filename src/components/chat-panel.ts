@@ -7,6 +7,7 @@ import * as catalog from '../core/models/catalog'
 import { keyStatusOf, refreshKeyStatuses } from '../core/keys'
 import { renderMarkdown } from '../core/markdown'
 import { StreamingMarkdown } from '../core/markdown-stream'
+import { stripAnsi } from '../core/ansi'
 import { openModelDialog } from './model-picker'
 import { openKeyDialog } from './key-dialog'
 
@@ -782,7 +783,7 @@ function renderToolRow(trace: ToolTrace, running: boolean): HTMLElement {
     item.appendChild(renderDiffBlock(diff))
   } else if (trace.output) {
     const output = el('pre', 'tool-output')
-    output.textContent = trace.output
+    output.textContent = stripAnsi(trace.output)
     item.appendChild(output)
   }
   return item

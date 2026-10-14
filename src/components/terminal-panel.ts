@@ -1,6 +1,7 @@
 import { el, svg } from '../app/dom'
 import { icons } from '../app/icons'
 import { store } from '../app/store'
+import { AnsiWriter } from '../core/ansi'
 import type { TerminalExitEvent } from '../../electron/shared/types'
 
 /** Keep the scrollback bounded so long builds don't grow the DOM forever. */
@@ -38,6 +39,9 @@ export function mountTerminalPanel(): HTMLElement {
   // ---- body ----
   const body = el('div', 'term-body')
   const out = el('div', 'term-out')
+  // Styled output: ANSI colors from build tools render instead of leaking
+  // raw escape bytes; the writer also trims the scrollback when capped.
+  const writer = new AnsiWriter(out)
   const inputRow = el('div', 'term-input-row')
 
   const prompt = el('span', 'prompt')
@@ -78,10 +82,8 @@ export function mountTerminalPanel(): HTMLElement {
   }
 
   const appendText = (text: string): void => {
-    out.textContent += text
-    if (out.textContent.length > MAX_OUT_CHARS) {
-      out.textContent = out.textContent.slice(out.textContent.length - MAX_OUT_CHARS)
-    }
+    writer.write(text)
+    writer.trim(MAX_OUT_CHARS)
     scrollToEnd()
   }
 
@@ -98,7 +100,7 @@ export function mountTerminalPanel(): HTMLElement {
   }
 
   const clearOut = (): void => {
-    out.textContent = ''
+    writer.reset()
   }
 
   const run = async (command: string): Promise<void> => {
