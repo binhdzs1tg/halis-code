@@ -2116,3 +2116,27 @@ body.is-mac .window-controls {
 .chat-panel {
   position: relative;
 }
+
+/* back-to-bottom pill over the message list */
+.chat-panel .chat-jump {
+  position: absolute;
+  left: 50%;
+  bottom: 96px;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--bg-1);
+  border: 1px solid var(--border-soft);
+  color: var(--fg-1);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+
+.chat-panel .chat-jump:hover {
+  color: var(--fg-0);
+  background: var(--bg-hover);
+}

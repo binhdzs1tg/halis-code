@@ -37,6 +37,22 @@ export function mountChatPanel(): HTMLElement {
   const list = el('div', 'message-list')
   panel.appendChild(list)
 
+  // Back-to-bottom pill: appears once the reader scrolls away from the tail
+  // while the conversation keeps moving, as in DeepSeek Harness's chat.
+  const jump = el('button', 'chat-jump') as HTMLButtonElement
+  jump.type = 'button'
+  jump.title = 'Jump to latest'
+  jump.appendChild(svg(icons.chevronDown, 13))
+  jump.hidden = true
+  jump.addEventListener('click', () => {
+    scrollToBottom(list, true)
+  })
+  panel.appendChild(jump)
+  list.addEventListener('scroll', () => {
+    const distance = list.scrollHeight - list.scrollTop - list.clientHeight
+    jump.hidden = distance < 240
+  })
+
   const messages: ChatMessage[] = []
   renderEmptyState(list)
 
@@ -673,8 +689,21 @@ function renderMessage(message: ChatMessage): HTMLElement {
     return wrap
   }
 
+  const userMeta = el('div', 'meta')
+  userMeta.appendChild(el('span', undefined, formatTime(message.createdAt)))
+  const userCopy = el('button', 'copy-msg') as HTMLButtonElement
+  userCopy.type = 'button'
+  userCopy.title = 'Copy message'
+  userCopy.appendChild(svg(icons.copy, 12))
+  userCopy.addEventListener('click', () => {
+    void navigator.clipboard.writeText(message.content).then(() => {
+      userCopy.replaceChildren(svg(icons.check, 12))
+      window.setTimeout(() => userCopy.replaceChildren(svg(icons.copy, 12)), 1200)
+    })
+  })
+  userMeta.appendChild(userCopy)
   wrap.appendChild(el('div', 'bubble selectable', message.content))
-  wrap.appendChild(el('div', 'meta', formatTime(message.createdAt)))
+  wrap.appendChild(userMeta)
   return wrap
 }
 
