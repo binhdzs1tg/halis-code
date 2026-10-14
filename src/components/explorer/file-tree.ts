@@ -103,6 +103,10 @@ export function mountFileTree(container: HTMLElement): void {
     if (state.workspaceRoot !== prev.workspaceRoot) {
       void renderRoot()
     }
+    // Files created or edited by the agent need a fresh listing.
+    if (state.lastTouchedFile !== prev.lastTouchedFile) {
+      void renderRoot()
+    }
   })
 
   void renderRoot()

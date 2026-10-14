@@ -10,6 +10,14 @@ export function mountEditorArea(): HTMLElement {
     if (state.openFile !== prev.openFile) {
       currentFile = state.openFile
       void render(area, currentFile)
+      return
+    }
+    // The agent may rewrite the file that is on screen — reload it in place.
+    if (
+      state.lastTouchedFile !== prev.lastTouchedFile &&
+      state.lastTouchedFile?.path === currentFile
+    ) {
+      void render(area, currentFile)
     }
   })
 

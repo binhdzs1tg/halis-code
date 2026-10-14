@@ -1,7 +1,7 @@
 import { el, svg } from '../app/dom'
 import { icons } from '../app/icons'
 import { store } from '../app/store'
-import type { ChatMessage } from '../../electron/shared/types'
+import type { ChatMessage, ToolTrace } from '../../electron/shared/types'
 import { agentService, AgentError } from '../core/agent/agent-service'
 import * as catalog from '../core/models/catalog'
 import { keyStatusOf, refreshKeyStatuses } from '../core/keys'
@@ -85,6 +85,13 @@ export function mountChatPanel(): HTMLElement {
     messages.push(assistant)
     list.appendChild(node)
 
+    // Live feed of tool calls made while this answer streams in.
+    const traces: ToolTrace[] = []
+    const toolLog = el('div', 'tool-log')
+    const liveRows = new Map<string, HTMLElement>()
+    const traceOf = new Map<string, ToolTrace>()
+    node.insertBefore(toolLog, node.querySelector('.bubble'))
+
     let buffered = ''
     let frame = 0
     const paint = (): void => {
@@ -104,18 +111,46 @@ export function mountChatPanel(): HTMLElement {
           onDelta: (chunk) => {
             buffered += chunk
             paint()
+          },
+          onTool: (event) => {
+            if (event.phase === 'start') {
+              const trace: ToolTrace = {
+                name: event.name,
+                input: event.input ?? {},
+                output: '',
+                ok: true,
+                durationMs: 0
+              }
+              traces.push(trace)
+              traceOf.set(event.callId, trace)
+              const row = renderToolRow(trace, true)
+              liveRows.set(event.callId, row)
+              toolLog.appendChild(row)
+              store.update({ agentStatus: 'working' })
+            } else {
+              const trace = traceOf.get(event.callId)
+              if (!trace) return
+              trace.output = event.output ?? ''
+              trace.ok = event.ok ?? true
+              trace.durationMs = event.durationMs ?? 0
+              const row = liveRows.get(event.callId)
+              if (row) row.replaceWith(renderToolRow(trace, false))
+            }
+            scrollToBottom(list)
           }
         }
       )
       assistant.content = full
+      if (traces.length > 0) assistant.tools = [...traces]
       node.replaceWith(renderMessage(assistant))
     } catch (err) {
       // Drop the placeholder; a partial, if any, is re-rendered below.
       node.remove()
       messages.pop()
       const agentErr = err instanceof AgentError ? err : null
-      if (agentErr && agentErr.partial.trim()) {
+      if (agentErr && (agentErr.partial.trim() || traces.length > 0)) {
         const partial = makeMessage('assistant', agentErr.partial)
+        if (traces.length > 0) partial.tools = [...traces]
         messages.push(partial)
         list.appendChild(renderMessage(partial))
       }
@@ -333,6 +368,9 @@ function renderMessage(message: ChatMessage): HTMLElement {
   if (message.role === 'assistant') {
     const bubble = el('div', 'bubble md selectable')
     bubble.innerHTML = renderMarkdown(message.content)
+    if (message.content.trim().length === 0 && message.tools?.length) {
+      bubble.classList.add('empty')
+    }
     const meta = el('div', 'meta')
     meta.appendChild(el('span', undefined, formatTime(message.createdAt)))
 
@@ -348,13 +386,82 @@ function renderMessage(message: ChatMessage): HTMLElement {
     })
     meta.appendChild(copy)
 
-    wrap.append(bubble, meta)
+    if (message.tools?.length) {
+      wrap.append(bubble, renderToolTrace(message.tools), meta)
+    } else {
+      wrap.append(bubble, meta)
+    }
     return wrap
   }
 
   wrap.appendChild(el('div', 'bubble selectable', message.content))
   wrap.appendChild(el('div', 'meta', formatTime(message.createdAt)))
   return wrap
+}
+
+/** Collapsible replay of the tool calls behind an assistant message. */
+function renderToolTrace(tools: ToolTrace[]): HTMLElement {
+  const details = el('details', 'tool-trace')
+  const summary = el('summary')
+  summary.appendChild(
+    el('span', undefined, `${tools.length} tool ${tools.length === 1 ? 'call' : 'calls'}`)
+  )
+  details.appendChild(summary)
+  for (const trace of tools) {
+    details.appendChild(renderToolRow(trace, false))
+  }
+  return details
+}
+
+/** One tool call: spinner while running, expandable output once done. */
+function renderToolRow(trace: ToolTrace, running: boolean): HTMLElement {
+  if (running) {
+    const row = el('div', 'tool-row live')
+    row.appendChild(el('span', 'tool-spinner'))
+    row.appendChild(el('span', 'tool-name', trace.name))
+    row.appendChild(el('span', 'tool-arg', toolArgSummary(trace)))
+    return row
+  }
+
+  const item = el('details', `tool-row done ${trace.ok ? 'ok' : 'fail'}`)
+  const summary = el('summary')
+  const status = el('span', 'tool-status')
+  if (trace.ok) {
+    status.appendChild(svg(icons.check, 11))
+    status.appendChild(el('span', undefined, formatDuration(trace.durationMs)))
+  } else {
+    status.appendChild(svg(icons.close, 11))
+    status.appendChild(el('span', undefined, 'failed'))
+  }
+  summary.append(
+    el('span', 'tool-name', trace.name),
+    el('span', 'tool-arg', toolArgSummary(trace)),
+    status
+  )
+  item.appendChild(summary)
+  if (trace.output) {
+    const output = el('pre', 'tool-output')
+    output.textContent = trace.output
+    item.appendChild(output)
+  }
+  return item
+}
+
+/** The most identifying argument of a call, kept short for the row label. */
+function toolArgSummary(trace: ToolTrace): string {
+  const input = trace.input
+  const pick =
+    (typeof input.path === 'string' && input.path) ||
+    (typeof input.command === 'string' && input.command) ||
+    (typeof input.query === 'string' && `"${input.query}"`) ||
+    ''
+  if (pick.length > 64) return `${pick.slice(0, 61)}…`
+  return pick
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${Math.max(1, Math.round(ms))}ms`
+  return `${(ms / 1000).toFixed(1)}s`
 }
 
 /** Only follow the stream while the user hasn't scrolled away from the bottom. */

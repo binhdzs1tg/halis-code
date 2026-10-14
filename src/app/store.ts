@@ -2,7 +2,13 @@ import type { AppInfo } from '../../electron/shared/types'
 import type { ModelSelection } from '../../electron/shared/models'
 
 export type SidebarView = 'explorer' | 'search' | 'settings'
-export type AgentStatus = 'idle' | 'thinking' | 'error'
+export type AgentStatus = 'idle' | 'thinking' | 'working' | 'error'
+
+/** A workspace file the agent just created or modified. */
+export interface TouchedFile {
+  path: string
+  seq: number
+}
 
 export interface AppState {
   appInfo: AppInfo | null
@@ -14,6 +20,7 @@ export interface AppState {
   openFile: string | null
   agentStatus: AgentStatus
   selectedModel: ModelSelection | null
+  lastTouchedFile: TouchedFile | null
 }
 
 type Listener = (state: AppState, prev: AppState) => void
@@ -28,7 +35,8 @@ function initialState(): AppState {
     terminalOpen: false,
     openFile: null,
     agentStatus: 'idle',
-    selectedModel: null
+    selectedModel: null,
+    lastTouchedFile: null
   }
 }
 

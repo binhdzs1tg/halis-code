@@ -1,6 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IpcChannel } from '../shared/ipc-channels'
-import type { ChatDeltaEvent, ChatDoneEvent, ChatErrorEvent } from '../shared/types'
+import type {
+  ChatDeltaEvent,
+  ChatDoneEvent,
+  ChatErrorEvent,
+  ChatToolEvent,
+  WorkspaceChangedEvent
+} from '../shared/types'
 import type { HalisApi } from '../shared/api'
 
 const api: HalisApi = {
@@ -59,6 +65,20 @@ const api: HalisApi = {
     ipcRenderer.on(IpcChannel.ChatError, handler)
     return () => {
       ipcRenderer.off(IpcChannel.ChatError, handler)
+    }
+  },
+  onChatTool: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: ChatToolEvent): void => listener(payload)
+    ipcRenderer.on(IpcChannel.ChatTool, handler)
+    return () => {
+      ipcRenderer.off(IpcChannel.ChatTool, handler)
+    }
+  },
+  onWorkspaceChanged: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: WorkspaceChangedEvent): void => listener(payload)
+    ipcRenderer.on(IpcChannel.WorkspaceChanged, handler)
+    return () => {
+      ipcRenderer.off(IpcChannel.WorkspaceChanged, handler)
     }
   }
 }

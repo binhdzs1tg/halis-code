@@ -1,4 +1,4 @@
-import type { AgentTurnRequest, ChatErrorCode } from '../../../electron/shared/types'
+import type { AgentTurnRequest, ChatErrorCode, ChatToolEvent } from '../../../electron/shared/types'
 
 export type AgentErrorCode = ChatErrorCode | 'busy' | 'bridge'
 
@@ -16,6 +16,8 @@ export class AgentError extends Error {
 
 export interface AgentStreamHandlers {
   onDelta(chunk: string): void
+  /** Tool calls as the agent makes them; `start` when invoked, `end` with the result. */
+  onTool?(event: ChatToolEvent): void
 }
 
 /**
@@ -53,6 +55,10 @@ export class AgentService {
         text += event.text
         handlers?.onDelta(event.text)
       })
+      const offTool = window.halis.onChatTool((event) => {
+        if (event.runId !== runId) return
+        handlers?.onTool?.(event)
+      })
       const offDone = window.halis.onChatDone((event) => {
         if (event.runId !== runId) return
         cleanup()
@@ -66,6 +72,7 @@ export class AgentService {
       const cleanup = (): void => {
         this.activeRunId = null
         offDelta()
+        offTool()
         offDone()
         offError()
       }

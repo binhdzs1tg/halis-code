@@ -5,7 +5,9 @@ import type {
   ChatDoneEvent,
   ChatErrorEvent,
   ChatRunStarted,
+  ChatToolEvent,
   ProviderKeyStatuses,
+  WorkspaceChangedEvent,
   WorkspaceEntry
 } from './types'
 import type { ModelCatalog } from './models'
@@ -38,6 +40,10 @@ export interface HalisApi {
   onChatDelta(listener: (event: ChatDeltaEvent) => void): () => void
   onChatDone(listener: (event: ChatDoneEvent) => void): () => void
   onChatError(listener: (event: ChatErrorEvent) => void): () => void
+  /** Tool calls the agent makes while a run is in flight. */
+  onChatTool(listener: (event: ChatToolEvent) => void): () => void
+  /** Fired when the agent creates or modifies a workspace file. */
+  onWorkspaceChanged(listener: (event: WorkspaceChangedEvent) => void): () => void
 
   /** Providers that currently have a key, either from the vault or the env. */
   getKeyStatuses(): Promise<ProviderKeyStatuses>
