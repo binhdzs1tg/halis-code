@@ -47,6 +47,27 @@ export interface TodoUpdatedEvent {
   todos: TodoItem[]
 }
 
+/* ---------- chat sessions ---------- */
+
+/** Summary row of a saved chat session, for the history list. */
+export interface ChatSessionMeta {
+  id: string
+  title: string
+  updatedAt: number
+  messageCount: number
+}
+
+/** One persisted conversation; `id` is null until the first save assigns it. */
+export interface ChatSession {
+  id: string | null
+  title: string
+  createdAt: number
+  updatedAt: number
+  workspaceRoot: string | null
+  model: ModelSelection | null
+  messages: ChatMessage[]
+}
+
 export interface WorkspaceState {
   root: string | null
 }

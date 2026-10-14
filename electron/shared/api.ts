@@ -5,6 +5,8 @@ import type {
   ChatDoneEvent,
   ChatErrorEvent,
   ChatRunStarted,
+  ChatSession,
+  ChatSessionMeta,
   ChatToolEvent,
   ProviderKeyStatuses,
   SearchOptions,
@@ -71,6 +73,15 @@ export interface HalisApi {
   getKeyStatuses(): Promise<ProviderKeyStatuses>
   setProviderKey(providerId: string, value: string): Promise<ProviderKeyStatuses>
   removeProviderKey(providerId: string): Promise<ProviderKeyStatuses>
+
+  /** Saved chat sessions, newest first. */
+  listSessions(): Promise<ChatSessionMeta[]>
+  /** Load one full conversation. */
+  loadSession(id: string): Promise<ChatSession>
+  /** Persist a conversation; assigns its id on the first save. */
+  saveSession(session: ChatSession): Promise<ChatSessionMeta>
+  /** Delete one saved conversation. */
+  deleteSession(id: string): Promise<void>
   /** Fired whenever a vault key is added or removed. */
   onKeysChanged(listener: () => void): () => void
 

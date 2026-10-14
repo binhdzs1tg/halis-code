@@ -62,6 +62,11 @@ const api: HalisApi = {
   getKeyStatuses: () => ipcRenderer.invoke(IpcChannel.KeysStatus),
   setProviderKey: (providerId, value) => ipcRenderer.invoke(IpcChannel.KeysSet, providerId, value),
   removeProviderKey: (providerId) => ipcRenderer.invoke(IpcChannel.KeysRemove, providerId),
+
+  listSessions: () => ipcRenderer.invoke(IpcChannel.SessionsList),
+  loadSession: (id) => ipcRenderer.invoke(IpcChannel.SessionsLoad, id),
+  saveSession: (session) => ipcRenderer.invoke(IpcChannel.SessionsSave, session),
+  deleteSession: (id) => ipcRenderer.invoke(IpcChannel.SessionsDelete, id),
   onKeysChanged: (listener) => {
     const handler = (): void => listener()
     ipcRenderer.on(IpcChannel.KeysChanged, handler)

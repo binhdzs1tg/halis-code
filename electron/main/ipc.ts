@@ -14,6 +14,7 @@ import {
 import * as modelsCatalog from './models-dev/catalog'
 import * as keyStore from './keys/store'
 import * as terminal from './terminal'
+import * as sessions from './sessions'
 import { cancelRun, startRun } from './agent/run'
 
 function senderWindow(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): BrowserWindow | null {
@@ -183,5 +184,21 @@ export function registerIpcHandlers(): void {
     await keyStore.remove(providerId)
     const { providers } = await modelsCatalog.list()
     return keyStore.statuses(providers)
+  })
+
+  ipcMain.handle(IpcChannel.SessionsList, () => {
+    return sessions.listSessions()
+  })
+
+  ipcMain.handle(IpcChannel.SessionsLoad, (_event, id: unknown) => {
+    return sessions.loadSession(id)
+  })
+
+  ipcMain.handle(IpcChannel.SessionsSave, (_event, session: unknown) => {
+    return sessions.saveSession(session)
+  })
+
+  ipcMain.handle(IpcChannel.SessionsDelete, (_event, id: unknown) => {
+    sessions.deleteSession(id)
   })
 }

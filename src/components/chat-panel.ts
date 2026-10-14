@@ -1,4 +1,4 @@
-import { el, svg } from '../app/dom'
+import { el, svg, clear } from '../app/dom'
 import { icons } from '../app/icons'
 import { store } from '../app/store'
 import type { ChatMessage, TodoItem, ToolTrace } from '../../electron/shared/types'
@@ -26,7 +26,11 @@ export function mountChatPanel(): HTMLElement {
 
   const header = el('div', 'panel-header')
   header.appendChild(el('span', undefined, 'Agent'))
-  header.appendChild(buildKeyChip())
+  const newChatBtn = buildIconButton(icons.plus, 'New chat')
+  const historyBtn = buildIconButton(icons.history, 'Chat history')
+  const actions = el('div', 'panel-actions')
+  actions.append(buildKeyChip(), newChatBtn, historyBtn)
+  header.appendChild(actions)
   panel.appendChild(header)
 
   const list = el('div', 'message-list')
@@ -34,6 +38,48 @@ export function mountChatPanel(): HTMLElement {
 
   const messages: ChatMessage[] = []
   renderEmptyState(list)
+
+  // History dropdown, filled on demand from the saved sessions.
+  const pop = el('div', 'session-pop')
+  pop.hidden = true
+  panel.appendChild(pop)
+
+  // The conversation currently on screen; null until its first save.
+  let sessionId: string | null = null
+
+  const persist = async (): Promise<void> => {
+    if (messages.length === 0) return
+    try {
+      const meta = await window.halis.saveSession({
+        id: sessionId,
+        title: sessionTitle(messages),
+        createdAt: messages[0]?.createdAt ?? Date.now(),
+        updatedAt: Date.now(),
+        workspaceRoot: store.get().workspaceRoot,
+        model: store.get().selectedModel,
+        messages: [...messages]
+      })
+      sessionId = meta.id
+    } catch {
+      // Persistence is best effort; the chat keeps working without it.
+    }
+  }
+
+  const togglePop = async (show?: boolean): Promise<void> => {
+    const next = show ?? (pop.hidden === true)
+    if (next) {
+      await renderSessionList(pop, sessionId, () => sessionId)
+    }
+    pop.hidden = !next
+    historyBtn.classList.toggle('active', next)
+  }
+
+  newChatBtn.addEventListener('click', () => {
+    void newChat()
+  })
+  historyBtn.addEventListener('click', () => {
+    void togglePop()
+  })
 
   // Copy buttons rendered inside markdown code blocks.
   list.addEventListener('click', (event) => {
@@ -49,7 +95,55 @@ export function mountChatPanel(): HTMLElement {
     })
   })
 
+  // Clicking anywhere in the conversation closes the history dropdown.
+  list.addEventListener('click', () => {
+    if (!pop.hidden) void togglePop(false)
+  })
+
   let running = false
+
+  const newChat = async (): Promise<void> => {
+    if (running) {
+      appendSystemNote('Stop the agent before starting a new chat.')
+      return
+    }
+    if (messages.length === 0) return
+    await persist()
+    sessionId = null
+    messages.splice(0, messages.length)
+    clear(list)
+    renderEmptyState(list)
+    await togglePop(false)
+  }
+
+  const openSession = async (id: string): Promise<void> => {
+    if (running) {
+      appendSystemNote('Stop the agent before switching chats.')
+      return
+    }
+    try {
+      const session = await window.halis.loadSession(id)
+      if (sessionId !== id) {
+        await persist()
+      }
+      sessionId = session.id
+      messages.splice(0, messages.length, ...session.messages)
+      clear(list)
+      for (const message of messages) {
+        list.appendChild(renderMessage(message))
+      }
+      scrollToBottom(list, true)
+      if (session.model && catalog.isValid(session.model)) {
+        store.update({ selectedModel: session.model })
+      }
+      await togglePop(false)
+    } catch (err) {
+      appendSystemNote(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  // Rows in the history dropdown open through this hook.
+  sessionOpener = openSession
 
   const composer = buildComposer({
     onSubmit: (text) => void send(text),
@@ -159,6 +253,7 @@ export function mountChatPanel(): HTMLElement {
       if (traces.length > 0) assistant.tools = [...traces]
       if (liveTodos.length > 0) assistant.todos = [...liveTodos]
       node.replaceWith(renderMessage(assistant))
+      void persist()
     } catch (err) {
       // Drop the placeholder; a partial, if any, is re-rendered below.
       node.remove()
@@ -170,6 +265,7 @@ export function mountChatPanel(): HTMLElement {
         if (liveTodos.length > 0) partial.todos = [...liveTodos]
         messages.push(partial)
         list.appendChild(renderMessage(partial))
+        void persist()
       }
       if (agentErr?.code === 'missing-key') {
         appendSystemNote(agentErr.message, { label: 'Add API key', onClick: () => openKeyDialog() })
@@ -207,6 +303,74 @@ export function mountChatPanel(): HTMLElement {
 
   panel.appendChild(composer.root)
   return panel
+}
+
+/** Small square header button for chat-level actions. */
+function buildIconButton(icon: string, title: string): HTMLButtonElement {
+  const btn = el('button', 'icon-btn') as HTMLButtonElement
+  btn.type = 'button'
+  btn.title = title
+  btn.appendChild(svg(icon, 14))
+  return btn
+}
+
+/** First user message, collapsed onto one line, as the session title. */
+function sessionTitle(messages: ChatMessage[]): string {
+  const first = messages.find((message) => message.role === 'user')
+  const raw = (first?.content ?? '').replace(/\s+/g, ' ').trim()
+  if (!raw) return 'Chat'
+  return raw.length > 48 ? `${raw.slice(0, 45)}…` : raw
+}
+
+/** Fill the history dropdown from the saved sessions. */
+async function renderSessionList(
+  pop: HTMLElement,
+  currentId: string | null,
+  getCurrentId: () => string | null
+): Promise<void> {
+  clear(pop)
+  const metas = await window.halis.listSessions().catch(() => [])
+  if (metas.length === 0) {
+    pop.appendChild(el('div', 'session-empty', 'No saved chats yet.'))
+    return
+  }
+  for (const meta of metas) {
+    const row = el('div', `session-row${meta.id === currentId || meta.id === getCurrentId() ? ' current' : ''}`)
+    const main = el('button', 'session-main') as HTMLButtonElement
+    main.type = 'button'
+    main.append(
+      el('span', 'session-title', meta.title),
+      el('span', 'session-sub', `${formatSessionDate(meta.updatedAt)} · ${meta.messageCount} message${meta.messageCount === 1 ? '' : 's'}`)
+    )
+    main.addEventListener('click', () => {
+      void openSessionFromRow(meta.id)
+    })
+    const del = el('button', 'session-del') as HTMLButtonElement
+    del.type = 'button'
+    del.title = 'Delete chat'
+    del.appendChild(svg(icons.trash, 12))
+    del.addEventListener('click', (event) => {
+      event.stopPropagation()
+      void window.halis.deleteSession(meta.id).then(() => renderSessionList(pop, currentId, getCurrentId))
+    })
+    row.append(main, del)
+    pop.appendChild(row)
+  }
+}
+
+/** Placeholder wired below; the real opener lives in the panel closure. */
+let sessionOpener: ((id: string) => Promise<void>) | null = null
+
+async function openSessionFromRow(id: string): Promise<void> {
+  await sessionOpener?.(id)
+}
+
+function formatSessionDate(timestamp: number): string {
+  const date = new Date(timestamp)
+  if (date.toDateString() === new Date().toDateString()) {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  }
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric' })
 }
 
 function buildKeyChip(): HTMLElement {
