@@ -7,8 +7,10 @@ import { requestQuit, isQuitting } from './quit'
 import { initShellSettings } from './settings'
 import { createTray, destroyTray } from './tray'
 import { installApplicationMenu } from './menu'
+import { installCrashHandlers, markRunning } from './crash'
 
 const gotLock = app.requestSingleInstanceLock()
+installCrashHandlers()
 if (!gotLock) {
   app.quit()
 } else {
@@ -37,6 +39,9 @@ if (!gotLock) {
 
     // Warm up the model catalog; errors are handled inside the service.
     void refreshModels()
+
+    const [win] = BrowserWindow.getAllWindows()
+    win?.webContents.once('did-finish-load', () => markRunning())
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
