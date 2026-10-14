@@ -17,6 +17,7 @@ import * as modelsCatalog from '../models-dev/catalog'
 import * as keyStore from '../keys/store'
 import { ProviderError, streamChat, type ProviderMessage } from './providers'
 import { runTool, toolSpecs, validateTodos } from './tools'
+import { compactMessages } from './compaction'
 
 const MAX_HISTORY_MESSAGES = 40
 /** Rounds of tool calls before the model is asked to wrap up. */
@@ -104,7 +105,22 @@ async function execute(
       return
     }
 
-    const messages = buildMessages(turn)
+    let messages = buildMessages(turn)
+
+    // Free context before the first step when the history runs long.
+    const compacted = await compactMessages({
+      provider,
+      model: entry,
+      variant,
+      apiKey: key.value,
+      system: SYSTEM_PROMPT,
+      messages,
+      signal: controller.signal
+    }).catch(() => null)
+    if (compacted) {
+      messages = compacted
+    }
+
     const specs = toolSpecs()
 
     for (let step = 0; ; step += 1) {
