@@ -1,14 +1,18 @@
 /**
  * Minimal Markdown renderer for chat messages.
  *
- * No dependencies, and intentionally no raw HTML passthrough: every character
- * of the source is HTML-escaped first, then the safe subset below is rebuilt
- * as markup. Covers what model replies actually use day to day — fenced code
- * blocks, inline code, emphasis, headings, lists, quotes, links and rules.
+ * No dependencies, and intentionally no raw HTML passthrough: the block
+ * parser runs on the raw source and every piece of text is HTML-escaped at
+ * the last moment before it lands in markup. Covers what model replies
+ * actually use day to day — fenced code blocks, inline code, emphasis,
+ * headings, lists, quotes, links and rules. Fenced blocks get lightweight
+ * syntax highlighting from ./highlight.
  */
 
+import { highlightCode } from './highlight'
+
 export function renderMarkdown(source: string): string {
-  const lines = escapeHtml(source).split('\n')
+  const lines = source.split('\n')
   const out: string[] = []
 
   let paragraph: string[] = []
@@ -77,8 +81,8 @@ export function renderMarkdown(source: string): string {
       continue
     }
 
-    // The source is already HTML-escaped at this point, so `>` is `&gt;`.
-    const quoteLine = line.match(/^&gt;\s?(.*)$/)
+    // Quotes are matched on the raw line; inline() escapes the payload.
+    const quoteLine = line.match(/^>\s?(.*)$/)
     if (quoteLine) {
       flushParagraph()
       flushList()
@@ -115,8 +119,8 @@ export function renderMarkdown(source: string): string {
 }
 
 function renderCode(lang: string, lines: string[], closed: boolean): string {
-  const label = lang || 'text'
-  const body = lines.join('\n')
+  const label = escapeHtml(lang || 'text')
+  const body = highlightCode(lines.join('\n'), lang)
   return (
     `<div class="code-block${closed ? '' : ' open'}">` +
     `<div class="code-head"><span>${label}</span><button class="copy-code" type="button">Copy</button></div>` +
@@ -125,9 +129,9 @@ function renderCode(lang: string, lines: string[], closed: boolean): string {
   )
 }
 
-/** Inline spans: code, bold, italic, strike, links. Order matters. */
+/** Inline spans: code, bold, italic, strike, links. Escape first, then build. */
 function inline(text: string): string {
-  return text
+  return escapeHtml(text)
     .replace(/`([^`\n]+)`/g, '<code>$1</code>')
     .replace(/\*\*([^*\n][^*]*?)\*\*/g, '<b>$1</b>')
     .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')

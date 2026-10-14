@@ -1205,6 +1205,30 @@ body.is-mac .window-controls {
   line-height: 1.6;
 }
 
+/* token colors for the chat highlighter */
+.chat-panel .bubble.md code .tok-kw {
+  color: #c792ea;
+}
+.chat-panel .bubble.md code .tok-str {
+  color: #a5d6a7;
+}
+.chat-panel .bubble.md code .tok-com {
+  color: var(--fg-2);
+  font-style: italic;
+}
+.chat-panel .bubble.md code .tok-num {
+  color: #f0b86e;
+}
+.chat-panel .bubble.md code .tok-lit {
+  color: #82aaff;
+}
+.chat-panel .bubble.md code .tok-fn {
+  color: #7dcfff;
+}
+.chat-panel .bubble.md code .tok-prop {
+  color: #9cdcfe;
+}
+
 .chat-panel .bubble.md .code-block.open pre::after,
 .chat-panel .bubble.streaming::after {
   content: '';
