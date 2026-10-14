@@ -4,6 +4,7 @@ import path from 'node:path'
 import { isQuitting } from './quit'
 import { shellSettings } from './settings'
 import { saveWindowState, windowBoundsOptions } from './window-state'
+import { attachWindowDiagnostics } from './crash'
 
 const DIST = path.join(__dirname, '..')
 const RESOURCES = path.join(app.getAppPath(), 'resources')
@@ -28,6 +29,10 @@ export function createMainWindow(): BrowserWindow {
   })
 
   win.setMenuBarVisibility(false)
+
+  // Renderer console errors, crashed render processes and failed loads all
+  // land in the crash-report pipeline instead of vanishing silently.
+  attachWindowDiagnostics(win)
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http://') || url.startsWith('https://')) {
