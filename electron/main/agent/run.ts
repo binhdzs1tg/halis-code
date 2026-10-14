@@ -7,20 +7,28 @@ import type {
   ChatErrorEvent,
   ChatErrorCode,
   ChatMessage,
-  ChatRunStarted
+  ChatRunStarted,
+  ChatToolEvent
 } from '../../shared/types'
 import type { ModelSelection } from '../../shared/models'
 import * as modelsCatalog from '../models-dev/catalog'
 import * as keyStore from '../keys/store'
 import { ProviderError, streamChat, type ProviderMessage } from './providers'
+import { runTool, toolSpecs } from './tools'
 
 const MAX_HISTORY_MESSAGES = 40
+/** Rounds of tool calls before the model is asked to wrap up. */
+const MAX_TOOL_STEPS = 24
 
 const SYSTEM_PROMPT = [
   'You are Halis, the coding agent built into the Halis Code editor.',
   'Reply in the same language the user writes in.',
   'Be concise and practical; prefer working code over prose.',
-  'Use Markdown and tag fenced code blocks with their language.'
+  'Use Markdown and tag fenced code blocks with their language.',
+  'When tools are available, work with the open folder instead of guessing:',
+  'list_dir and read_file to explore, search to locate code, edit_file or write_file',
+  'to change files, run_command to build, test or inspect. Read a file before editing',
+  'it and keep changes small and focused. If no folder is open, ask the user to open one.'
 ].join('\n')
 
 interface Turn {
@@ -88,21 +96,65 @@ async function execute(
       return
     }
 
-    await streamChat({
-      provider,
-      model: entry,
-      variant,
-      apiKey: key.value,
-      system: SYSTEM_PROMPT,
-      messages: buildMessages(turn),
-      signal: controller.signal,
-      onDelta: (text) => {
-        const event: ChatDeltaEvent = { runId, text }
-        emit(IpcChannel.ChatDelta, event)
-      }
-    })
+    const messages = buildMessages(turn)
+    const specs = toolSpecs()
 
-    const done: ChatDoneEvent = { runId, aborted: false }
+    for (let step = 0; ; step += 1) {
+      // Budget spent: force one plain, tool-less completion so the turn still ends with an answer.
+      const wrapUp = step >= MAX_TOOL_STEPS
+      if (wrapUp) {
+        messages.push({
+          role: 'user',
+          content: 'The tool budget for this turn is used up. Give your final answer now, without calling any more tools.'
+        })
+      }
+
+      const result = await streamChat({
+        provider,
+        model: entry,
+        variant,
+        apiKey: key.value,
+        system: SYSTEM_PROMPT,
+        messages,
+        tools: wrapUp ? undefined : specs,
+        signal: controller.signal,
+        onDelta: (text) => {
+          const event: ChatDeltaEvent = { runId, text }
+          emit(IpcChannel.ChatDelta, event)
+        }
+      })
+
+      if (result.toolCalls.length === 0 || wrapUp) break
+
+      messages.push({ role: 'assistant', content: result.text, toolCalls: result.toolCalls })
+      const results = []
+      for (const call of result.toolCalls) {
+        const startedAt = Date.now()
+        const start: ChatToolEvent = { runId, callId: call.id, name: call.name, phase: 'start', input: call.input }
+        emit(IpcChannel.ChatTool, start)
+        const outcome = await runTool(call, controller.signal)
+        const end: ChatToolEvent = {
+          runId,
+          callId: call.id,
+          name: call.name,
+          phase: 'end',
+          input: call.input,
+          output: outcome.output,
+          ok: outcome.ok,
+          durationMs: Date.now() - startedAt
+        }
+        emit(IpcChannel.ChatTool, end)
+        if (outcome.changedPath) {
+          emit(IpcChannel.WorkspaceChanged, { path: outcome.changedPath })
+        }
+        results.push({ callId: call.id, output: outcome.output, ok: outcome.ok })
+        if (controller.signal.aborted) break
+      }
+      if (controller.signal.aborted) break
+      messages.push({ role: 'user', content: '', toolResults: results })
+    }
+
+    const done: ChatDoneEvent = { runId, aborted: controller.signal.aborted }
     emit(IpcChannel.ChatDone, done)
   } catch (err) {
     if (err instanceof ProviderError && err.code === 'aborted') {
@@ -122,13 +174,24 @@ async function execute(
 
 function buildMessages(turn: Turn): ProviderMessage[] {
   const out: ProviderMessage[] = []
+  // Anthropic insists on alternating roles; merging consecutive turns of the
+  // same role (e.g. two user messages split by a dropped system note) keeps
+  // every provider happy.
+  const push = (role: 'user' | 'assistant', content: string): void => {
+    const last = out[out.length - 1]
+    if (last && last.role === role) {
+      last.content = `${last.content}\n\n${content}`
+      return
+    }
+    out.push({ role, content })
+  }
   for (const message of turn.history) {
     if (message.role === 'system') continue
     const content = message.content.trim()
     if (!content) continue
-    out.push({ role: message.role === 'assistant' ? 'assistant' : 'user', content })
+    push(message.role === 'assistant' ? 'assistant' : 'user', content)
   }
-  out.push({ role: 'user', content: turn.prompt.trim() })
+  push('user', turn.prompt.trim())
   return out.slice(-MAX_HISTORY_MESSAGES)
 }
 

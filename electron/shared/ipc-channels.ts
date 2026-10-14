@@ -15,6 +15,8 @@ export const IpcChannel = {
   ChatDelta: 'chat:delta',
   ChatDone: 'chat:done',
   ChatError: 'chat:error',
+  ChatTool: 'chat:tool',
+  WorkspaceChanged: 'workspace:changed',
   KeysStatus: 'keys:status',
   KeysSet: 'keys:set',
   KeysRemove: 'keys:remove',
