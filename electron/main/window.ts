@@ -1,6 +1,7 @@
 import { BrowserWindow, app, dialog, nativeImage, shell } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { isQuitting, markSessionEnding, clearSessionEnding } from './quit'
 import { IpcChannel } from '../shared/ipc-channels'
 import { shellSettings } from './settings'
@@ -61,6 +62,19 @@ export function createMainWindow(): BrowserWindow {
       void shell.openExternal(url)
     }
     return { action: 'deny' }
+  })
+
+  // In-page navigation stays inside the app: anything else is either the dev
+  // server or the packaged page itself. Every other target opens in the
+  // system browser when it is a real URL, or is simply denied.
+  win.webContents.on('will-navigate', (event, url) => {
+    const devUrl = process.env.HALIS_DEV_URL
+    const selfUrl = pathToFileURL(path.join(DIST, 'renderer', 'index.html')).href
+    if (url === selfUrl || (devUrl && url.startsWith(devUrl))) return
+    event.preventDefault()
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      void shell.openExternal(url)
+    }
   })
 
   // Closing the window keeps the app alive in the tray (Windows/Linux) so
