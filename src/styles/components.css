@@ -1071,11 +1071,22 @@ body.is-mac .window-controls {
 
 /* ---------- markdown content ---------- */
 
-.chat-panel .bubble.md > :first-child {
+/* Streaming wrappers (markdown-stream) are layout-transparent; the margin
+   trims then carry through to the elements inside them. */
+.chat-panel .bubble .md-block,
+.chat-panel .bubble .md-tail {
+  display: contents;
+}
+
+.chat-panel .bubble.md > :first-child,
+.chat-panel .bubble.md .md-block > :first-child,
+.chat-panel .bubble.md .md-tail > :first-child {
   margin-top: 0;
 }
 
-.chat-panel .bubble.md > :last-child {
+.chat-panel .bubble.md > :last-child,
+.chat-panel .bubble.md .md-block > :last-child,
+.chat-panel .bubble.md .md-tail > :last-child {
   margin-bottom: 0;
 }
 

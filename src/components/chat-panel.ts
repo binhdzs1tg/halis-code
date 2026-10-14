@@ -6,6 +6,7 @@ import { agentService, AgentError } from '../core/agent/agent-service'
 import * as catalog from '../core/models/catalog'
 import { keyStatusOf, refreshKeyStatuses } from '../core/keys'
 import { renderMarkdown } from '../core/markdown'
+import { StreamingMarkdown } from '../core/markdown-stream'
 import { openModelDialog } from './model-picker'
 import { openKeyDialog } from './key-dialog'
 
@@ -199,12 +200,18 @@ export function mountChatPanel(): HTMLElement {
 
     let buffered = ''
     let frame = 0
+    // Only the unstable tail re-renders per frame; settled blocks freeze.
+    const streamHost = node.querySelector<HTMLElement>('.bubble')
+    let stream: StreamingMarkdown | null = null
+    if (streamHost) {
+      streamHost.classList.add('streaming-md')
+      stream = new StreamingMarkdown(streamHost)
+    }
     const paint = (): void => {
       if (frame) return
       frame = requestAnimationFrame(() => {
         frame = 0
-        const bubble = node.querySelector('.bubble')
-        if (bubble) bubble.innerHTML = renderMarkdown(buffered)
+        stream?.update(buffered)
         scrollToBottom(list)
       })
     }
