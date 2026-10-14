@@ -29,6 +29,8 @@ export interface HalisApi {
   minimize(): void
   maximize(): void
   close(): void
+  /** Fired when the window enters or leaves the maximized/fullscreen state. */
+  onWindowState(listener: (maximized: boolean) => void): () => void
 
   pickWorkspace(): Promise<string | null>
   openWorkspace(absolutePath: string): Promise<string | null>

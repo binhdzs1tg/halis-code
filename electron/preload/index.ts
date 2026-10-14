@@ -18,6 +18,14 @@ const api: HalisApi = {
   minimize: () => ipcRenderer.send(IpcChannel.WindowMinimize),
   maximize: () => ipcRenderer.send(IpcChannel.WindowMaximize),
   close: () => ipcRenderer.send(IpcChannel.WindowClose),
+  onWindowState: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, maximized: boolean): void =>
+      listener(maximized)
+    ipcRenderer.on(IpcChannel.WindowState, handler)
+    return () => {
+      ipcRenderer.off(IpcChannel.WindowState, handler)
+    }
+  },
 
   pickWorkspace: () => ipcRenderer.invoke(IpcChannel.WorkspacePick),
   openWorkspace: (absolutePath) => ipcRenderer.invoke(IpcChannel.WorkspaceOpen, absolutePath),

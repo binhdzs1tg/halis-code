@@ -24,9 +24,12 @@ export function mountTitlebar(): HTMLElement {
   maxBtn.appendChild(maxIcon)
   maxBtn.addEventListener('click', () => {
     window.halis.maximize()
-    // icon flips between maximize/restore; cheap and good enough for now
-    maxIcon.replaceWith(svg(maxBtn.classList.contains('restored') ? icons.maximize : icons.restore, 13))
-    maxBtn.classList.toggle('restored')
+  })
+  // The icon follows the real window state, so OS-driven maximize/unmaximize
+  // (double-click on the taskbar, aero snap, fullscreen) stays in sync.
+  window.halis.onWindowState((maximized) => {
+    maxBtn.title = maximized ? 'Restore' : 'Maximize'
+    maxIcon.replaceWith(svg(maximized ? icons.restore : icons.maximize, 13))
   })
 
   const closeBtn = el('button', 'close')

@@ -3,6 +3,7 @@ export const IpcChannel = {
   WindowMinimize: 'window:minimize',
   WindowMaximize: 'window:maximize',
   WindowClose: 'window:close',
+  WindowState: 'window:state',
   WorkspacePick: 'workspace:pick',
   WorkspaceOpen: 'workspace:open',
   WorkspaceReadDir: 'workspace:read-dir',

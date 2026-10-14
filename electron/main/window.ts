@@ -2,6 +2,7 @@ import { BrowserWindow, app, dialog, nativeImage, shell } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { isQuitting, markSessionEnding, clearSessionEnding } from './quit'
+import { IpcChannel } from '../shared/ipc-channels'
 import { shellSettings } from './settings'
 import { saveWindowState, windowBoundsOptions } from './window-state'
 import { attachWindowDiagnostics } from './crash'
@@ -42,6 +43,18 @@ export function createMainWindow(): BrowserWindow {
   // macOS power-off can be cancelled; when the user backs out, the next
   // window focus restores the normal quit confirmation.
   win.on('focus', clearSessionEnding)
+
+  // Maximize and fullscreen changes are pushed so the renderer's titlebar
+  // button reflects the real state, including changes made from the OS.
+  const pushWindowState = (): void => {
+    if (!win.isDestroyed()) {
+      win.webContents.send(IpcChannel.WindowState, win.isMaximized() || win.isFullScreen())
+    }
+  }
+  win.on('maximize', pushWindowState)
+  win.on('unmaximize', pushWindowState)
+  win.on('enter-full-screen', pushWindowState)
+  win.on('leave-full-screen', pushWindowState)
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http://') || url.startsWith('https://')) {
