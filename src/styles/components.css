@@ -1349,21 +1349,37 @@ body.is-mac .window-controls {
   cursor: text;
 }
 
+.terminal-panel .term-out {
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-height: 1em;
+}
+
+.terminal-panel .term-input-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.terminal-panel .term-input-row .prompt {
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.terminal-panel .term-input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12.3px;
+  color: var(--fg-0);
+  caret-color: var(--accent);
+}
+
+.terminal-panel .term-input::placeholder {
+  color: var(--fg-2);
+}
+
 .terminal-panel .term-body .line .prompt {
   color: var(--accent);
-}
-
-.terminal-panel .term-body .caret {
-  display: inline-block;
-  width: 7px;
-  height: 14px;
-  vertical-align: -2px;
-  background: var(--fg-1);
-  animation: blink 1.1s steps(1) infinite;
-}
-
-@keyframes blink {
-  50% {
-    opacity: 0;
-  }
 }

@@ -26,7 +26,8 @@ export const icons = {
   stop: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="%SIZE%" height="%SIZE%" fill="currentColor" stroke="none"><rect x="6.5" y="6.5" width="11" height="11" rx="1.5"/></svg>',
   key: icon('<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/>'),
   copy: icon('<rect x="9" y="9" width="11" height="11" rx="1.5"/><path d="M5 15H4.5A1.5 1.5 0 0 1 3 13.5v-9A1.5 1.5 0 0 1 4.5 3h9A1.5 1.5 0 0 1 15 4.5V5"/>'),
-  check: icon('<path d="M4.5 12.5l5 5L19.5 7"/>')
+  check: icon('<path d="M4.5 12.5l5 5L19.5 7"/>'),
+  trash: icon('<path d="M4 6.5h16M9.5 6V4.5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1V6M6.5 6.5l1 13h9l1-13M10 10.5v5.5M14 10.5v5.5"/>')
 }
 
 export type IconName = keyof typeof icons

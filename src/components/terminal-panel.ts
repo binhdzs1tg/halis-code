@@ -1,43 +1,223 @@
 import { el, svg } from '../app/dom'
 import { icons } from '../app/icons'
 import { store } from '../app/store'
+import type { TerminalExitEvent } from '../../electron/shared/types'
 
+/** Keep the scrollback bounded so long builds don't grow the DOM forever. */
+const MAX_OUT_CHARS = 400_000
+
+/**
+ * Working command terminal. Each submitted line spawns through the user's
+ * shell in the main process with a persistent cwd; output streams back as
+ * `terminal:data` events. Interactive TUIs are out of scope, but cd, build,
+ * test and git workflows all behave.
+ */
 export function mountTerminalPanel(): HTMLElement {
   const panel = el('section', 'terminal-panel hidden-panel')
 
+  // ---- header ----
   const header = el('div', 'panel-header')
   header.appendChild(svg(icons.terminal, 13))
   header.appendChild(el('span', undefined, 'Terminal'))
-  header.appendChild(el('span', 'tab-hint', 'shell integration — planned'))
 
-  const dismiss = el('button', 'dismiss')
+  const statusHint = el('span', 'tab-hint', 'idle')
+  header.appendChild(statusHint)
+
+  const clearBtn = el('button', 'dismiss') as HTMLButtonElement
+  clearBtn.type = 'button'
+  clearBtn.title = 'Clear terminal (Ctrl+L)'
+  clearBtn.appendChild(svg(icons.trash, 12))
+  header.appendChild(clearBtn)
+
+  const dismiss = el('button', 'dismiss') as HTMLButtonElement
+  dismiss.type = 'button'
   dismiss.title = 'Close panel'
   dismiss.appendChild(svg(icons.close, 12))
+  header.appendChild(dismiss)
+
+  // ---- body ----
+  const body = el('div', 'term-body')
+  const out = el('div', 'term-out')
+  const inputRow = el('div', 'term-input-row')
+
+  const prompt = el('span', 'prompt')
+  const input = el('input', 'term-input') as HTMLInputElement
+  input.spellcheck = false
+  input.autocapitalize = 'off'
+  input.autocomplete = 'off'
+  input.placeholder = 'Run a command…'
+
+  inputRow.append(prompt, input)
+  body.append(out, inputRow)
+  panel.append(header, body)
+
+  // ---- state ----
+  let cwd: string | null = null
+  let busy = false
+  let currentRunId: string | null = null
+  const history: string[] = []
+  let historyIndex = -1
+
+  const shortCwd = (value: string): string => {
+    const segments = value.replace(/[\\/]+$/, '').split(/[\\/]/)
+    return segments[segments.length - 1] || value
+  }
+
+  const paintPrompt = (): void => {
+    if (cwd) {
+      prompt.textContent = shortCwd(cwd)
+      prompt.title = cwd
+    } else {
+      prompt.textContent = '~'
+      prompt.title = ''
+    }
+  }
+
+  const scrollToEnd = (): void => {
+    body.scrollTop = body.scrollHeight
+  }
+
+  const appendText = (text: string): void => {
+    out.textContent += text
+    if (out.textContent.length > MAX_OUT_CHARS) {
+      out.textContent = out.textContent.slice(out.textContent.length - MAX_OUT_CHARS)
+    }
+    scrollToEnd()
+  }
+
+  const echo = (command: string): void => {
+    const line = el('div', 'line')
+    const mark = el('span', 'prompt', prompt.textContent ? `${prompt.textContent} $ ` : '$ ')
+    line.append(mark, document.createTextNode(command))
+    out.appendChild(line)
+    scrollToEnd()
+  }
+
+  const setStatus = (text: string): void => {
+    statusHint.textContent = text
+  }
+
+  const clearOut = (): void => {
+    out.textContent = ''
+  }
+
+  const run = async (command: string): Promise<void> => {
+    if (busy) return
+    echo(command)
+    if (command.trim() === 'clear') {
+      clearOut()
+      return
+    }
+    busy = true
+    setStatus('running…')
+    try {
+      currentRunId = await window.halis.runTerminalCommand(command)
+    } catch (err) {
+      appendText(`${err instanceof Error ? err.message : String(err)}\n`)
+      busy = false
+      currentRunId = null
+      setStatus('idle')
+    }
+  }
+
+  const stop = (): void => {
+    if (!busy) return
+    appendText('^C\n')
+    void window.halis.killTerminalCommand()
+  }
+
+  // ---- events ----
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      const command = input.value.trim()
+      if (!command) return
+      input.value = ''
+      history.push(command)
+      historyIndex = history.length
+      void run(command)
+      return
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      if (history.length === 0) return
+      historyIndex = Math.max(0, historyIndex - 1)
+      input.value = history[historyIndex] ?? ''
+      return
+    }
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      if (history.length === 0) return
+      historyIndex = Math.min(history.length, historyIndex + 1)
+      input.value = history[historyIndex] ?? ''
+      return
+    }
+    if (event.key === 'c' && event.ctrlKey) {
+      event.preventDefault()
+      stop()
+      return
+    }
+    if (event.key === 'l' && event.ctrlKey) {
+      event.preventDefault()
+      clearOut()
+    }
+  })
+
+  clearBtn.addEventListener('click', () => {
+    clearOut()
+    input.focus()
+  })
   dismiss.addEventListener('click', () => {
     store.update({ terminalOpen: false })
   })
-  header.appendChild(dismiss)
 
-  const body = el('div', 'term-body')
-  body.appendChild(buildLine('halis-code v0.1.0 — terminal integration ships in a later milestone'))
-  body.appendChild(buildLine('', true))
-
-  panel.append(header, body)
-
-  store.subscribe((state) => {
-    panel.classList.toggle('hidden-panel', !state.terminalOpen)
+  body.addEventListener('click', (event) => {
+    // don't steal the caret when the user is selecting output
+    const selection = window.getSelection()
+    if (selection && selection.toString().length > 0) return
+    if (event.target === input) return
+    input.focus()
   })
 
-  return panel
-}
+  window.halis.onTerminalData((event) => {
+    if (event.id !== currentRunId) return
+    appendText(event.chunk)
+  })
 
-function buildLine(text: string, withPrompt = false): HTMLElement {
-  const line = el('div', 'line')
-  if (withPrompt) {
-    line.appendChild(el('span', 'prompt', '~/ $ '))
-    line.appendChild(el('span', 'caret'))
-  } else {
-    line.textContent = text
-  }
-  return line
+  window.halis.onTerminalExit((event: TerminalExitEvent) => {
+    if (event.id !== currentRunId) return
+    busy = false
+    currentRunId = null
+    if (typeof event.code === 'number' && event.code !== 0) {
+      setStatus(`exit ${event.code}`)
+      window.setTimeout(() => {
+        if (!busy) setStatus('idle')
+      }, 2500)
+    } else {
+      setStatus('idle')
+    }
+    if (event.cwd) {
+      cwd = event.cwd
+      paintPrompt()
+    }
+    if (store.get().terminalOpen) {
+      input.focus()
+    }
+  })
+
+  // Follow the workspace: jump the shell to the newly opened folder.
+  store.subscribe((state, prev) => {
+    panel.classList.toggle('hidden-panel', !state.terminalOpen)
+    if (state.terminalOpen && !prev.terminalOpen) {
+      input.focus()
+    }
+    if (state.workspaceRoot && state.workspaceRoot !== prev.workspaceRoot && !busy) {
+      void window.halis
+        .runTerminalCommand(`cd "${state.workspaceRoot}"`)
+        .catch(() => undefined)
+    }
+  })
+
+  paintPrompt()
+  return panel
 }
