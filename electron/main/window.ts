@@ -3,14 +3,14 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { isQuitting } from './quit'
 import { shellSettings } from './settings'
+import { saveWindowState, windowBoundsOptions } from './window-state'
 
 const DIST = path.join(__dirname, '..')
 const RESOURCES = path.join(app.getAppPath(), 'resources')
 
 export function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
-    width: 1320,
-    height: 860,
+    ...windowBoundsOptions(),
     minWidth: 960,
     minHeight: 620,
     frame: false,
@@ -39,7 +39,10 @@ export function createMainWindow(): BrowserWindow {
   // Closing the window keeps the app alive in the tray (Windows/Linux) so
   // running tasks continue; the confirmation explains that on the first hide.
   win.on('close', (event) => {
-    if (isQuitting() || process.platform === 'darwin') return
+    if (isQuitting() || process.platform === 'darwin') {
+      saveWindowState(win)
+      return
+    }
     if (!shellSettings().closeToTray) return
     event.preventDefault()
     void hideToTray(win)
