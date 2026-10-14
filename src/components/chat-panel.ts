@@ -503,6 +503,11 @@ function buildComposer(handlers: ComposerHandlers): { root: HTMLElement; setRunn
     if (!text) return
     textarea.value = ''
     autoGrow()
+    try {
+      localStorage.removeItem(DRAFT_KEY)
+    } catch {
+      // ignore
+    }
     handlers.onSubmit(text)
   }
 
@@ -531,7 +536,31 @@ function buildComposer(handlers: ComposerHandlers): { root: HTMLElement; setRunn
     textarea.style.height = `${Math.min(textarea.scrollHeight, 120)}px`
   }
 
-  textarea.addEventListener('input', autoGrow)
+  // The unsent draft survives restarts and chat switches; a submitted draft
+  // is dropped, mirroring per-session draft stores in DeepSeek Harness.
+  const DRAFT_KEY = 'halis.composer-draft'
+  try {
+    textarea.value = localStorage.getItem(DRAFT_KEY) ?? ''
+    if (textarea.value) autoGrow()
+  } catch {
+    // storage unavailable — draft just does not persist
+  }
+  let draftTimer = 0
+  const saveDraft = (): void => {
+    window.clearTimeout(draftTimer)
+    draftTimer = window.setTimeout(() => {
+      try {
+        if (textarea.value.trim()) localStorage.setItem(DRAFT_KEY, textarea.value)
+        else localStorage.removeItem(DRAFT_KEY)
+      } catch {
+        // ignore
+      }
+    }, 250)
+  }
+  textarea.addEventListener('input', () => {
+    autoGrow()
+    saveDraft()
+  })
 
   inputBox.append(textarea, sendBtn)
   composer.appendChild(inputBox)
