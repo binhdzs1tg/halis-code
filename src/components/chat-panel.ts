@@ -653,12 +653,103 @@ function renderToolRow(trace: ToolTrace, running: boolean): HTMLElement {
     status
   )
   item.appendChild(summary)
-  if (trace.output) {
+
+  const diff = toolDiff(trace)
+  if (diff) {
+    if (diff.added > 0 || diff.removed > 0) {
+      const totals = el('span', 'diff-totals')
+      if (diff.added > 0) totals.appendChild(el('span', 'diff-added', `+${diff.added}`))
+      if (diff.removed > 0) totals.appendChild(el('span', 'diff-removed', `−${diff.removed}`))
+      summary.insertBefore(totals, status)
+    }
+    item.appendChild(renderDiffBlock(diff))
+  } else if (trace.output) {
     const output = el('pre', 'tool-output')
     output.textContent = trace.output
     item.appendChild(output)
   }
   return item
+}
+
+/* ---------- edit diffs ---------- */
+
+interface DiffLine {
+  kind: 'add' | 'del'
+  text: string
+}
+
+interface ToolDiff {
+  lines: DiffLine[]
+  added: number
+  removed: number
+}
+
+const DIFF_MAX_LINES = 24
+
+/**
+ * Build a small add/remove view for tools that change file content: edit_file
+ * pairs old_text with new_text, write_file replaces the whole file. Returns
+ * null for tools whose output should be shown instead.
+ */
+function toolDiff(trace: ToolTrace): ToolDiff | null {
+  if (!trace.ok) return null
+  if (trace.name === 'edit_file') {
+    const oldText = typeof trace.input.old_text === 'string' ? trace.input.old_text : ''
+    const newText =
+      trace.input.new_text === undefined || typeof trace.input.new_text !== 'string'
+        ? ''
+        : trace.input.new_text
+    if (!oldText && !newText) return null
+    const lines: DiffLine[] = [
+      ...splitDiffLines(oldText).map((text) => ({ kind: 'del' as const, text })),
+      ...splitDiffLines(newText).map((text) => ({ kind: 'add' as const, text }))
+    ]
+    return capDiff(lines)
+  }
+  if (trace.name === 'write_file') {
+    const content = typeof trace.input.content === 'string' ? trace.input.content : null
+    if (content === null) return null
+    return capDiff(splitDiffLines(content).map((text) => ({ kind: 'add' as const, text })))
+  }
+  return null
+}
+
+/** Split into displayed lines, dropping only the trailing newline remainder. */
+function splitDiffLines(text: string): string[] {
+  const lines = text.split('\n')
+  if (lines.length > 1 && lines[lines.length - 1] === '') {
+    lines.pop()
+  }
+  return lines
+}
+
+/** Head/tail cap so a huge rewrite cannot flood the conversation. */
+function capDiff(lines: DiffLine[]): ToolDiff {
+  const added = lines.filter((line) => line.kind === 'add').length
+  const removed = lines.length - added
+  if (lines.length <= DIFF_MAX_LINES) {
+    return { lines, added, removed }
+  }
+  const head = Math.ceil(DIFF_MAX_LINES / 2)
+  const tail = DIFF_MAX_LINES - head
+  const gap: DiffLine[] = [
+    ...lines.slice(0, head),
+    { kind: 'del', text: `… ${lines.length - DIFF_MAX_LINES} more lines` },
+    ...lines.slice(lines.length - tail)
+  ]
+  return { lines: gap, added, removed }
+}
+
+function renderDiffBlock(diff: ToolDiff): HTMLElement {
+  const block = el('div', 'tool-diff')
+  for (const line of diff.lines) {
+    if (line.text.startsWith('… ') && line.kind === 'del') {
+      block.appendChild(el('div', 'diff-gap', line.text))
+      continue
+    }
+    block.appendChild(el('div', `diff-line ${line.kind}`, line.text))
+  }
+  return block
 }
 
 /** The most identifying argument of a call, kept short for the row label. */
