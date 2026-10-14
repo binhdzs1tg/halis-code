@@ -30,6 +30,9 @@ export const icons = {
   refresh: icon('<path d="M20 11.5A8 8 0 1 0 18.4 17"/><path d="M20 5v6.5h-6.5"/>'),
   copy: icon('<rect x="9" y="9" width="11" height="11" rx="1.5"/><path d="M5 15H4.5A1.5 1.5 0 0 1 3 13.5v-9A1.5 1.5 0 0 1 4.5 3h9A1.5 1.5 0 0 1 15 4.5V5"/>'),
   check: icon('<path d="M4.5 12.5l5 5L19.5 7"/>'),
+  circle: icon('<circle cx="12" cy="12" r="8.5"/>'),
+  history: icon('<path d="M12 8v4.5l3 1.8"/><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3L4.5 8.9"/><path d="M4.5 4.5v4.4h4.4"/>'),
+  plus: icon('<path d="M12 5v14M5 12h14"/>'),
   trash: icon('<path d="M4 6.5h16M9.5 6V4.5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1V6M6.5 6.5l1 13h9l1-13M10 10.5v5.5M14 10.5v5.5"/>')
 }
 

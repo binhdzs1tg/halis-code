@@ -1,4 +1,4 @@
-import type { AgentTurnRequest, ChatErrorCode, ChatToolEvent } from '../../../electron/shared/types'
+import type { AgentTurnRequest, ChatErrorCode, ChatToolEvent, TodoUpdatedEvent } from '../../../electron/shared/types'
 
 export type AgentErrorCode = ChatErrorCode | 'busy' | 'bridge'
 
@@ -18,6 +18,8 @@ export interface AgentStreamHandlers {
   onDelta(chunk: string): void
   /** Tool calls as the agent makes them; `start` when invoked, `end` with the result. */
   onTool?(event: ChatToolEvent): void
+  /** Whole-list todo snapshots as the agent rewrites its plan. */
+  onTodo?(event: TodoUpdatedEvent): void
 }
 
 /**
@@ -59,6 +61,10 @@ export class AgentService {
         if (event.runId !== runId) return
         handlers?.onTool?.(event)
       })
+      const offTodo = window.halis.onChatTodo((event) => {
+        if (event.runId !== runId) return
+        handlers?.onTodo?.(event)
+      })
       const offDone = window.halis.onChatDone((event) => {
         if (event.runId !== runId) return
         cleanup()
@@ -73,6 +79,7 @@ export class AgentService {
         this.activeRunId = null
         offDelta()
         offTool()
+        offTodo()
         offDone()
         offError()
       }

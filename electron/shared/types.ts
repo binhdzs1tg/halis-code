@@ -25,6 +25,26 @@ export interface ChatMessage {
   createdAt: number
   /** Tool calls the assistant made during this message, for display only. */
   tools?: ToolTrace[]
+  /** Latest todo snapshot the agent recorded during this message, for replay. */
+  todos?: TodoItem[]
+}
+
+/* ---------- agent todo list ---------- */
+
+/**
+ * One entry in the agent's task list. Deliberately minimal — a short
+ * imperative line and a three-state lifecycle; the whole list is replaced
+ * on every write (last write wins).
+ */
+export interface TodoItem {
+  content: string
+  status: 'pending' | 'in_progress' | 'completed'
+}
+
+/** Whole-list snapshot pushed to the renderer after each `todo_write`. */
+export interface TodoUpdatedEvent {
+  runId: string
+  todos: TodoItem[]
 }
 
 export interface WorkspaceState {

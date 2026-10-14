@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
-import type { ToolCall, ToolSpec } from '../../shared/types'
+import type { ToolCall, ToolSpec, TodoItem } from '../../shared/types'
 import {
   getWorkspaceRoot,
   listDir,
@@ -112,8 +112,83 @@ export function toolSpecs(): ToolSpec[] {
         },
         required: ['command']
       }
+    },
+    {
+      name: 'todo_write',
+      description:
+        'Record and update a task list to plan multi-step work and show progress; skip it ' +
+        'for trivial single-step tasks. Add one todo per concrete step before you start. ' +
+        'While work remains, keep exactly one todo in_progress. Mark each todo completed ' +
+        'as soon as it is done. Every call replaces the whole list.',
+      parameters: {
+        type: 'object',
+        properties: {
+          todos: {
+            type: 'array',
+            description: 'The complete new todo list.',
+            items: {
+              type: 'object',
+              properties: {
+                content: { type: 'string', description: 'Short imperative task line' },
+                status: { type: 'string', enum: ['pending', 'in_progress', 'completed'] }
+              },
+              required: ['content', 'status']
+            }
+          }
+        },
+        required: ['todos']
+      }
     }
   ]
+}
+
+/** Upper bound on list size; a longer plan means the task should be split first. */
+const MAX_TODOS = 50
+
+const TODO_STATUSES = ['pending', 'in_progress', 'completed'] as const
+
+/**
+ * Validate the model-supplied list and build the canonical snapshot:
+ * trimmed non-empty unique content, known statuses, and at most one
+ * in_progress item (single-active discipline). Throws with a message that
+ * goes back to the model so it can correct course.
+ */
+export function validateTodos(input: Record<string, unknown>): TodoItem[] {
+  const raw = input.todos
+  if (!Array.isArray(raw)) {
+    throw new Error('Parameter "todos" must be an array.')
+  }
+  if (raw.length > MAX_TODOS) {
+    throw new Error(`Too many todos (${raw.length}); keep the list at ${MAX_TODOS} or fewer.`)
+  }
+  const todos: TodoItem[] = []
+  const seen = new Set<string>()
+  let active = 0
+  for (const item of raw) {
+    if (typeof item !== 'object' || item === null) {
+      throw new Error('Each todo must be an object with content and status.')
+    }
+    const candidate = item as { content?: unknown; status?: unknown }
+    if (typeof candidate.content !== 'string' || candidate.content.trim().length === 0) {
+      throw new Error('Invalid todo: "content" must be a non-empty string.')
+    }
+    if (typeof candidate.status !== 'string' || !TODO_STATUSES.includes(candidate.status as TodoItem['status'])) {
+      throw new Error(
+        `Invalid todo status for ${JSON.stringify(candidate.content.trim())}: use pending, in_progress or completed.`
+      )
+    }
+    const content = candidate.content.trim()
+    if (seen.has(content)) {
+      throw new Error(`Invalid todos: duplicate content ${JSON.stringify(content)}.`)
+    }
+    seen.add(content)
+    if (candidate.status === 'in_progress') active += 1
+    todos.push({ content, status: candidate.status as TodoItem['status'] })
+  }
+  if (active > 1) {
+    throw new Error(`Invalid todos: at most one task may be in_progress (got ${active}).`)
+  }
+  return todos
 }
 
 export async function runTool(call: ToolCall, signal: AbortSignal): Promise<ToolOutcome> {

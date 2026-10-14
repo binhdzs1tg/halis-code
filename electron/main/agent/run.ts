@@ -8,13 +8,15 @@ import type {
   ChatErrorCode,
   ChatMessage,
   ChatRunStarted,
-  ChatToolEvent
+  ChatToolEvent,
+  TodoItem,
+  TodoUpdatedEvent
 } from '../../shared/types'
 import type { ModelSelection } from '../../shared/models'
 import * as modelsCatalog from '../models-dev/catalog'
 import * as keyStore from '../keys/store'
 import { ProviderError, streamChat, type ProviderMessage } from './providers'
-import { runTool, toolSpecs } from './tools'
+import { runTool, toolSpecs, validateTodos } from './tools'
 
 const MAX_HISTORY_MESSAGES = 40
 /** Rounds of tool calls before the model is asked to wrap up. */
@@ -28,7 +30,8 @@ const SYSTEM_PROMPT = [
   'When tools are available, work with the open folder instead of guessing:',
   'list_dir and read_file to explore, search to locate code, edit_file or write_file',
   'to change files, run_command to build, test or inspect. Read a file before editing',
-  'it and keep changes small and focused. If no folder is open, ask the user to open one.'
+  'it and keep changes small and focused. For multi-step work, keep a plan with',
+  'todo_write and update it as you go. If no folder is open, ask the user to open one.'
 ].join('\n')
 
 interface Turn {
@@ -137,6 +140,20 @@ async function execute(
         const startedAt = Date.now()
         const start: ChatToolEvent = { runId, callId: call.id, name: call.name, phase: 'start', input: call.input }
         emit(IpcChannel.ChatTool, start)
+
+        // Todo writes are run-level state: validate, remember the snapshot,
+        // and fan it out to the renderer instead of touching the workspace.
+        if (call.name === 'todo_write') {
+          const todoOutcome = handleTodoWrite(
+            runId,
+            call,
+            (event) => emit(IpcChannel.ChatTool, event),
+            (event) => emit(IpcChannel.ChatTodo, event)
+          )
+          results.push({ callId: call.id, output: todoOutcome.output, ok: todoOutcome.ok })
+          continue
+        }
+
         const outcome = await runTool(call, controller.signal)
         const end: ChatToolEvent = {
           runId,
@@ -174,6 +191,56 @@ async function execute(
     fail('network', err instanceof Error ? err.message : String(err))
   } finally {
     runs.delete(runId)
+  }
+}
+
+interface TodoWriteOutcome {
+  ok: boolean
+  output: string
+  todos?: TodoItem[]
+}
+
+/**
+ * Validate and publish one whole-list todo snapshot. The end tool event and
+ * the renderer snapshot are emitted here so the call stays self-contained;
+ * a validation failure goes back to the model as a failed tool result.
+ */
+function handleTodoWrite(
+  runId: string,
+  call: { id: string; name: string; input: Record<string, unknown> },
+  emitTool: (event: ChatToolEvent) => void,
+  emitTodo: (event: TodoUpdatedEvent) => void
+): TodoWriteOutcome {
+  const startedAt = Date.now()
+  try {
+    const todos = validateTodos(call.input)
+    const end: ChatToolEvent = {
+      runId,
+      callId: call.id,
+      name: call.name,
+      phase: 'end',
+      input: call.input,
+      output: `Recorded ${todos.length} todo${todos.length === 1 ? '' : 's'}.`,
+      ok: true,
+      durationMs: Date.now() - startedAt
+    }
+    emitTool(end)
+    emitTodo({ runId, todos })
+    return { ok: true, output: end.output ?? '', todos }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    const end: ChatToolEvent = {
+      runId,
+      callId: call.id,
+      name: call.name,
+      phase: 'end',
+      input: call.input,
+      output: message,
+      ok: false,
+      durationMs: Date.now() - startedAt
+    }
+    emitTool(end)
+    return { ok: false, output: message }
   }
 }
 

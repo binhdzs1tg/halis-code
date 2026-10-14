@@ -7,6 +7,7 @@ import type {
   ChatToolEvent,
   TerminalDataEvent,
   TerminalExitEvent,
+  TodoUpdatedEvent,
   WorkspaceChangedEvent
 } from '../shared/types'
 import type { HalisApi } from '../shared/api'
@@ -99,6 +100,13 @@ const api: HalisApi = {
     ipcRenderer.on(IpcChannel.ChatTool, handler)
     return () => {
       ipcRenderer.off(IpcChannel.ChatTool, handler)
+    }
+  },
+  onChatTodo: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: TodoUpdatedEvent): void => listener(payload)
+    ipcRenderer.on(IpcChannel.ChatTodo, handler)
+    return () => {
+      ipcRenderer.off(IpcChannel.ChatTodo, handler)
     }
   },
   onWorkspaceChanged: (listener) => {

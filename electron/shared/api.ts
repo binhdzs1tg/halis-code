@@ -11,6 +11,7 @@ import type {
   SearchResponse,
   TerminalDataEvent,
   TerminalExitEvent,
+  TodoUpdatedEvent,
   WorkspaceChangedEvent,
   WorkspaceEntry,
   WorkspaceEntryKind
@@ -61,6 +62,8 @@ export interface HalisApi {
   onChatError(listener: (event: ChatErrorEvent) => void): () => void
   /** Tool calls the agent makes while a run is in flight. */
   onChatTool(listener: (event: ChatToolEvent) => void): () => void
+  /** Whole-list todo snapshots the agent publishes while a run is in flight. */
+  onChatTodo(listener: (event: TodoUpdatedEvent) => void): () => void
   /** Fired when the agent creates or modifies a workspace file. */
   onWorkspaceChanged(listener: (event: WorkspaceChangedEvent) => void): () => void
 

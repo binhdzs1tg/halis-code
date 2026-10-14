@@ -1,7 +1,7 @@
 import { el, svg } from '../app/dom'
 import { icons } from '../app/icons'
 import { store } from '../app/store'
-import type { ChatMessage, ToolTrace } from '../../electron/shared/types'
+import type { ChatMessage, TodoItem, ToolTrace } from '../../electron/shared/types'
 import { agentService, AgentError } from '../core/agent/agent-service'
 import * as catalog from '../core/models/catalog'
 import { keyStatusOf, refreshKeyStatuses } from '../core/keys'
@@ -92,6 +92,17 @@ export function mountChatPanel(): HTMLElement {
     const traceOf = new Map<string, ToolTrace>()
     node.insertBefore(toolLog, node.querySelector('.bubble'))
 
+    // Live plan card, replaced wholesale on every todo_write snapshot.
+    let liveTodos: TodoItem[] = []
+    let todoCard: HTMLElement | null = null
+    const paintTodos = (): void => {
+      if (liveTodos.length === 0) return
+      const next = renderTodoCard(liveTodos)
+      if (todoCard) todoCard.replaceWith(next)
+      else node.insertBefore(next, toolLog)
+      todoCard = next
+    }
+
     let buffered = ''
     let frame = 0
     const paint = (): void => {
@@ -137,11 +148,16 @@ export function mountChatPanel(): HTMLElement {
               if (row) row.replaceWith(renderToolRow(trace, false))
             }
             scrollToBottom(list)
+          },
+          onTodo: (event) => {
+            liveTodos = event.todos
+            paintTodos()
           }
         }
       )
       assistant.content = full
       if (traces.length > 0) assistant.tools = [...traces]
+      if (liveTodos.length > 0) assistant.todos = [...liveTodos]
       node.replaceWith(renderMessage(assistant))
     } catch (err) {
       // Drop the placeholder; a partial, if any, is re-rendered below.
@@ -151,6 +167,7 @@ export function mountChatPanel(): HTMLElement {
       if (agentErr && (agentErr.partial.trim() || traces.length > 0)) {
         const partial = makeMessage('assistant', agentErr.partial)
         if (traces.length > 0) partial.tools = [...traces]
+        if (liveTodos.length > 0) partial.todos = [...liveTodos]
         messages.push(partial)
         list.appendChild(renderMessage(partial))
       }
@@ -386,6 +403,9 @@ function renderMessage(message: ChatMessage): HTMLElement {
     })
     meta.appendChild(copy)
 
+    if (message.todos?.length) {
+      wrap.appendChild(renderTodoCard(message.todos))
+    }
     if (message.tools?.length) {
       wrap.append(bubble, renderToolTrace(message.tools), meta)
     } else {
@@ -397,6 +417,29 @@ function renderMessage(message: ChatMessage): HTMLElement {
   wrap.appendChild(el('div', 'bubble selectable', message.content))
   wrap.appendChild(el('div', 'meta', formatTime(message.createdAt)))
   return wrap
+}
+
+/** The agent's plan as a checklist; latest snapshot wins. */
+function renderTodoCard(todos: TodoItem[]): HTMLElement {
+  const card = el('div', 'todo-card')
+  const done = todos.filter((item) => item.status === 'completed').length
+  const header = el('div', 'todo-head')
+  header.append(el('span', 'todo-title', 'Plan'), el('span', 'todo-count', `${done}/${todos.length}`))
+  card.appendChild(header)
+  for (const item of todos) {
+    const row = el('div', `todo-row ${item.status}`)
+    const state = el('span', 'todo-state')
+    if (item.status === 'completed') {
+      state.appendChild(svg(icons.check, 11))
+    } else if (item.status === 'in_progress') {
+      state.appendChild(el('span', 'todo-spinner'))
+    } else {
+      state.appendChild(svg(icons.circle, 11))
+    }
+    row.append(state, el('span', 'todo-text', item.content))
+    card.appendChild(row)
+  }
+  return card
 }
 
 /** Collapsible replay of the tool calls behind an assistant message. */
