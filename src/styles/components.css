@@ -1309,6 +1309,52 @@ body.is-mac .window-controls {
   padding: 10px 12px 12px;
 }
 
+/* messages parked while the agent is running */
+.chat-panel .queue-box {
+  flex: none;
+  margin: 0;
+  padding: 6px 12px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chat-panel .queue-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  background: var(--bg-1);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  font-size: 11px;
+}
+
+.chat-panel .queue-label {
+  flex: none;
+  color: var(--fg-2);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.chat-panel .queue-text {
+  flex: 1;
+  color: var(--fg-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-panel .queue-del {
+  flex: none;
+  color: var(--fg-2);
+}
+
+.chat-panel .queue-del:hover {
+  color: var(--fg-0);
+}
+
 .chat-panel .composer .input-box {
   display: flex;
   align-items: flex-end;

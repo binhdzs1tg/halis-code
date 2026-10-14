@@ -102,6 +102,7 @@ export function mountChatPanel(): HTMLElement {
   })
 
   let running = false
+  let stoppedManually = false
 
   const newChat = async (): Promise<void> => {
     if (running) {
@@ -112,6 +113,8 @@ export function mountChatPanel(): HTMLElement {
     await persist()
     sessionId = null
     messages.splice(0, messages.length)
+    queue.splice(0, queue.length)
+    paintQueue()
     clear(list)
     renderEmptyState(list)
     await togglePop(false)
@@ -148,11 +151,51 @@ export function mountChatPanel(): HTMLElement {
 
   const composer = buildComposer({
     onSubmit: (text) => void send(text),
-    onStop: () => agentService.cancel()
+    onStop: () => {
+      // A manual stop also holds the queue back; the user decides what runs next.
+      stoppedManually = true
+      agentService.cancel()
+    }
   })
 
+  /* ---------- queued sends (while a run is in flight) ---------- */
+
+  const queue: string[] = []
+  const queueBox = el('div', 'queue-box')
+  queueBox.hidden = true
+
+  const paintQueue = (): void => {
+    clear(queueBox)
+    queueBox.hidden = queue.length === 0
+    if (queue.length === 0) return
+    for (let i = 0; i < queue.length; i += 1) {
+      const row = el('div', 'queue-row')
+      row.appendChild(el('span', 'queue-label', 'Queued'))
+      row.appendChild(el('span', 'queue-text', queue[i]))
+      const del = el('button', 'queue-del') as HTMLButtonElement
+      del.type = 'button'
+      del.title = 'Remove'
+      del.appendChild(svg(icons.close, 10))
+      del.addEventListener('click', () => {
+        queue.splice(i, 1)
+        paintQueue()
+      })
+      row.appendChild(del)
+      queueBox.appendChild(row)
+    }
+  }
+
+  panel.appendChild(queueBox)
+
   const send = async (text: string): Promise<void> => {
-    if (running) return
+    if (running) {
+      // Like a queue dock: typing while the agent runs parks the message
+      // instead of dropping it, and it is sent when the run settles.
+      queue.push(text)
+      paintQueue()
+      return
+    }
+    stoppedManually = false
     list.querySelector('.chat-empty')?.remove()
 
     const userMsg = makeMessage('user', text)
@@ -261,6 +304,16 @@ export function mountChatPanel(): HTMLElement {
       if (liveTodos.length > 0) assistant.todos = [...liveTodos]
       node.replaceWith(renderMessage(assistant))
       void persist()
+
+      // A settled run pulls the next queued message, unless the run was
+      // stopped by hand — then the queue waits for an explicit go.
+      if (!stoppedManually && queue.length > 0) {
+        const next = queue.shift()
+        paintQueue()
+        if (next) {
+          window.setTimeout(() => void send(next), 30)
+        }
+      }
     } catch (err) {
       // Drop the placeholder; a partial, if any, is re-rendered below.
       node.remove()
