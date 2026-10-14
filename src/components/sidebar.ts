@@ -2,6 +2,7 @@ import { clear, el, svg } from '../app/dom'
 import { icons } from '../app/icons'
 import { store } from '../app/store'
 import { mountFileTree } from './explorer/file-tree'
+import { mountSearchView } from './search-view'
 
 const TITLES: Record<string, string> = {
   explorer: 'Explorer',
@@ -50,11 +51,7 @@ function renderView(view: string, body: HTMLElement): void {
   if (view === 'explorer') {
     renderExplorer(body)
   } else if (view === 'search') {
-    renderPlanned(
-      body,
-      'Search',
-      'Full-text search across the workspace will land here once the index service is in.'
-    )
+    mountSearchView(body)
   } else {
     renderPlanned(
       body,
