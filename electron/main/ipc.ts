@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, shell } from 'electron'
 import { IpcChannel } from '../shared/ipc-channels'
 import type { AppInfo, WorkspaceEntry, WorkspaceEntryKind } from '../shared/types'
 import {
@@ -21,6 +21,38 @@ function senderWindow(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent
   return BrowserWindow.fromWebContents(event.sender)
 }
 
+/**
+ * Guard every channel against calls from foreign frames: only the main frame
+ * of a window this process created may invoke shell APIs. Subframes, guest
+ * pages and windows Electron created for other reasons are all rejected, the
+ * same way DeepSeek Harness desktop validates its senders.
+ */
+function assertMainSender(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): void {
+  if (!senderWindow(event)) {
+    throw new Error('ipc: sender is not an app window')
+  }
+  const frame = event.senderFrame
+  if (frame && frame.parent !== null) {
+    throw new Error('ipc: sender is not the main frame')
+  }
+}
+
+/** `ipcMain.handle` with the main-frame sender check folded in. */
+function handle<T>(channel: IpcChannel, fn: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => T): void {
+  handle(channel, (event, ...args) => {
+    assertMainSender(event)
+    return fn(event, ...args)
+  })
+}
+
+/** `ipcMain.on` with the same check, for the fire-and-forget window controls. */
+function on(channel: IpcChannel, fn: (event: Electron.IpcMainEvent, ...args: any[]) => void): void {
+  on(channel, (event, ...args) => {
+    assertMainSender(event)
+    fn(event, ...args)
+  })
+}
+
 function emitChanged(
   event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent,
   payload: { path: string; change: 'write' | 'create' | 'rename' | 'delete'; from?: string }
@@ -32,18 +64,18 @@ function emitChanged(
 }
 
 export function registerIpcHandlers(): void {
-  ipcMain.handle(IpcChannel.AppInfo, (): AppInfo => ({
+  handle(IpcChannel.AppInfo, (): AppInfo => ({
     name: 'halis-code',
     version: app.getVersion(),
     electron: process.versions.electron ?? 'unknown',
     platform: process.platform
   }))
 
-  ipcMain.on(IpcChannel.WindowMinimize, (event) => {
+  on(IpcChannel.WindowMinimize, (event) => {
     senderWindow(event)?.minimize()
   })
 
-  ipcMain.on(IpcChannel.WindowMaximize, (event) => {
+  on(IpcChannel.WindowMaximize, (event) => {
     const win = senderWindow(event)
     if (!win) return
     if (win.isMaximized()) {
@@ -53,11 +85,11 @@ export function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.on(IpcChannel.WindowClose, (event) => {
+  on(IpcChannel.WindowClose, (event) => {
     senderWindow(event)?.close()
   })
 
-  ipcMain.handle(IpcChannel.WorkspacePick, async (event): Promise<string | null> => {
+  handle(IpcChannel.WorkspacePick, async (event): Promise<string | null> => {
     const win = senderWindow(event)
     const result = win
       ? await dialog.showOpenDialog(win, {
@@ -71,19 +103,19 @@ export function registerIpcHandlers(): void {
     return openWorkspaceByPath(result.filePaths[0])
   })
 
-  ipcMain.handle(IpcChannel.WorkspaceOpen, (_event, absolutePath: string): string | null => {
+  handle(IpcChannel.WorkspaceOpen, (_event, absolutePath: string): string | null => {
     return openWorkspaceByPath(absolutePath)
   })
 
-  ipcMain.handle(IpcChannel.WorkspaceReadDir, (_event, relPath: string): WorkspaceEntry[] => {
+  handle(IpcChannel.WorkspaceReadDir, (_event, relPath: string): WorkspaceEntry[] => {
     return listDir(relPath)
   })
 
-  ipcMain.handle(IpcChannel.FileRead, (_event, relPath: string): string => {
+  handle(IpcChannel.FileRead, (_event, relPath: string): string => {
     return readFileContent(relPath)
   })
 
-  ipcMain.handle(IpcChannel.FileWrite, (event, relPath: unknown, content: unknown): void => {
+  handle(IpcChannel.FileWrite, (event, relPath: unknown, content: unknown): void => {
     if (typeof relPath !== 'string' || typeof content !== 'string') {
       throw new Error('file:write expects (path, content) strings')
     }
@@ -91,7 +123,7 @@ export function registerIpcHandlers(): void {
     emitChanged(event, { path: relPath, change: 'write' })
   })
 
-  ipcMain.handle(IpcChannel.FileCreate, (event, relPath: unknown, kind: unknown): void => {
+  handle(IpcChannel.FileCreate, (event, relPath: unknown, kind: unknown): void => {
     if (typeof relPath !== 'string' || (kind !== 'file' && kind !== 'directory')) {
       throw new Error('file:create expects (path, kind) with kind "file" | "directory"')
     }
@@ -99,7 +131,7 @@ export function registerIpcHandlers(): void {
     emitChanged(event, { path: relPath, change: 'create' })
   })
 
-  ipcMain.handle(IpcChannel.FileRename, (event, from: unknown, to: unknown): void => {
+  handle(IpcChannel.FileRename, (event, from: unknown, to: unknown): void => {
     if (typeof from !== 'string' || typeof to !== 'string') {
       throw new Error('file:rename expects (from, to) strings')
     }
@@ -107,7 +139,7 @@ export function registerIpcHandlers(): void {
     emitChanged(event, { path: to, from, change: 'rename' })
   })
 
-  ipcMain.handle(IpcChannel.FileDelete, async (event, relPath: unknown): Promise<void> => {
+  handle(IpcChannel.FileDelete, async (event, relPath: unknown): Promise<void> => {
     if (typeof relPath !== 'string') {
       throw new Error('file:delete expects a path string')
     }
@@ -120,7 +152,7 @@ export function registerIpcHandlers(): void {
     emitChanged(event, { path: relPath, change: 'delete' })
   })
 
-  ipcMain.handle(IpcChannel.WorkspaceSearch, (_event, query: unknown, options: unknown) => {
+  handle(IpcChannel.WorkspaceSearch, (_event, query: unknown, options: unknown) => {
     if (typeof query !== 'string') {
       throw new Error('workspace:search expects a query string')
     }
@@ -134,41 +166,41 @@ export function registerIpcHandlers(): void {
     })
   })
 
-  ipcMain.handle(IpcChannel.TerminalRun, (event, command: unknown): string => {
+  handle(IpcChannel.TerminalRun, (event, command: unknown): string => {
     if (typeof command !== 'string' || command.trim().length === 0) {
       throw new Error('terminal:run expects a command string')
     }
     return terminal.run(command, senderWindow(event))
   })
 
-  ipcMain.handle(IpcChannel.TerminalKill, () => {
+  handle(IpcChannel.TerminalKill, () => {
     return terminal.kill()
   })
 
-  ipcMain.handle(IpcChannel.ModelsList, () => {
+  handle(IpcChannel.ModelsList, () => {
     return modelsCatalog.list()
   })
 
-  ipcMain.handle(IpcChannel.ModelsRefresh, () => {
+  handle(IpcChannel.ModelsRefresh, () => {
     return modelsCatalog.refresh(true)
   })
 
-  ipcMain.handle(IpcChannel.ChatSend, (event, request: unknown) => {
+  handle(IpcChannel.ChatSend, (event, request: unknown) => {
     return startRun(request, senderWindow(event))
   })
 
-  ipcMain.handle(IpcChannel.ChatCancel, (_event, runId: unknown) => {
+  handle(IpcChannel.ChatCancel, (_event, runId: unknown) => {
     if (typeof runId === 'string') {
       cancelRun(runId)
     }
   })
 
-  ipcMain.handle(IpcChannel.KeysStatus, async () => {
+  handle(IpcChannel.KeysStatus, async () => {
     const { providers } = await modelsCatalog.list()
     return keyStore.statuses(providers)
   })
 
-  ipcMain.handle(IpcChannel.KeysSet, async (_event, providerId: unknown, value: unknown) => {
+  handle(IpcChannel.KeysSet, async (_event, providerId: unknown, value: unknown) => {
     if (typeof providerId !== 'string' || typeof value !== 'string') {
       throw new Error('keys:set expects (providerId, value) strings')
     }
@@ -177,7 +209,7 @@ export function registerIpcHandlers(): void {
     return keyStore.statuses(providers)
   })
 
-  ipcMain.handle(IpcChannel.KeysRemove, async (_event, providerId: unknown) => {
+  handle(IpcChannel.KeysRemove, async (_event, providerId: unknown) => {
     if (typeof providerId !== 'string') {
       throw new Error('keys:remove expects a providerId string')
     }
@@ -186,19 +218,19 @@ export function registerIpcHandlers(): void {
     return keyStore.statuses(providers)
   })
 
-  ipcMain.handle(IpcChannel.SessionsList, () => {
+  handle(IpcChannel.SessionsList, () => {
     return sessions.listSessions()
   })
 
-  ipcMain.handle(IpcChannel.SessionsLoad, (_event, id: unknown) => {
+  handle(IpcChannel.SessionsLoad, (_event, id: unknown) => {
     return sessions.loadSession(id)
   })
 
-  ipcMain.handle(IpcChannel.SessionsSave, (_event, session: unknown) => {
+  handle(IpcChannel.SessionsSave, (_event, session: unknown) => {
     return sessions.saveSession(session)
   })
 
-  ipcMain.handle(IpcChannel.SessionsDelete, (_event, id: unknown) => {
+  handle(IpcChannel.SessionsDelete, (_event, id: unknown) => {
     sessions.deleteSession(id)
   })
 }
