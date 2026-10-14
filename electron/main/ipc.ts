@@ -15,7 +15,10 @@ import * as modelsCatalog from './models-dev/catalog'
 import * as keyStore from './keys/store'
 import * as terminal from './terminal'
 import * as sessions from './sessions'
-import { cancelRun, startRun } from './agent/run'
+import { cancelRun, startRun, compactNow } from './agent/run'
+import { resolveApproval } from './agent/approval'
+import { shellSettings, updateShellSettings } from './settings'
+import fs from 'node:fs'
 
 function senderWindow(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): BrowserWindow | null {
   return BrowserWindow.fromWebContents(event.sender)
@@ -193,6 +196,56 @@ export function registerIpcHandlers(): void {
     if (typeof runId === 'string') {
       cancelRun(runId)
     }
+  })
+
+  handle(IpcChannel.ChatCompact, async (_event, request: unknown) => {
+    return await compactNow(request)
+  })
+
+  on(IpcChannel.ApprovalRespond, (_event, requestId: unknown, decision: unknown) => {
+    resolveApproval(requestId, decision)
+  })
+
+  handle(IpcChannel.SettingsGet, () => {
+    return { commandApproval: shellSettings().commandApproval }
+  })
+
+  handle(IpcChannel.SettingsSet, (_event, patch: unknown) => {
+    if (typeof patch !== 'object' || patch === null) {
+      throw new Error('settings:set expects an object')
+    }
+    const candidate = patch as { commandApproval?: unknown }
+    if (candidate.commandApproval !== undefined && candidate.commandApproval !== 'ask' && candidate.commandApproval !== 'fullAccess') {
+      throw new Error('settings:set: commandApproval must be "ask" or "fullAccess"')
+    }
+    return {
+      commandApproval: updateShellSettings({
+        commandApproval: candidate.commandApproval as 'ask' | 'fullAccess' | undefined
+      }).commandApproval
+    }
+  })
+
+  handle(IpcChannel.ConversationExport, async (event, suggestedName: unknown, content: unknown) => {
+    if (typeof suggestedName !== 'string' || typeof content !== 'string') {
+      throw new Error('conversation:export expects (name, content) strings')
+    }
+    const win = senderWindow(event)
+    const result = win
+      ? await dialog.showSaveDialog(win, {
+          title: 'Export conversation',
+          defaultPath: suggestedName,
+          filters: [{ name: 'Markdown', extensions: ['md'] }]
+        })
+      : await dialog.showSaveDialog({
+          title: 'Export conversation',
+          defaultPath: suggestedName,
+          filters: [{ name: 'Markdown', extensions: ['md'] }]
+        })
+    if (result.canceled || !result.filePath) {
+      return null
+    }
+    fs.writeFileSync(result.filePath, content, 'utf8')
+    return result.filePath
   })
 
   handle(IpcChannel.KeysStatus, async () => {

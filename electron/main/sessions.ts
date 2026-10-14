@@ -95,7 +95,43 @@ function sanitizeMessages(value: unknown): ChatMessage[] {
         input: record(tool.input) ? tool.input : {},
         output: typeof tool.output === 'string' ? tool.output : '',
         ok: tool.ok !== false,
-        durationMs: typeof tool.durationMs === 'number' ? tool.durationMs : 0
+        durationMs: typeof tool.durationMs === 'number' ? tool.durationMs : 0,
+        // Hunk diffs are optional; sanitizeShapes keeps replay faithful.
+        ...(Array.isArray(tool.diff)
+          ? {
+              diff: tool.diff
+                  .filter((diff: unknown) => record(diff) && typeof (diff as { path?: unknown }).path === 'string')
+                  .map((diff: unknown) => {
+                    const entry = diff as {
+                      path?: string
+                      op?: unknown
+                      lines?: unknown
+                      added?: unknown
+                      removed?: unknown
+                    }
+                    return {
+                      path: typeof entry.path === 'string' ? entry.path : '',
+                      op: entry.op === 'create' ? ('create' as const) : ('update' as const),
+                      lines: Array.isArray(entry.lines)
+                        ? entry.lines
+                            .filter((line: unknown) => record(line))
+                            .map((line: unknown) => {
+                              const info = line as { kind?: unknown; text?: unknown }
+                              return {
+                                kind:
+                                  info.kind === 'add' || info.kind === 'del' || info.kind === 'ctx'
+                                    ? info.kind
+                                    : 'ctx',
+                                text: typeof info.text === 'string' ? info.text : ''
+                              }
+                            })
+                        : [],
+                      added: typeof entry.added === 'number' ? entry.added : 0,
+                      removed: typeof entry.removed === 'number' ? entry.removed : 0
+                    }
+                  })
+            }
+          : {})
       }))
     }
     if (Array.isArray(item.todos)) {

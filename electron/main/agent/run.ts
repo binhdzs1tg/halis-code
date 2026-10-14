@@ -7,17 +7,25 @@ import type {
   ChatErrorEvent,
   ChatErrorCode,
   ChatMessage,
+  ChatNoticeEvent,
   ChatRunStarted,
   ChatToolEvent,
+  CompactRequest,
+  CompactResult,
   TodoItem,
   TodoUpdatedEvent
 } from '../../shared/types'
-import type { ModelSelection } from '../../shared/models'
+import type { ModelEntry, ModelSelection, ModelVariant, ProviderEntry } from '../../shared/models'
 import * as modelsCatalog from '../models-dev/catalog'
 import * as keyStore from '../keys/store'
 import { ProviderError, streamChat, type ProviderMessage } from './providers'
-import { runTool, toolSpecs, validateTodos } from './tools'
-import { compactMessages } from './compaction'
+import { runTool, toolSpecs, validateTodos, todoCountsOutput, type ToolHooks } from './tools'
+import { compactMessages, estimateTokens, pruneToolResults } from './compaction'
+import { RepeatGuard } from './guard'
+import { loadWorkspaceInstructions } from './instructions'
+import { skillCatalogBlock } from './skills'
+import { buildFileRefBlock } from './file-refs'
+import { askApproval, setApprovalWindow, dropApprovalsForRun } from './approval'
 
 const MAX_HISTORY_MESSAGES = 40
 /** Rounds of tool calls before the model is asked to wrap up. */
@@ -35,6 +43,45 @@ const SYSTEM_PROMPT = [
   'todo_write and update it as you go. If no folder is open, ask the user to open one.'
 ].join('\n')
 
+/**
+ * The system prompt grows per turn: base behavior, then the workspace's own
+ * instruction files, then the skill catalog — each inside its own
+ * <system-reminder> frame so the model can tell them apart from user speech.
+ */
+function buildSystemPrompt(): string {
+  const parts = [SYSTEM_PROMPT]
+  for (const block of [loadWorkspaceInstructions(), skillCatalogBlock()]) {
+    if (block) parts.push(block)
+  }
+  return parts.join('\n\n')
+}
+
+/* ---------- time context ---------- */
+
+/** Re-sample the clock at most this often, mirroring the harness's time-context. */
+const TIME_REFRESH_MS = 10 * 60_000
+let lastTimeSample = 0
+
+function sampleTimeContext(): string | null {
+  const now = Date.now()
+  const elapsed = lastTimeSample === 0 ? null : now - lastTimeSample
+  if (elapsed !== null && elapsed < TIME_REFRESH_MS) return null
+  lastTimeSample = now
+  const clock = new Date(now).toLocaleString('en-GB', { hour12: false })
+  const elapsedNote =
+    elapsed === null
+      ? 'first sample of this session'
+      : `elapsed since the previous sample: ${formatSpan(elapsed)}`
+  return `<system-reminder>Time sampled while preparing this turn: ${clock} (local). ${elapsedNote}.</system-reminder>`
+}
+
+function formatSpan(ms: number): string {
+  const minutes = Math.floor(ms / 60_000)
+  const seconds = Math.floor((ms % 60_000) / 1000)
+  if (minutes === 0) return `${seconds}s`
+  return `${minutes}m ${seconds}s`
+}
+
 interface Turn {
   prompt: string
   history: ChatMessage[]
@@ -43,6 +90,62 @@ interface Turn {
 
 const runs = new Map<string, AbortController>()
 let runCounter = 0
+
+/* ---------- provider retry ---------- */
+
+/** Retries per request, straight from llm-retry's defaults. */
+const RETRY_MAX = 5
+const RETRY_INITIAL_MS = 500
+const RETRY_MAX_MS = 10_000
+const RETRY_JITTER_RATIO = 0.1
+
+function retryable(err: ProviderError): boolean {
+  if (err.code === 'network') return true
+  if (err.code === 'http' && (err.status === undefined || err.status === 429 || err.status >= 500)) {
+    return true
+  }
+  return false
+}
+
+function backoffDelay(attempt: number): number {
+  const base = Math.min(RETRY_INITIAL_MS * 2 ** Math.min(attempt - 1, 1_024), RETRY_MAX_MS)
+  const jitter = 1 - RETRY_JITTER_RATIO + 2 * RETRY_JITTER_RATIO * Math.random()
+  return Math.min(base * jitter, RETRY_MAX_MS)
+}
+
+function wait(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms)
+    signal.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer)
+        reject(new ProviderError('aborted', 'cancelled'))
+      },
+      { once: true }
+    )
+  })
+}
+
+/**
+ * streamChat with the harness's bounded backoff: transient provider
+ * failures (rate limits, server errors, flaky connections) retry with an
+ * exponential, jittered delay; anything structural fails through.
+ */
+async function streamWithRetry(
+  request: Parameters<typeof streamChat>[0]
+): Promise<ReturnType<typeof streamChat>> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await streamChat(request)
+    } catch (err) {
+      if (attempt >= RETRY_MAX || !(err instanceof ProviderError) || !retryable(err)) {
+        throw err
+      }
+      await wait(backoffDelay(attempt), request.signal)
+    }
+  }
+}
 
 /**
  * Start an agent turn. Resolves immediately with a run id; the actual text
@@ -62,6 +165,8 @@ export async function startRun(raw: unknown, win: BrowserWindow | null): Promise
 
 export function cancelRun(runId: string): void {
   runs.get(runId)?.abort()
+  // A cancelled run never gets to run its waiting commands.
+  dropApprovalsForRun(runId)
 }
 
 /** Runs currently in flight; the quit confirmation reports these as active work. */
@@ -89,23 +194,19 @@ async function execute(
   }
 
   try {
-    const { providers } = await modelsCatalog.list()
-    const provider = providers.find((item) => item.id === turn.model.providerID)
-    const entry = provider?.models.find((item) => item.id === turn.model.modelID)
-    if (!provider || !entry) {
-      fail('invalid-model', 'The selected model is no longer available — pick another one.')
+    setApprovalWindow(win)
+    const target = await resolveModelTarget(turn.model)
+    if ('error' in target) {
+      fail(target.error.code, target.error.message)
       return
     }
-    const variant = entry.variants.find((item) => item.id === turn.model.variant) ?? null
-
-    const key = await keyStore.resolve(provider)
-    if (!key) {
-      const envHint = provider.env.length > 0 ? `, or set ${provider.env.join(' / ')} and restart` : ''
-      fail('missing-key', `No API key for ${provider.name}. Add one from the chat header${envHint}.`)
-      return
-    }
+    const { provider, entry, variant, key } = target
 
     let messages = buildMessages(turn)
+    const timeNote = sampleTimeContext()
+    if (timeNote) {
+      messages.push({ role: 'user', content: timeNote })
+    }
 
     // Free context before the first step when the history runs long.
     const compacted = await compactMessages({
@@ -113,15 +214,26 @@ async function execute(
       model: entry,
       variant,
       apiKey: key.value,
-      system: SYSTEM_PROMPT,
+      system: buildSystemPrompt(),
       messages,
       signal: controller.signal
     }).catch(() => null)
     if (compacted) {
       messages = compacted
+      const notice: ChatNoticeEvent = {
+        runId,
+        kind: 'compacted',
+        text: 'Context compacted — the older span of this conversation now lives in a checkpoint.'
+      }
+      emit(IpcChannel.ChatNotice, notice)
     }
 
+    const system = buildSystemPrompt()
+    const guard = new RepeatGuard()
     const specs = toolSpecs()
+    const hooks: ToolHooks = {
+      requestApproval: (command, callId) => askApproval(runId, callId, command)
+    }
 
     for (let step = 0; ; step += 1) {
       // Budget spent: force one plain, tool-less completion so the turn still ends with an answer.
@@ -133,12 +245,16 @@ async function execute(
         })
       }
 
-      const result = await streamChat({
+      // Deterministic relief before spending a model call: old oversized
+      // tool results lose their middle, the newest message stays intact.
+      pruneToolResults(messages)
+
+      const result = await streamWithRetry({
         provider,
         model: entry,
         variant,
         apiKey: key.value,
-        system: SYSTEM_PROMPT,
+        system,
         messages,
         tools: wrapUp ? undefined : specs,
         signal: controller.signal,
@@ -170,7 +286,13 @@ async function execute(
           continue
         }
 
-        const outcome = await runTool(call, controller.signal)
+        const outcome = await runTool(call, controller.signal, hooks)
+        // The repeat guard counts failed calls too: a model hammering a
+        // denied call is exactly the loop worth breaking.
+        const reminder = guard.record(call.name, call.input)
+        if (reminder) {
+          outcome.output = `${outcome.output}\n\n${reminder}`
+        }
         const end: ChatToolEvent = {
           runId,
           callId: call.id,
@@ -179,7 +301,8 @@ async function execute(
           input: call.input,
           output: outcome.output,
           ok: outcome.ok,
-          durationMs: Date.now() - startedAt
+          durationMs: Date.now() - startedAt,
+          ...(outcome.diff ? { diff: outcome.diff } : {})
         }
         emit(IpcChannel.ChatTool, end)
         if (outcome.changedPath) {
@@ -191,6 +314,8 @@ async function execute(
       if (controller.signal.aborted) break
       messages.push({ role: 'user', content: '', toolResults: results })
     }
+
+    setApprovalWindow(null)
 
     const done: ChatDoneEvent = { runId, aborted: controller.signal.aborted }
     emit(IpcChannel.ChatDone, done)
@@ -207,6 +332,98 @@ async function execute(
     fail('network', err instanceof Error ? err.message : String(err))
   } finally {
     runs.delete(runId)
+  }
+}
+
+/**
+ * Resolve a model selection against the catalog and the key vault, shared
+ * by the run loop and manual compaction so both fail the same way.
+ */
+interface ModelTarget {
+  provider: ProviderEntry
+  entry: ModelEntry
+  variant: ModelVariant | null
+  key: { value: string }
+}
+
+async function resolveModelTarget(
+  selection: ModelSelection
+): Promise<{ error: { code: ChatErrorCode; message: string } } | ModelTarget> {
+  const { providers } = await modelsCatalog.list()
+  const provider = providers.find((item) => item.id === selection.providerID)
+  const entry = provider?.models.find((item) => item.id === selection.modelID)
+  if (!provider || !entry) {
+    return {
+      error: { code: 'invalid-model', message: 'The selected model is no longer available — pick another one.' }
+    }
+  }
+  const variant = entry.variants.find((item) => item.id === selection.variant) ?? null
+  const key = await keyStore.resolve(provider)
+  if (!key) {
+    const envHint = provider.env.length > 0 ? `, or set ${provider.env.join(' / ')} and restart` : ''
+    return {
+      error: {
+        code: 'missing-key',
+        message: `No API key for ${provider.name}. Add one from the chat header${envHint}.`
+      }
+    }
+  }
+  return { provider, entry, variant, key }
+}
+
+/**
+ * Manual compaction from the chat's /compact command: fold the given
+ * conversation into a checkpoint right away and hand it back for the
+ * renderer to splice in.
+ */
+export async function compactNow(raw: unknown): Promise<CompactResult> {
+  if (typeof raw !== 'object' || raw === null) {
+    throw new Error('chat:compact expects { history, model }')
+  }
+  const candidate = raw as Partial<CompactRequest>
+  if (!Array.isArray(candidate.history) || !isSelection(candidate.model)) {
+    throw new Error('chat:compact expects { history, model }')
+  }
+  const turn: Turn = {
+    prompt: '',
+    history: candidate.history.filter(
+      (item): item is ChatMessage =>
+        typeof item === 'object' &&
+        item !== null &&
+        (item.role === 'user' || item.role === 'assistant' || item.role === 'system') &&
+        typeof item.content === 'string'
+    ),
+    model: candidate.model
+  }
+
+  const target = await resolveModelTarget(turn.model)
+  if ('error' in target) {
+    throw new Error(target.error.message)
+  }
+  const messages = buildMessages(turn)
+  if (messages.length === 0) {
+    throw new Error('Nothing to compact yet — send a message first.')
+  }
+  const beforeTokens = estimateTokens(messages)
+  const compacted = await compactMessages({
+    provider: target.provider,
+    model: target.entry,
+    variant: target.variant,
+    apiKey: target.key.value,
+    system: buildSystemPrompt(),
+    messages,
+    signal: new AbortController().signal,
+    force: true
+  })
+  if (!compacted) {
+    throw new Error('Could not produce a checkpoint for this conversation.')
+  }
+  // The replacement list starts with the framed checkpoint message.
+  const checkpoint = compacted[0]?.content ?? ''
+  return {
+    checkpoint,
+    beforeTokens,
+    afterTokens: estimateTokens(compacted)
   }
 }
 
@@ -236,7 +453,7 @@ function handleTodoWrite(
       name: call.name,
       phase: 'end',
       input: call.input,
-      output: `Recorded ${todos.length} todo${todos.length === 1 ? '' : 's'}.`,
+      output: todoCountsOutput(todos),
       ok: true,
       durationMs: Date.now() - startedAt
     }
@@ -274,12 +491,24 @@ function buildMessages(turn: Turn): ProviderMessage[] {
     out.push({ role, content })
   }
   for (const message of turn.history) {
-    if (message.role === 'system') continue
+    // System notes are UI chatter — except checkpoints, which are the
+    // durable product of a compaction and must reach the model.
+    if (message.role === 'system') {
+      if (message.content.includes('<compacted-summary>')) {
+        push('user', message.content.trim())
+      }
+      continue
+    }
     const content = message.content.trim()
     if (!content) continue
     push(message.role === 'assistant' ? 'assistant' : 'user', content)
   }
-  push('user', turn.prompt.trim())
+  const prompt = turn.prompt.trim()
+  if (prompt) {
+    // @-referenced files ride along with the prompt that mentions them.
+    const attachment = buildFileRefBlock(prompt)
+    push('user', attachment ? `${prompt}\n\n${attachment}` : prompt)
+  }
   return out.slice(-MAX_HISTORY_MESSAGES)
 }
 

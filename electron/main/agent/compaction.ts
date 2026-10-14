@@ -68,8 +68,39 @@ const COMPACTION_INSTRUCTION = [
 const CHECKPOINT_PREAMBLE =
   'This is an automatically generated checkpoint condensing an earlier span of the conversation to free up context. Treat the captured context as established background and build on it without restating it. Continue the task directly from the messages that follow, without acknowledging this checkpoint.'
 
+/* ---------- deterministic tool-result pruning ---------- */
+
+/** Oversized tool results get head+tail kept and the middle pruned away. */
+const PRUNE_THRESHOLD_CHARS = 8_192
+const PRUNE_HEAD_CHARS = 4_096
+const PRUNE_TAIL_CHARS = 1_024
+const PRUNE_MARKER = '\n\n[... tool result middle pruned ...]\n\n'
+
+/**
+ * Prune oversized tool results from earlier steps before any model call —
+ * the same trick as compaction-tool-result-pruner: a deterministic pass
+ * often frees enough context to skip summarization entirely. The newest
+ * message is always left intact.
+ */
+export function pruneToolResults(messages: ProviderMessage[]): boolean {
+  let pruned = false
+  for (let i = 0; i < messages.length - 1; i += 1) {
+    const message = messages[i]
+    if (!message.toolResults) continue
+    for (const result of message.toolResults) {
+      if (result.output.length <= PRUNE_THRESHOLD_CHARS) continue
+      result.output =
+        result.output.slice(0, PRUNE_HEAD_CHARS) +
+        PRUNE_MARKER +
+        result.output.slice(-PRUNE_TAIL_CHARS)
+      pruned = true
+    }
+  }
+  return pruned
+}
+
 /** Rough token estimate; ~4 characters per token is close enough for pressure math. */
-function estimateTokens(messages: readonly ProviderMessage[]): number {
+export function estimateTokens(messages: readonly ProviderMessage[]): number {
   let chars = 0
   for (const message of messages) {
     chars += message.content.length
@@ -122,6 +153,8 @@ export interface CompactionRequest {
   system: string
   messages: ProviderMessage[]
   signal: AbortSignal
+  /** Compact even when the estimate is under the pressure point. */
+  force?: boolean
 }
 
 /**
@@ -134,7 +167,7 @@ export async function compactMessages(request: CompactionRequest): Promise<Provi
   const threshold = Math.floor(context * THRESHOLD_RATIO)
   const retain = Math.floor(context * RETAIN_RATIO)
 
-  if (estimateTokens(request.messages) < threshold) {
+  if (!request.force && estimateTokens(request.messages) < threshold) {
     return null
   }
 
@@ -179,7 +212,13 @@ export async function compactMessages(request: CompactionRequest): Promise<Provi
     return null
   }
 
+  // Shrink validation from compaction-basic: a checkpoint that is not
+  // actually smaller than the span it replaces is a failed compaction.
   const checkpoint = `${CHECKPOINT_PREAMBLE}\n\n${SUMMARY_OPEN_TAG}\n${summary}\n${SUMMARY_CLOSE_TAG}`
+  if (estimateTokens([{ role: 'user', content: checkpoint }]) >= estimateTokens(head)) {
+    return null
+  }
+
   const compacted: ProviderMessage[] = []
   const first = tail[0]
   if (first.role === 'user') {

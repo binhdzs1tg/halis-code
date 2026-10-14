@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
-import type { ToolCall, ToolSpec, TodoItem } from '../../shared/types'
+import type { ToolCall, ToolSpec, TodoItem, FileDiff } from '../../shared/types'
 import {
   getWorkspaceRoot,
   listDir,
@@ -9,12 +9,23 @@ import {
   resolveInWorkspace,
   searchWorkspace
 } from '../workspace'
+import { fileDiff } from './diff'
+import { denialText } from './approval'
+import { SKILL_TOOL_NAME, SKILL_TOOL_SPEC, runSkillTool } from './skills'
 
 /** What a single tool invocation produced. `changedPath` marks mutations the UI should refresh. */
 export interface ToolOutcome {
   ok: boolean
   output: string
   changedPath?: string
+  /** Hunk diffs for tools that changed file content. */
+  diff?: FileDiff[]
+}
+
+/** Hook the run loop installs so flagged commands can ask the user. */
+export interface ToolHooks {
+  /** Resolve to 'allowed-once' or 'rejected' for a flagged command line. */
+  requestApproval(command: string, callId: string): Promise<'allowed-once' | 'rejected'>
 }
 
 /** Tool results are fed back into the model, so keep them within a sane budget. */
@@ -100,7 +111,9 @@ export function toolSpecs(): ToolSpec[] {
       name: 'run_command',
       description:
         'Run a shell command in the workspace root (build, test, git, …). ' +
-        'stdout and stderr are combined; long output is truncated.',
+        'stdout and stderr are combined; long output keeps only its tail. ' +
+        'Commands that look destructive are shown to the user for approval first; ' +
+        'a denied command is a final refusal — do not retry it another way.',
       parameters: {
         type: 'object',
         properties: {
@@ -113,6 +126,7 @@ export function toolSpecs(): ToolSpec[] {
         required: ['command']
       }
     },
+    SKILL_TOOL_SPEC,
     {
       name: 'todo_write',
       description:
@@ -146,6 +160,17 @@ export function toolSpecs(): ToolSpec[] {
 const MAX_TODOS = 50
 
 const TODO_STATUSES = ['pending', 'in_progress', 'completed'] as const
+
+/**
+ * Counts echo from tool-todo: the summary line gives the model a cheap
+ * self-check that the list it sent is the list that landed.
+ */
+export function todoCountsOutput(todos: TodoItem[]): string {
+  const pending = todos.filter((item) => item.status === 'pending').length
+  const inProgress = todos.filter((item) => item.status === 'in_progress').length
+  const completed = todos.filter((item) => item.status === 'completed').length
+  return `Updated todo list: ${pending} pending, ${inProgress} in progress, ${completed} completed.`
+}
 
 /**
  * Validate the model-supplied list and build the canonical snapshot:
@@ -191,7 +216,11 @@ export function validateTodos(input: Record<string, unknown>): TodoItem[] {
   return todos
 }
 
-export async function runTool(call: ToolCall, signal: AbortSignal): Promise<ToolOutcome> {
+export async function runTool(
+  call: ToolCall,
+  signal: AbortSignal,
+  hooks?: ToolHooks
+): Promise<ToolOutcome> {
   try {
     switch (call.name) {
       case 'list_dir':
@@ -205,7 +234,9 @@ export async function runTool(call: ToolCall, signal: AbortSignal): Promise<Tool
       case 'search':
         return clamp(await searchTool(call.input))
       case 'run_command':
-        return await runCommandTool(call.input, signal)
+        return await runCommandTool(call, signal, hooks)
+      case SKILL_TOOL_NAME:
+        return clamp(runSkillTool(call.input))
       default:
         return { ok: false, output: `Unknown tool "${call.name}".` }
     }
@@ -250,14 +281,30 @@ async function writeFileTool(input: Record<string, unknown>): Promise<ToolOutcom
   const content = requireString(input.content, 'content')
   const target = requireWorkspace().resolve(relPath)
 
+  const before = readBefore(target)
   fs.mkdirSync(path.dirname(target), { recursive: true })
   fs.writeFileSync(target, content, 'utf8')
   const lineCount = content.split('\n').length
   return {
     ok: true,
     output: `Wrote ${lineCount} line${lineCount === 1 ? '' : 's'} to ${relPath}.`,
-    changedPath: relPath
+    changedPath: relPath,
+    diff: asSingleDiff(fileDiff(relPath, before, content))
   }
+}
+
+/** Previous content of an existing file, or null when there is none to diff. */
+function readBefore(target: string): string | null {
+  try {
+    if (!fs.statSync(target).isFile()) return null
+    return fs.readFileSync(target, 'utf8')
+  } catch {
+    return null
+  }
+}
+
+function asSingleDiff(diff: FileDiff | null): FileDiff[] | undefined {
+  return diff ? [diff] : undefined
 }
 
 async function editFileTool(input: Record<string, unknown>): Promise<ToolOutcome> {
@@ -274,8 +321,14 @@ async function editFileTool(input: Record<string, unknown>): Promise<ToolOutcome
   if (content.indexOf(oldText, first + 1) !== -1) {
     return { ok: false, output: 'old_text appears more than once. Add surrounding lines to make it unique.' }
   }
-  fs.writeFileSync(target, content.slice(0, first) + newText + content.slice(first + oldText.length), 'utf8')
-  return { ok: true, output: `Edited ${relPath}.`, changedPath: relPath }
+  const updated = content.slice(0, first) + newText + content.slice(first + oldText.length)
+  fs.writeFileSync(target, updated, 'utf8')
+  return {
+    ok: true,
+    output: `Edited ${relPath}.`,
+    changedPath: relPath,
+    diff: asSingleDiff(fileDiff(relPath, content, updated))
+  }
 }
 
 async function searchTool(input: Record<string, unknown>): Promise<ToolOutcome> {
@@ -296,27 +349,53 @@ async function searchTool(input: Record<string, unknown>): Promise<ToolOutcome> 
   return { ok: true, output }
 }
 
-async function runCommandTool(input: Record<string, unknown>, signal: AbortSignal): Promise<ToolOutcome> {
-  const command = requireString(input.command, 'command')
+/** Model-friendly env, ported from the harness's bash-local foreman. */
+const ENV_OVERRIDES: Record<string, string> = {
+  NO_COLOR: '1',
+  TERM: 'dumb',
+  PAGER: 'cat',
+  GIT_PAGER: 'cat',
+  GIT_TERMINAL_PROMPT: '0'
+}
+
+async function runCommandTool(
+  call: ToolCall,
+  signal: AbortSignal,
+  hooks?: ToolHooks
+): Promise<ToolOutcome> {
+  const command = requireString(call.input.command, 'command')
   const root = requireWorkspace().root
-  const timeout = Math.min(MAX_COMMAND_TIMEOUT, Math.max(1_000, optInt(input.timeout_ms) ?? DEFAULT_COMMAND_TIMEOUT))
+  const timeout = Math.min(
+    MAX_COMMAND_TIMEOUT,
+    Math.max(1_000, optInt(call.input.timeout_ms) ?? DEFAULT_COMMAND_TIMEOUT)
+  )
+
+  if (hooks) {
+    const decision = await hooks.requestApproval(command, call.id)
+    if (decision === 'rejected') {
+      return { ok: false, output: denialText('the user said no') }
+    }
+  }
 
   return await new Promise<ToolOutcome>((resolve) => {
     const child = spawn(command, {
       shell: true,
       cwd: root,
       windowsHide: true,
-      env: process.env
+      env: { ...process.env, ...ENV_OVERRIDES }
     })
 
     let combined = ''
+    let truncated = false
     let settled = false
 
+    // Keep the tail, not the head: the most recent output is what tells
+    // the model whether the command is failing or finished.
     const append = (chunk: Buffer): void => {
-      if (combined.length >= MAX_COMMAND_OUTPUT) return
       combined += chunk.toString('utf8')
-      if (combined.length >= MAX_COMMAND_OUTPUT) {
-        combined = combined.slice(0, MAX_COMMAND_OUTPUT) + '\n… (output truncated)'
+      if (combined.length > MAX_COMMAND_OUTPUT) {
+        combined = combined.slice(combined.length - MAX_COMMAND_OUTPUT)
+        truncated = true
       }
     }
     child.stdout.on('data', append)
@@ -333,7 +412,9 @@ async function runCommandTool(input: Record<string, unknown>, signal: AbortSigna
       if (!child.killed) {
         child.kill()
       }
-      let output = `$ ${command}\n${combined.trim()}`
+      let output = `$ ${command}\n`
+      if (truncated) output += '… (earlier output dropped)\n'
+      output += combined.trim()
       if (note) output += `\n(${note})`
       resolve({ ok, output })
     }
