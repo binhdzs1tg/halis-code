@@ -7,6 +7,7 @@ import { IpcChannel } from '../shared/ipc-channels'
 import { shellSettings } from './settings'
 import { saveWindowState, windowBoundsOptions } from './window-state'
 import { attachWindowDiagnostics } from './crash'
+import { attachContextMenu } from './context-menu'
 
 const DIST = path.join(__dirname, '..')
 const RESOURCES = path.join(app.getAppPath(), 'resources')
@@ -35,6 +36,7 @@ export function createMainWindow(): BrowserWindow {
   // Renderer console errors, crashed render processes and failed loads all
   // land in the crash-report pipeline instead of vanishing silently.
   attachWindowDiagnostics(win)
+  attachContextMenu(win)
 
   // Windows: 'session-end' is the shutdown notification on the window itself;
   // it does not count as a real close, so it only flags the quit path.
