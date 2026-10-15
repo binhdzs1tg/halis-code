@@ -75,7 +75,7 @@ export function openModelDialog(): void {
         if (!keyStatusOf(found.provider.id) && !document.querySelector('.key-overlay')) {
           openKeyDialog()
         }
-      })
+      }).catch(() => undefined)
     }
   }
 
@@ -388,7 +388,7 @@ export function openModelDialog(): void {
   render()
   search.focus()
   // If the dialog was opened before the catalog arrived, repaint once it does.
-  void catalog.ensureCatalog().then(render)
+  void catalog.ensureCatalog().then(render).catch(() => undefined)
   // Same for key statuses, so the "needs a key" marks are current.
-  void refreshKeyStatuses().then(render)
+  void refreshKeyStatuses().then(render).catch(() => undefined)
 }

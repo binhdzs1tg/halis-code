@@ -129,11 +129,15 @@ function renderGeneral(content: HTMLElement): void {
   actions.style.padding = '0 16px 12px'
   const openBtn = el('button', 'btn ghost', rootPath ? 'Switch folder' : 'Open folder') as HTMLButtonElement
   openBtn.type = 'button'
-  openBtn.addEventListener('click', async () => {
-    const next = await window.halis.pickWorkspace()
-    if (next) {
-      store.update({ workspaceRoot: next })
-    }
+  openBtn.addEventListener('click', () => {
+    void window.halis
+      .pickWorkspace()
+      .then((next) => {
+        if (next) {
+          store.update({ workspaceRoot: next })
+        }
+      })
+      .catch(() => undefined)
   })
   actions.appendChild(openBtn)
   workspace.body.appendChild(actions)
@@ -166,14 +170,19 @@ function renderAgent(content: HTMLElement): void {
     void window.halis
       .setAgentSettings({ commandApproval: 'ask' })
       .then((settings) => paint(settings.commandApproval))
+      .catch(() => undefined)
   })
   fullBtn.addEventListener('click', () => {
     void window.halis
       .setAgentSettings({ commandApproval: 'fullAccess' })
       .then((settings) => paint(settings.commandApproval))
+      .catch(() => undefined)
   })
 
-  void window.halis.getAgentSettings().then((settings) => paint(settings.commandApproval))
+  void window.halis
+    .getAgentSettings()
+    .then((settings) => paint(settings.commandApproval))
+    .catch(() => undefined)
   content.appendChild(root)
 
   const hint = el('div', 'settings-hint')

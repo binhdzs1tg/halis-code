@@ -174,6 +174,11 @@ export function mountFileTree(container: HTMLElement): void {
           anchor = node
         }
       } catch (err) {
+        // Reset the row the same way restoreExpanded does, or the folder
+        // stays marked loaded with no children and never refetches.
+        row.dataset.expanded = '0'
+        delete row.dataset.loaded
+        twist?.classList.remove('open')
         tree.appendChild(el('div', 'planned', `Cannot read folder: ${errText(err)}`))
       }
       return

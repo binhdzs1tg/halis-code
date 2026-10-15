@@ -34,6 +34,12 @@ export function mountEditorArea(): HTMLElement {
       render(area)
       return
     }
+    // A jump target inside the already-open file (another search hit in the
+    // same document): reveal the line without re-rendering, so a dirty
+    // buffer is not reloaded from disk.
+    if (state.openFileLine !== prev.openFileLine && textarea && !textarea.disabled) {
+      revealPendingLine(textarea)
+    }
     const touched = state.lastTouchedFile
     if (touched && touched !== prev.lastTouchedFile) {
       reconcile(area, touched)

@@ -158,14 +158,14 @@ export function mountSidebar(): HTMLElement {
       event.stopPropagation()
       void window.halis.pickWorkspace().then((root) => {
         if (root) store.update({ workspaceRoot: root })
-      })
+      }).catch(() => undefined)
     })
     projectActions.appendChild(openBtn)
     projectRow.append(folderSlot, projectText, projectActions)
     projectRow.addEventListener('click', () => {
       void window.halis.pickWorkspace().then((root) => {
         if (root) store.update({ workspaceRoot: root })
-      })
+      }).catch(() => undefined)
     })
     listArea.appendChild(projectRow)
 
@@ -201,7 +201,7 @@ export function mountSidebar(): HTMLElement {
       event.stopPropagation()
       void window.halis.deleteSession(meta.id).then(() => {
         store.update({ sessionsVersion: store.get().sessionsVersion + 1 })
-      })
+      }).catch(() => undefined)
     })
     actions.appendChild(del)
 

@@ -49,7 +49,7 @@ export function mountConversation(): HTMLElement {
   openFolderBtn.addEventListener('click', () => {
     void window.halis.pickWorkspace().then((root) => {
       if (root) store.update({ workspaceRoot: root })
-    })
+    }).catch(() => undefined)
   })
 
   const railToggle = el('button', 'icon-btn') as HTMLButtonElement
@@ -150,7 +150,7 @@ export function mountConversation(): HTMLElement {
   workspaceChip.addEventListener('click', () => {
     void window.halis.pickWorkspace().then((root) => {
       if (root) store.update({ workspaceRoot: root })
-    })
+    }).catch(() => undefined)
   })
   workspaceRow.appendChild(workspaceChip)
   heroStack.appendChild(workspaceRow)
@@ -1022,7 +1022,7 @@ function buildComposer(
       if (fallback) store.update({ selectedModel: fallback })
     }
     refreshModelButton()
-  })
+  }).catch(() => undefined)
 
   window.halis.onModelsUpdated(() => {
     catalog.invalidate()
@@ -1033,7 +1033,7 @@ function buildComposer(
         if (fallback) store.update({ selectedModel: fallback })
       }
       refreshModelButton()
-    })
+    }).catch(() => undefined)
   })
 
   paintButton()
@@ -1320,8 +1320,10 @@ function splitDiffLines(text: string): string[] {
 
 /** Head/tail cap so a huge rewrite cannot flood the conversation. */
 function capDiff(lines: DiffLine[], maxLines: number): ToolDiff {
+  // Context lines and gap markers are not removals; counting everything
+  // that is not an add would overstate the removed total on hunk diffs.
   const added = lines.filter((line) => line.kind === 'add').length
-  const removed = lines.length - added
+  const removed = lines.filter((line) => line.kind === 'del' && !isGapLine(line)).length
   if (lines.length <= maxLines) {
     return { lines, added, removed }
   }
@@ -1335,6 +1337,11 @@ function capDiff(lines: DiffLine[], maxLines: number): ToolDiff {
   return { lines: gap, added, removed }
 }
 
+/** Gap rows ride as del-marked separators; they are not real removals. */
+function isGapLine(line: DiffLine): boolean {
+  return line.text === '…' || line.text.startsWith('… ')
+}
+
 function renderDiffBlock(diff: ToolDiff, trace: ToolTrace): HTMLElement {
   const wrap = el('div', 'tool-diff')
   const head = el('div', 'diff-head')
@@ -1345,7 +1352,7 @@ function renderDiffBlock(diff: ToolDiff, trace: ToolTrace): HTMLElement {
   head.appendChild(totals)
   wrap.appendChild(head)
   for (const line of diff.lines) {
-    if (line.kind === 'del' && (line.text === '…' || line.text.startsWith('… '))) {
+    if (line.kind === 'del' && isGapLine(line)) {
       wrap.appendChild(el('div', 'diff-gap', line.text))
       continue
     }
