@@ -8,6 +8,7 @@ import './styles/overlays.css'
 import { el } from './app/dom'
 import { store } from './app/store'
 import { loadConfig, saveConfig } from './core/config/config-service'
+import { installBridgeStub } from './core/bridge-stub'
 
 import { mountCaption } from './components/caption'
 import { mountSidebar } from './components/sidebar'
@@ -197,6 +198,12 @@ function mountSplash(): HTMLElement {
 }
 
 async function boot(): Promise<void> {
+  // Without the preload bridge the renderer must still come up — the stub
+  // keeps every window.halis access alive instead of dying on the first one.
+  if (typeof window.halis === 'undefined') {
+    installBridgeStub()
+  }
+
   const splash = mountSplash()
   document.body.appendChild(splash)
 
@@ -223,9 +230,13 @@ async function boot(): Promise<void> {
   // restore the last workspace if it still exists
   const config = loadConfig()
   if (config.lastWorkspace) {
-    const opened = await window.halis.openWorkspace(config.lastWorkspace)
-    if (opened) {
-      store.update({ workspaceRoot: opened })
+    try {
+      const opened = await window.halis.openWorkspace(config.lastWorkspace)
+      if (opened) {
+        store.update({ workspaceRoot: opened })
+      }
+    } catch {
+      // bridge unavailable — start without a workspace
     }
   }
 
@@ -258,7 +269,7 @@ async function boot(): Promise<void> {
         if (root) {
           store.update({ workspaceRoot: root })
         }
-      })
+      }).catch(() => undefined)
     } else if (command === 'toggle-sidebar') {
       store.update({ sidebarVisible: !store.get().sidebarVisible })
     } else if (command === 'toggle-terminal') {
