@@ -41,6 +41,16 @@ approvals, skills — scaled down to a single-user desktop app.
   from the main process, persisted on the session so replay shows the same
   card the live run did.
 
+## Screenshots
+
+| | |
+| --- | --- |
+| ![Startup splash](docs/screenshots/01-startup-splash.png) <br>**Startup splash** | ![First-run home](docs/screenshots/02-welcome-home.png) <br>**First-run home** |
+| ![Workspace explorer](docs/screenshots/03-workspace-explorer.png) <br>**Workspace explorer** | ![Editor](docs/screenshots/04-editor.png) <br>**Editor** |
+| ![Workspace search](docs/screenshots/05-search.png) <br>**Workspace search** | ![Built-in terminal](docs/screenshots/06-terminal.png) <br>**Built-in terminal** |
+| ![Settings](docs/screenshots/07-settings.png) <br>**Settings** | ![Model picker](docs/screenshots/08-model-picker.png) <br>**Model picker** |
+| ![Slash commands](docs/screenshots/09-slash-commands.png) <br>**Slash commands** | ![API key vault](docs/screenshots/10-api-keys.png) <br>**API key vault** |
+
 ## Getting started
 
 ```sh
