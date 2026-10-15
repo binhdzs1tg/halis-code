@@ -11,7 +11,9 @@ export function el<K extends keyof HTMLElementTagNameMap>(
 
 export function svg(markup: string, size = 16): SVGSVGElement {
   const wrapper = document.createElement('span')
-  wrapper.innerHTML = markup.replace('%SIZE%', String(size))
+  wrapper.innerHTML = markup.replaceAll('%SIZE%', String(size))
+  wrapper.style.lineHeight = '0'
+  wrapper.style.display = 'inline-flex'
   const node = wrapper.firstElementChild
   if (node instanceof SVGSVGElement) {
     return node

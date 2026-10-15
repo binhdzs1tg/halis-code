@@ -40,7 +40,7 @@ export function openModelDialog(): void {
   let variantBase: ModelSelection | null = null
   let autoHighlight = true
 
-  const overlay = el('div', 'model-overlay')
+  const overlay = el('div', 'overlay model-overlay')
   const dialog = el('div', 'model-dialog')
 
   const title = el('div', 'dialog-title', 'Select model')

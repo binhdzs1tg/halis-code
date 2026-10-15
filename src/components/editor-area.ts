@@ -292,35 +292,15 @@ function reconcile(area: HTMLElement, touched: TouchedFile): void {
 }
 
 function renderWelcome(area: HTMLElement): void {
-  const welcome = el('div', 'welcome')
+  const welcome = el('div', 'editor-empty')
 
-  const logo = el('div', 'logo-big')
-  logo.appendChild(svg(icons.logo, 52))
+  const mark = el('span', 'empty-mark')
+  welcome.appendChild(mark)
+  welcome.appendChild(el('div', 'empty-title', 'No file open'))
+  welcome.appendChild(
+    el('div', 'empty-hint', 'Pick a file from the Files tab, or let the agent open one for you.')
+  )
 
-  welcome.appendChild(logo)
-  welcome.appendChild(el('h1', undefined, 'Halis Code'))
-  welcome.appendChild(el('div', 'tagline', 'Your desktop coding agent'))
-
-  const hints = el('div', 'hints')
-  const rows: Array<[string, string]> = [
-    ['Open a folder', 'from the Explorer or the status bar'],
-    ['Edit & save', 'Ctrl+S saves the active file'],
-    ['Chat with the agent', 'panel on the right, Ctrl+J toggles it'],
-    ['Terminal', 'Ctrl+` runs a real shell in the workspace']
-  ]
-  for (const [key, desc] of rows) {
-    const row = el('div', 'row')
-    row.appendChild(el('kbd', undefined, key))
-    row.appendChild(el('span', undefined, desc))
-    hints.appendChild(row)
-  }
-  welcome.appendChild(hints)
-
-  const version = el('div', 'version')
-  const info = store.get().appInfo
-  version.textContent = info ? `v${info.version} · electron ${info.electron}` : 'v0.1.0'
-
-  welcome.appendChild(version)
   area.appendChild(welcome)
 }
 

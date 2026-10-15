@@ -1,8 +1,8 @@
 import type { AppInfo } from '../../electron/shared/types'
 import type { ModelSelection } from '../../electron/shared/models'
 
-export type SidebarView = 'explorer' | 'search' | 'settings'
 export type AgentStatus = 'idle' | 'thinking' | 'working' | 'error'
+export type RailTab = 'files' | 'search' | 'editor' | 'terminal'
 
 /** A workspace file the agent or the user just changed. */
 export interface TouchedFile {
@@ -17,10 +17,13 @@ export interface TouchedFile {
 export interface AppState {
   appInfo: AppInfo | null
   workspaceRoot: string | null
-  sidebarView: SidebarView
+  /** Left column: session list, expanded or collapsed. */
   sidebarVisible: boolean
-  chatOpen: boolean
-  terminalOpen: boolean
+  /** Right column: the workspace rail (files/search/editor/terminal). */
+  railVisible: boolean
+  railTab: RailTab
+  /** Bumped whenever sessions change so the sidebar list can repaint. */
+  sessionsVersion: number
   /** Tabs in the editor, in order. */
   openFiles: string[]
   /** Active tab. */
@@ -38,10 +41,10 @@ function initialState(): AppState {
   return {
     appInfo: null,
     workspaceRoot: null,
-    sidebarView: 'explorer',
     sidebarVisible: true,
-    chatOpen: true,
-    terminalOpen: false,
+    railVisible: true,
+    railTab: 'files',
+    sessionsVersion: 0,
     openFiles: [],
     openFile: null,
     openFileLine: null,

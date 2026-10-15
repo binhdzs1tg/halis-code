@@ -1,6 +1,7 @@
 import { el, svg, clear } from '../app/dom'
 import { icons } from '../app/icons'
 import { store } from '../app/store'
+import { mountShimmer } from '../app/shimmer'
 import type { ApprovalDecision, ApprovalRequestEvent, ChatMessage, TodoItem, ToolTrace } from '../../electron/shared/types'
 import { agentService, AgentError } from '../core/agent/agent-service'
 import * as catalog from '../core/models/catalog'
@@ -23,44 +24,82 @@ function makeMessage(role: ChatMessage['role'], content: string): ChatMessage {
   }
 }
 
-export function mountChatPanel(): HTMLElement {
-  const panel = el('aside', 'chat-panel')
+/**
+ * The centre column: a DeepSeek Harness-style conversation — crumbs header,
+ * the message flow with a deep-diving shimmer row while the agent runs, and
+ * the 28px-radius composer card with its dock (queue + approvals).
+ */
+export function mountConversation(): HTMLElement {
+  const rootEl = el('section', 'conversation')
 
-  const header = el('div', 'panel-header')
-  header.appendChild(el('span', undefined, 'Agent'))
-  const newChatBtn = buildIconButton(icons.plus, 'New chat')
-  const historyBtn = buildIconButton(icons.history, 'Chat history')
-  const actions = el('div', 'panel-actions')
-  actions.append(buildKeyChip(), newChatBtn, historyBtn)
-  header.appendChild(actions)
-  panel.appendChild(header)
+  /* ---------- header ---------- */
+  const header = el('header', 'convo-header')
+  const title = el('div', 'convo-title')
+  const crumb = el('span', 'crumb', 'New Session')
+  title.appendChild(crumb)
 
-  const list = el('div', 'message-list')
-  panel.appendChild(list)
+  const actions = el('div', 'convo-actions')
 
-  // Back-to-bottom pill: appears once the reader scrolls away from the tail
-  // while the conversation keeps moving, as in DeepSeek Harness's chat.
-  const jump = el('button', 'chat-jump') as HTMLButtonElement
+  const openFolderBtn = el('button', 'icon-btn') as HTMLButtonElement
+  openFolderBtn.type = 'button'
+  openFolderBtn.title = 'Open folder'
+  openFolderBtn.appendChild(svg(icons.folder, 16))
+  openFolderBtn.addEventListener('click', () => {
+    void window.halis.pickWorkspace().then((root) => {
+      if (root) store.update({ workspaceRoot: root })
+    })
+  })
+
+  const railToggle = el('button', 'icon-btn') as HTMLButtonElement
+  railToggle.type = 'button'
+  railToggle.title = 'Toggle workspace panel'
+  railToggle.appendChild(svg(icons.panelRight, 16))
+  railToggle.addEventListener('click', () => {
+    store.update({ railVisible: !store.get().railVisible })
+  })
+
+  actions.append(openFolderBtn, railToggle)
+  header.append(title, actions)
+  rootEl.appendChild(header)
+
+  const syncCrumb = (messages: ChatMessage[]): void => {
+    crumb.textContent = messages.length > 0 ? sessionTitle(messages) : 'New Session'
+  }
+
+  /* ---------- scroll body ---------- */
+  const scroll = el('div', 'chat-scroll')
+  const column = el('div', 'chat-column')
+  scroll.appendChild(column)
+  rootEl.appendChild(scroll)
+
+  const toBottomSlot = el('div', 'to-bottom-slot')
+  const jump = el('button', 'to-bottom') as HTMLButtonElement
   jump.type = 'button'
   jump.title = 'Jump to latest'
-  jump.appendChild(svg(icons.chevronDown, 13))
+  jump.appendChild(svg(icons.chevronDown, 15))
   jump.hidden = true
   jump.addEventListener('click', () => {
-    scrollToBottom(list, true)
+    scrollToBottom(scroll, true)
   })
-  panel.appendChild(jump)
-  list.addEventListener('scroll', () => {
-    const distance = list.scrollHeight - list.scrollTop - list.clientHeight
+  toBottomSlot.appendChild(jump)
+  scroll.appendChild(toBottomSlot)
+
+  scroll.addEventListener('scroll', () => {
+    const distance = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight
     jump.hidden = distance < 240
   })
 
   const messages: ChatMessage[] = []
-  renderEmptyState(list)
+  let running = false
+  let stoppedManually = false
 
-  // History dropdown, filled on demand from the saved sessions.
-  const pop = el('div', 'session-pop')
-  pop.hidden = true
-  panel.appendChild(pop)
+  // Publish the column width so the chat content axis resolves, exactly as
+  // the harness conversation root does.
+  const widthObserver = new ResizeObserver((entries) => {
+    const width = entries[0]?.contentRect.width ?? 0
+    document.body.style.setProperty('--dsh-conversation-column-width', `${Math.round(width)}px`)
+  })
+  widthObserver.observe(rootEl)
 
   // The conversation currently on screen; null until its first save.
   let sessionId: string | null = null
@@ -78,48 +117,225 @@ export function mountChatPanel(): HTMLElement {
         messages: [...messages]
       })
       sessionId = meta.id
+      store.update({ sessionsVersion: store.get().sessionsVersion + 1 })
+      window.dispatchEvent(new CustomEvent<string>('halis:session-opened', { detail: meta.id }))
     } catch {
       // Persistence is best effort; the chat keeps working without it.
     }
   }
 
-  const togglePop = async (show?: boolean): Promise<void> => {
-    const next = show ?? (pop.hidden === true)
-    if (next) {
-      await renderSessionList(pop, sessionId, () => sessionId)
-    }
-    pop.hidden = !next
-    historyBtn.classList.toggle('active', next)
-  }
+  /* ---------- hero (empty state) ---------- */
+  const hero = el('div', 'chat-hero')
+  const heroStack = el('div', 'hero-stack')
+  const headline = el('div', 'headline')
+  const fishHitbox = el('span', 'fish-hitbox')
+  const fish = el('span', 'fish')
+  fish.appendChild(el('span', 'fish-img'))
+  fishHitbox.appendChild(fish)
+  const heroName = el('span', 'hero-title-img')
+  headline.append(fishHitbox, heroName)
+  heroStack.appendChild(headline)
 
-  newChatBtn.addEventListener('click', () => {
-    void newChat()
-  })
-  historyBtn.addEventListener('click', () => {
-    void togglePop()
-  })
-
-  // Copy buttons rendered inside markdown code blocks.
-  list.addEventListener('click', (event) => {
-    const target = event.target instanceof Element ? event.target.closest('.copy-code') : null
-    if (!target) return
-    const code = target.closest('.code-block')?.querySelector('code')?.textContent
-    if (code === null || code === undefined) return
-    void navigator.clipboard.writeText(code).then(() => {
-      target.textContent = 'Copied'
-      window.setTimeout(() => {
-        target.textContent = 'Copy'
-      }, 1200)
+  const workspaceRow = el('div', 'workspace-row')
+  const workspaceChip = el('button', 'workspace-chip') as HTMLButtonElement
+  workspaceChip.type = 'button'
+  const wsFolder = el('span', 'folder')
+  wsFolder.appendChild(svg(icons.folder, 15))
+  const wsLabel = el('span', 'workspace-label', 'Open a folder')
+  const wsChevron = el('span', 'chevron')
+  wsChevron.appendChild(svg(icons.chevronDown, 13))
+  workspaceChip.append(wsFolder, wsLabel, wsChevron)
+  workspaceChip.addEventListener('click', () => {
+    void window.halis.pickWorkspace().then((root) => {
+      if (root) store.update({ workspaceRoot: root })
     })
   })
+  workspaceRow.appendChild(workspaceChip)
+  heroStack.appendChild(workspaceRow)
 
-  // Clicking anywhere in the conversation closes the history dropdown.
-  list.addEventListener('click', () => {
-    if (!pop.hidden) void togglePop(false)
+  const heroCardHost = el('div', 'hero-card-host')
+  heroStack.appendChild(heroCardHost)
+  hero.appendChild(heroStack)
+
+  const syncWorkspaceChip = (): void => {
+    const root = store.get().workspaceRoot
+    wsLabel.textContent = root ? fileName(root) : 'Open a folder'
+  }
+  syncWorkspaceChip()
+  store.subscribe((state, prev) => {
+    if (state.workspaceRoot !== prev.workspaceRoot) syncWorkspaceChip()
   })
 
-  let running = false
-  let stoppedManually = false
+  /* ---------- composer ---------- */
+  const composer = buildComposer({
+    onSubmit: (text) => void send(text),
+    onStop: () => {
+      // A manual stop also holds the queue back; the user decides what runs next.
+      stoppedManually = true
+      agentService.cancel()
+    },
+    onEscape: () => {
+      // While an approval is pending, Escape belongs to the approval card.
+      if (pendingApproval) {
+        agentService.respondApproval(pendingApproval.requestId, 'rejected')
+        clearApprovalCard()
+        return true
+      }
+      return false
+    },
+    // Lazy so the binding can live below with the other command flows.
+    getCommands: () => getCommands()
+  })
+
+  const seat = el('div', 'composer-seat')
+  seat.appendChild(composer.root)
+  rootEl.appendChild(seat)
+
+  const enterHero = (): void => {
+    rootEl.dataset.hero = ''
+    scroll.appendChild(hero)
+    heroCardHost.appendChild(composer.root)
+  }
+  const exitHero = (): void => {
+    delete rootEl.dataset.hero
+    hero.remove()
+    seat.appendChild(composer.root)
+  }
+  enterHero()
+
+  window.addEventListener('halis:new-session', () => void newChat())
+
+  /* ---------- approvals (composer takeover) ---------- */
+
+  let pendingApproval: ApprovalRequestEvent | null = null
+  const approvalHost = el('div', 'dock approval-host')
+  approvalHost.hidden = true
+
+  const clearApprovalCard = (): void => {
+    pendingApproval = null
+    approvalHost.hidden = true
+    clear(approvalHost)
+    composer.setLocked(false)
+  }
+
+  const paintApprovalCard = (): void => {
+    clear(approvalHost)
+    approvalHost.hidden = !pendingApproval
+    if (!pendingApproval) return
+    const request = pendingApproval
+    const dockCard = el('div', 'dock-card')
+    const card = el('div', 'approval-card')
+    const head = el('div', 'approval-head')
+    head.append(el('span', 'approval-dot'), el('span', 'approval-title', 'Waiting for your approval'))
+    card.appendChild(head)
+    card.appendChild(
+      el('div', 'approval-reason', `This command needs your ok — ${request.reason}.`)
+    )
+    if (request.command) {
+      card.appendChild(el('code', 'approval-command', request.command))
+    }
+    const row = el('div', 'approval-actions')
+    const deny = el('button', 'btn ghost approval-deny') as HTMLButtonElement
+    deny.type = 'button'
+    deny.textContent = 'Deny'
+    const allow = el('button', 'btn approval-allow') as HTMLButtonElement
+    allow.type = 'button'
+    allow.textContent = 'Allow once'
+    const decide = (decision: ApprovalDecision): void => {
+      if (pendingApproval?.requestId !== request.requestId) return
+      agentService.respondApproval(request.requestId, decision)
+      clearApprovalCard()
+    }
+    deny.addEventListener('click', () => decide('rejected'))
+    allow.addEventListener('click', () => decide('allowed-once'))
+    row.append(deny, allow)
+    card.appendChild(row)
+    dockCard.appendChild(card)
+    approvalHost.appendChild(dockCard)
+    allow.focus()
+    // Enter approves, Escape rejects — the same keys as DeepSeek Harness's
+    // approval panel; the composer is taken over until the user decides.
+    const onKey = (event: KeyboardEvent): void => {
+      if (pendingApproval?.requestId !== request.requestId) {
+        document.removeEventListener('keydown', onKey)
+        return
+      }
+      if (event.key === 'Enter' && !event.isComposing) {
+        event.preventDefault()
+        decide('allowed-once')
+      } else if (event.key === 'Escape') {
+        event.preventDefault()
+        decide('rejected')
+      }
+    }
+    document.addEventListener('keydown', onKey)
+  }
+
+  /* ---------- queued sends (while a run is in flight) ---------- */
+
+  const queue: string[] = []
+  const queueBox = el('div', 'dock queue-box')
+  queueBox.hidden = true
+
+  const paintQueue = (): void => {
+    clear(queueBox)
+    queueBox.hidden = queue.length === 0
+    if (queue.length === 0) return
+    const dockCard = el('div', 'dock-card')
+    const rows = el('div', 'queue-rows')
+    for (let i = 0; i < queue.length; i += 1) {
+      const row = el('div', 'queue-row')
+      row.appendChild(el('span', 'queue-label', 'Queued'))
+      row.appendChild(el('span', 'queue-text', queue[i]))
+      const del = el('button', 'queue-del') as HTMLButtonElement
+      del.type = 'button'
+      del.title = 'Remove'
+      del.appendChild(svg(icons.close, 11))
+      del.addEventListener('click', () => {
+        queue.splice(i, 1)
+        paintQueue()
+      })
+      row.appendChild(del)
+      rows.appendChild(row)
+    }
+    dockCard.appendChild(rows)
+    queueBox.appendChild(dockCard)
+  }
+
+  /* ---------- running shimmer row ---------- */
+
+  let runningRow: HTMLElement | null = null
+  let runningTimer = 0
+  let runningStart = 0
+  let runningShimmer: { setText(text: string): void } | null = null
+
+  const showRunningRow = (): void => {
+    if (runningRow) return
+    runningRow = el('div', 'running flow-item')
+    const divider = el('span', 'running-divider')
+    divider.dataset.visible = ''
+    const content = el('span', 'running-content')
+    const mark = el('span', 'running-mark')
+    const shimmer = mountShimmer('Deep diving for 0s')
+    runningShimmer = shimmer
+    content.append(mark, shimmer.root)
+    runningRow.append(divider, content)
+    column.appendChild(runningRow)
+    runningStart = Date.now()
+    runningTimer = window.setInterval(() => {
+      runningShimmer?.setText(`Deep diving for ${Math.floor((Date.now() - runningStart) / 1000)}s`)
+    }, 1000)
+    scrollToBottom(scroll)
+  }
+
+  const hideRunningRow = (): void => {
+    window.clearInterval(runningTimer)
+    runningShimmer = null
+    runningRow?.remove()
+    runningRow = null
+  }
+
+  /* ---------- session lifecycle ---------- */
 
   const newChat = async (): Promise<void> => {
     if (running) {
@@ -132,9 +348,11 @@ export function mountChatPanel(): HTMLElement {
     messages.splice(0, messages.length)
     queue.splice(0, queue.length)
     paintQueue()
-    clear(list)
-    renderEmptyState(list)
-    await togglePop(false)
+    clear(column)
+    enterHero()
+    syncCrumb(messages)
+    store.update({ sessionsVersion: store.get().sessionsVersion + 1 })
+    window.dispatchEvent(new CustomEvent<string>('halis:session-opened', { detail: '' }))
   }
 
   const openSession = async (id: string): Promise<void> => {
@@ -142,6 +360,7 @@ export function mountChatPanel(): HTMLElement {
       appendSystemNote('Stop the agent before switching chats.')
       return
     }
+    if (!id) return
     try {
       const session = await window.halis.loadSession(id)
       if (sessionId !== id) {
@@ -149,22 +368,29 @@ export function mountChatPanel(): HTMLElement {
       }
       sessionId = session.id
       messages.splice(0, messages.length, ...session.messages)
-      clear(list)
+      clear(column)
+      exitHero()
       for (const message of messages) {
-        list.appendChild(renderMessage(message))
+        column.appendChild(renderMessage(message))
       }
-      scrollToBottom(list, true)
+      syncCrumb(messages)
+      scrollToBottom(scroll, true)
       if (session.model && catalog.isValid(session.model)) {
         store.update({ selectedModel: session.model })
       }
-      await togglePop(false)
+      store.update({ sessionsVersion: store.get().sessionsVersion + 1 })
+      window.dispatchEvent(new CustomEvent<string>('halis:session-opened', { detail: id }))
     } catch (err) {
       appendSystemNote(err instanceof Error ? err.message : String(err))
     }
   }
 
-  // Rows in the history dropdown open through this hook.
-  sessionOpener = openSession
+  // The sidebar opens sessions through this hook.
+  window.dispatchEvent(
+    new CustomEvent<(id: string) => Promise<void>>('halis:register-session-opener', {
+      detail: openSession
+    })
+  )
 
   /* ---------- slash commands ---------- */
 
@@ -195,8 +421,8 @@ export function mountChatPanel(): HTMLElement {
       messages.splice(0, messages.length)
       const checkpoint = makeMessage('system', result.checkpoint)
       messages.push(checkpoint)
-      clear(list)
-      list.appendChild(renderMessage(checkpoint))
+      clear(column)
+      column.appendChild(renderMessage(checkpoint))
       appendSystemNote(
         `Compacted: about ${result.beforeTokens.toLocaleString()} tokens down to about ${result.afterTokens.toLocaleString()}.`
       )
@@ -262,119 +488,7 @@ export function mountChatPanel(): HTMLElement {
     await command.run()
   }
 
-  /* ---------- approvals (composer takeover) ---------- */
-
-  let pendingApproval: ApprovalRequestEvent | null = null
-  const approvalHost = el('div', 'approval-host')
-  approvalHost.hidden = true
-
-  const clearApprovalCard = (): void => {
-    pendingApproval = null
-    approvalHost.hidden = true
-    clear(approvalHost)
-    composer.setLocked(false)
-  }
-
-  const paintApprovalCard = (): void => {
-    clear(approvalHost)
-    approvalHost.hidden = !pendingApproval
-    if (!pendingApproval) return
-    const request = pendingApproval
-    const card = el('div', 'approval-card')
-    const head = el('div', 'approval-head')
-    head.append(el('span', 'approval-dot'), el('span', 'approval-title', 'Waiting for your approval'))
-    card.appendChild(head)
-    card.appendChild(
-      el('div', 'approval-reason', `This command needs your ok — ${request.reason}.`)
-    )
-    if (request.command) {
-      card.appendChild(el('code', 'approval-command', request.command))
-    }
-    const actions = el('div', 'approval-actions')
-    const deny = el('button', 'btn approval-deny') as HTMLButtonElement
-    deny.type = 'button'
-    deny.textContent = 'Deny'
-    const allow = el('button', 'btn primary approval-allow') as HTMLButtonElement
-    allow.type = 'button'
-    allow.textContent = 'Allow once'
-    const decide = (decision: ApprovalDecision): void => {
-      if (pendingApproval?.requestId !== request.requestId) return
-      agentService.respondApproval(request.requestId, decision)
-      clearApprovalCard()
-    }
-    deny.addEventListener('click', () => decide('rejected'))
-    allow.addEventListener('click', () => decide('allowed-once'))
-    actions.append(deny, allow)
-    card.appendChild(actions)
-    approvalHost.appendChild(card)
-    allow.focus()
-    // Enter approves, Escape rejects — the same keys as DeepSeek Harness's
-    // approval panel; the composer is taken over until the user decides.
-    const onKey = (event: KeyboardEvent): void => {
-      if (pendingApproval?.requestId !== request.requestId) {
-        document.removeEventListener('keydown', onKey)
-        return
-      }
-      if (event.key === 'Enter' && !event.isComposing) {
-        event.preventDefault()
-        decide('allowed-once')
-      } else if (event.key === 'Escape') {
-        event.preventDefault()
-        decide('rejected')
-      }
-    }
-    document.addEventListener('keydown', onKey)
-  }
-
-  const composer = buildComposer({
-    onSubmit: (text) => void send(text),
-    onStop: () => {
-      // A manual stop also holds the queue back; the user decides what runs next.
-      stoppedManually = true
-      agentService.cancel()
-    },
-    onEscape: () => {
-      // While an approval is pending, Escape belongs to the approval card.
-      if (pendingApproval) {
-        agentService.respondApproval(pendingApproval.requestId, 'rejected')
-        clearApprovalCard()
-        return true
-      }
-      return false
-    },
-    getCommands
-  })
-
-  panel.appendChild(approvalHost)
-
-  /* ---------- queued sends (while a run is in flight) ---------- */
-
-  const queue: string[] = []
-  const queueBox = el('div', 'queue-box')
-  queueBox.hidden = true
-
-  const paintQueue = (): void => {
-    clear(queueBox)
-    queueBox.hidden = queue.length === 0
-    if (queue.length === 0) return
-    for (let i = 0; i < queue.length; i += 1) {
-      const row = el('div', 'queue-row')
-      row.appendChild(el('span', 'queue-label', 'Queued'))
-      row.appendChild(el('span', 'queue-text', queue[i]))
-      const del = el('button', 'queue-del') as HTMLButtonElement
-      del.type = 'button'
-      del.title = 'Remove'
-      del.appendChild(svg(icons.close, 10))
-      del.addEventListener('click', () => {
-        queue.splice(i, 1)
-        paintQueue()
-      })
-      row.appendChild(del)
-      queueBox.appendChild(row)
-    }
-  }
-
-  panel.appendChild(queueBox)
+  /* ---------- the send flow ---------- */
 
   const send = async (text: string): Promise<void> => {
     // Slash commands route to their own handlers instead of the model.
@@ -390,12 +504,15 @@ export function mountChatPanel(): HTMLElement {
       return
     }
     stoppedManually = false
-    list.querySelector('.chat-empty')?.remove()
+    if (rootEl.hasAttribute('data-hero')) {
+      exitHero()
+    }
 
     const userMsg = makeMessage('user', text)
     messages.push(userMsg)
-    list.appendChild(renderMessage(userMsg))
-    scrollToBottom(list, true)
+    column.appendChild(renderMessage(userMsg))
+    syncCrumb(messages)
+    scrollToBottom(scroll, true)
 
     const selection = store.get().selectedModel
     if (!selection || !catalog.isValid(selection)) {
@@ -409,20 +526,22 @@ export function mountChatPanel(): HTMLElement {
     running = true
     composer.setRunning(true)
     store.update({ agentStatus: 'thinking' })
+    showRunningRow()
 
     const history = [...messages]
     const assistant = makeMessage('assistant', '')
     const node = renderMessage(assistant)
-    node.querySelector('.bubble')?.classList.add('streaming')
+    const bubble = node.querySelector<HTMLElement>('.bubble')
+    bubble?.classList.add('streaming')
     messages.push(assistant)
-    list.appendChild(node)
+    column.appendChild(node)
 
     // Live feed of tool calls made while this answer streams in.
     const traces: ToolTrace[] = []
     const toolLog = el('div', 'tool-log')
     const liveRows = new Map<string, HTMLElement>()
     const traceOf = new Map<string, ToolTrace>()
-    node.insertBefore(toolLog, node.querySelector('.bubble'))
+    node.insertBefore(toolLog, bubble)
 
     // Live plan card, replaced wholesale on every todo_write snapshot.
     let liveTodos: TodoItem[] = []
@@ -438,18 +557,17 @@ export function mountChatPanel(): HTMLElement {
     let buffered = ''
     let frame = 0
     // Only the unstable tail re-renders per frame; settled blocks freeze.
-    const streamHost = node.querySelector<HTMLElement>('.bubble')
     let stream: StreamingMarkdown | null = null
-    if (streamHost) {
-      streamHost.classList.add('streaming-md')
-      stream = new StreamingMarkdown(streamHost)
+    if (bubble) {
+      bubble.classList.add('streaming-md')
+      stream = new StreamingMarkdown(bubble)
     }
     const paint = (): void => {
       if (frame) return
       frame = requestAnimationFrame(() => {
         frame = 0
         stream?.update(buffered)
-        scrollToBottom(list)
+        scrollToBottom(scroll)
       })
     }
 
@@ -485,7 +603,7 @@ export function mountChatPanel(): HTMLElement {
               const row = liveRows.get(event.callId)
               if (row) row.replaceWith(renderToolRow(trace, false))
             }
-            scrollToBottom(list)
+            scrollToBottom(scroll)
           },
           onTodo: (event) => {
             liveTodos = event.todos
@@ -525,7 +643,7 @@ export function mountChatPanel(): HTMLElement {
         if (traces.length > 0) partial.tools = [...traces]
         if (liveTodos.length > 0) partial.todos = [...liveTodos]
         messages.push(partial)
-        list.appendChild(renderMessage(partial))
+        column.appendChild(renderMessage(partial))
         void persist()
       }
       if (agentErr?.code === 'missing-key') {
@@ -540,11 +658,12 @@ export function mountChatPanel(): HTMLElement {
       if (frame) cancelAnimationFrame(frame)
       running = false
       composer.setRunning(false)
+      hideRunningRow()
       clearApprovalCard()
       if (store.get().agentStatus !== 'error') {
         store.update({ agentStatus: 'idle' })
       }
-      scrollToBottom(list)
+      scrollToBottom(scroll)
     }
   }
 
@@ -553,27 +672,31 @@ export function mountChatPanel(): HTMLElement {
     messages.push(message)
     const node = renderMessage(message)
     if (action) {
-      const btn = el('button', 'note-action') as HTMLButtonElement
+      const btn = el('button', 'btn small note-action') as HTMLButtonElement
       btn.type = 'button'
       btn.textContent = action.label
       btn.addEventListener('click', action.onClick)
       node.querySelector('.bubble')?.appendChild(btn)
     }
-    list.appendChild(node)
-    scrollToBottom(list, true)
+    column.appendChild(node)
+    scrollToBottom(scroll, true)
   }
 
-  panel.appendChild(composer.root)
-  return panel
-}
+  // Copy buttons rendered inside markdown code blocks.
+  scroll.addEventListener('click', (event) => {
+    const target = event.target instanceof Element ? event.target.closest('.copy-code') : null
+    if (!target) return
+    const code = target.closest('.code-block')?.querySelector('code')?.textContent
+    if (code === null || code === undefined) return
+    void navigator.clipboard.writeText(code).then(() => {
+      target.textContent = 'Copied'
+      window.setTimeout(() => {
+        target.textContent = 'Copy'
+      }, 1200)
+    })
+  })
 
-/** Small square header button for chat-level actions. */
-function buildIconButton(icon: string, title: string): HTMLButtonElement {
-  const btn = el('button', 'icon-btn') as HTMLButtonElement
-  btn.type = 'button'
-  btn.title = title
-  btn.appendChild(svg(icon, 14))
-  return btn
+  return rootEl
 }
 
 /** First user message, collapsed onto one line, as the session title. */
@@ -584,96 +707,7 @@ function sessionTitle(messages: ChatMessage[]): string {
   return raw.length > 48 ? `${raw.slice(0, 45)}…` : raw
 }
 
-/** Fill the history dropdown from the saved sessions. */
-async function renderSessionList(
-  pop: HTMLElement,
-  currentId: string | null,
-  getCurrentId: () => string | null
-): Promise<void> {
-  clear(pop)
-  const metas = await window.halis.listSessions().catch(() => [])
-  if (metas.length === 0) {
-    pop.appendChild(el('div', 'session-empty', 'No saved chats yet.'))
-    return
-  }
-  for (const meta of metas) {
-    const row = el('div', `session-row${meta.id === currentId || meta.id === getCurrentId() ? ' current' : ''}`)
-    const main = el('button', 'session-main') as HTMLButtonElement
-    main.type = 'button'
-    main.append(
-      el('span', 'session-title', meta.title),
-      el('span', 'session-sub', `${formatSessionDate(meta.updatedAt)} · ${meta.messageCount} message${meta.messageCount === 1 ? '' : 's'}`)
-    )
-    main.addEventListener('click', () => {
-      void openSessionFromRow(meta.id)
-    })
-    const del = el('button', 'session-del') as HTMLButtonElement
-    del.type = 'button'
-    del.title = 'Delete chat'
-    del.appendChild(svg(icons.trash, 12))
-    del.addEventListener('click', (event) => {
-      event.stopPropagation()
-      void window.halis.deleteSession(meta.id).then(() => renderSessionList(pop, currentId, getCurrentId))
-    })
-    row.append(main, del)
-    pop.appendChild(row)
-  }
-}
-
-/** Placeholder wired below; the real opener lives in the panel closure. */
-let sessionOpener: ((id: string) => Promise<void>) | null = null
-
-async function openSessionFromRow(id: string): Promise<void> {
-  await sessionOpener?.(id)
-}
-
-function formatSessionDate(timestamp: number): string {
-  const date = new Date(timestamp)
-  if (date.toDateString() === new Date().toDateString()) {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  }
-  return date.toLocaleDateString([], { month: 'short', day: 'numeric' })
-}
-
-function buildKeyChip(): HTMLElement {
-  const chip = el('button', 'key-chip') as HTMLButtonElement
-  chip.type = 'button'
-  const dot = el('span', 'key-dot')
-  chip.append(dot, svg(icons.key, 12), el('span', 'key-label', 'API key'))
-  chip.addEventListener('click', () => openKeyDialog())
-
-  const refresh = (): void => {
-    const selection = store.get().selectedModel
-    const status = keyStatusOf(selection?.providerID)
-    const found = selection ? catalog.findModel(selection) : null
-    if (!selection || !found) {
-      chip.className = 'key-chip unknown'
-      chip.title = 'Select a model to manage its API key'
-      return
-    }
-    if (status) {
-      chip.className = 'key-chip ok'
-      chip.title =
-        status.source === 'env'
-          ? `Using ${status.envVar} from the environment`
-          : `${found.provider.name} key stored in the app vault`
-    } else {
-      chip.className = 'key-chip missing'
-      chip.title = `No API key for ${found.provider.name} yet`
-    }
-  }
-
-  store.subscribe((state, prev) => {
-    if (state.selectedModel !== prev.selectedModel) refresh()
-  })
-  window.halis.onKeysChanged(() => {
-    void refreshKeyStatuses().then(refresh)
-  })
-  void refreshKeyStatuses().then(refresh)
-  void catalog.ensureCatalog().then(refresh)
-
-  return chip
-}
+/* ---------- composer ---------- */
 
 interface ComposerHandlers {
   onSubmit(text: string): void
@@ -689,21 +723,51 @@ function buildComposer(
 ): { root: HTMLElement; setRunning(running: boolean): void; setLocked(locked: boolean): void } {
   const composer = el('div', 'composer')
 
-  const inputBox = el('div', 'input-box')
-  const textarea = el('textarea') as HTMLTextAreaElement
+  const card = el('div', 'composer-card')
+  const scrollWrap = el('div', 'composer-scroll')
+  const textarea = el('textarea', 'composer-input') as HTMLTextAreaElement
   textarea.rows = 1
   textarea.placeholder = 'Ask Halis to code something…'
   textarea.spellcheck = false
+  scrollWrap.appendChild(textarea)
 
-  const sendBtn = el('button', 'send') as HTMLButtonElement
+  const row = el('div', 'composer-row')
+
+  const tools = el('div', 'composer-tools')
+  const addBtn = el('button', 'add-button') as HTMLButtonElement
+  addBtn.type = 'button'
+  addBtn.title = 'Commands'
+  addBtn.appendChild(svg(icons.plus, 14))
+  tools.appendChild(addBtn)
+  tools.appendChild(buildKeyChip())
+
+  const trailing = el('div', 'composer-trailing')
+  const modelPill = el('button', 'model-pill') as HTMLButtonElement
+  modelPill.type = 'button'
+  modelPill.title = 'Select model'
+  const modelLabel = el('span', 'model-label', 'Loading models…')
+  const modelChev = el('span', 'chev')
+  modelChev.appendChild(svg(icons.chevronDown, 13))
+  modelPill.append(modelLabel, modelChev)
+  modelPill.addEventListener('click', () => {
+    openModelDialog()
+  })
+
+  const sendBtn = el('button', 'send-button') as HTMLButtonElement
   sendBtn.type = 'button'
+
+  trailing.append(modelPill, sendBtn)
+  row.append(tools, trailing)
+  card.append(scrollWrap, row)
+
+  composer.append(card)
 
   let running = false
   let locked = false
   const paintButton = (): void => {
     sendBtn.title = running ? 'Stop' : 'Send'
-    sendBtn.className = running ? 'send stop' : 'send'
-    sendBtn.replaceChildren(svg(running ? icons.stop : icons.arrowUp, 14))
+    sendBtn.className = running ? 'send-button stop' : 'send-button'
+    sendBtn.replaceChildren(svg(running ? icons.stop : icons.arrowUp, 15))
   }
 
   const submit = (): void => {
@@ -728,6 +792,17 @@ function buildComposer(
     }
   })
 
+  addBtn.addEventListener('click', () => {
+    if (!textarea.value.startsWith('/')) {
+      textarea.value = `/${textarea.value}`
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length)
+      autoGrow()
+      slashIndex = 0
+      refreshSlash()
+    }
+    textarea.focus()
+  })
+
   /* ---------- slash command menu ---------- */
 
   const slashPop = el('div', 'slash-pop')
@@ -743,15 +818,15 @@ function buildComposer(
   const paintSlash = (): void => {
     clear(slashPop)
     slashItems.forEach((item, index) => {
-      const row = el('div', `slash-row${index === slashIndex ? ' active' : ''}`)
-      row.append(
+      const rowNode = el('div', `slash-row${index === slashIndex ? ' active' : ''}`)
+      rowNode.append(
         el('span', 'slash-name', `/${item.name}`),
         el('span', 'slash-desc', item.description)
       )
-      row.addEventListener('click', () => {
+      rowNode.addEventListener('click', () => {
         acceptSlash(index)
       })
-      slashPop.appendChild(row)
+      slashPop.appendChild(rowNode)
     })
   }
 
@@ -828,7 +903,7 @@ function buildComposer(
 
   function autoGrow(): void {
     textarea.style.height = 'auto'
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 120)}px`
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 336)}px`
   }
 
   // The unsent draft survives restarts and chat switches; a submitted draft
@@ -858,25 +933,6 @@ function buildComposer(
     slashIndex = 0
     refreshSlash()
   })
-
-  inputBox.append(textarea, sendBtn)
-  composer.appendChild(inputBox)
-  composer.appendChild(slashPop)
-
-  // Model row under the input, mirroring opencode's `model · provider` metadata.
-  const modelBtn = el('button', 'model-button') as HTMLButtonElement
-  modelBtn.type = 'button'
-  modelBtn.title = 'Select model'
-  const modelLabel = el('span', 'model-label', 'Loading models…')
-  modelBtn.append(modelLabel, svg(icons.chevronDown, 12))
-  modelBtn.addEventListener('click', () => {
-    openModelDialog()
-  })
-
-  const hint = el('div', 'hint', 'Enter to send · Shift+Enter for a new line')
-  const bar = el('div', 'composer-bar')
-  bar.append(modelBtn, hint)
-  composer.appendChild(bar)
 
   const refreshModelButton = (): void => {
     const selection = store.get().selectedModel
@@ -920,34 +976,66 @@ function buildComposer(
     },
     setLocked(value: boolean): void {
       locked = value
-      inputBox.classList.toggle('locked', locked)
+      textarea.disabled = locked
+      addBtn.disabled = locked
     }
   }
 }
 
-function renderEmptyState(list: HTMLElement): void {
-  const empty = el('div', 'chat-empty')
-  const logo = el('div', 'logo')
-  logo.appendChild(svg(icons.logo, 30))
-  empty.appendChild(logo)
-  empty.appendChild(
-    el(
-      'div',
-      undefined,
-      'Plan, explore and edit code with the Halis agent.\nPick a model below and add its API key to get going.'
-    )
-  )
-  list.appendChild(empty)
+/** Key status chip inside the composer tools, as in the harness. */
+function buildKeyChip(): HTMLElement {
+  const chip = el('button', 'composer-key-chip') as HTMLButtonElement
+  chip.type = 'button'
+  const dot = el('span', 'key-dot')
+  chip.append(dot, svg(icons.key, 13), el('span', undefined, 'API key'))
+  chip.addEventListener('click', () => openKeyDialog())
+
+  const refresh = (): void => {
+    const selection = store.get().selectedModel
+    const status = keyStatusOf(selection?.providerID)
+    const found = selection ? catalog.findModel(selection) : null
+    if (!selection || !found) {
+      dot.className = 'key-dot'
+      chip.title = 'Select a model to manage its API key'
+      return
+    }
+    if (status) {
+      dot.className = 'key-dot ok'
+      chip.title =
+        status.source === 'env'
+          ? `Using ${status.envVar} from the environment`
+          : `${found.provider.name} key stored in the app vault`
+    } else {
+      dot.className = 'key-dot missing'
+      chip.title = `No API key for ${found.provider.name} yet`
+    }
+  }
+
+  store.subscribe((state, prev) => {
+    if (state.selectedModel !== prev.selectedModel) refresh()
+  })
+  window.halis.onKeysChanged(() => {
+    void refreshKeyStatuses().then(refresh)
+  })
+  void refreshKeyStatuses().then(refresh)
+  void catalog.ensureCatalog().then(refresh)
+
+  return chip
 }
 
+/* ---------- message rendering ---------- */
+
 function renderMessage(message: ChatMessage): HTMLElement {
-  const wrap = el('div', `msg ${message.role}`)
+  const wrap = el('div', `msg flow-item ${message.role}`)
 
   // A compaction checkpoint is stored as a system message; show it as a
   // collapsible card instead of a wall of summary text.
   if (message.role === 'system' && message.content.includes('<compacted-summary>')) {
     const details = el('details', 'checkpoint-card')
-    details.appendChild(el('summary', undefined, 'Conversation checkpoint'))
+    const summary = el('summary')
+    summary.appendChild(svg(icons.history, 13))
+    summary.appendChild(el('span', undefined, 'Conversation checkpoint'))
+    details.appendChild(summary)
     const body = el('pre', 'checkpoint-body', message.content)
     details.appendChild(body)
     wrap.appendChild(details)
@@ -961,46 +1049,56 @@ function renderMessage(message: ChatMessage): HTMLElement {
       bubble.classList.add('empty')
     }
     const meta = el('div', 'meta')
-    meta.appendChild(el('span', undefined, formatTime(message.createdAt)))
+    meta.appendChild(el('span', 'time-start', formatTime(message.createdAt)))
 
     const copy = el('button', 'copy-msg') as HTMLButtonElement
     copy.type = 'button'
     copy.title = 'Copy message'
-    copy.appendChild(svg(icons.copy, 12))
+    copy.appendChild(svg(icons.copy, 13))
     copy.addEventListener('click', () => {
       void navigator.clipboard.writeText(message.content).then(() => {
-        copy.replaceChildren(svg(icons.check, 12))
-        window.setTimeout(() => copy.replaceChildren(svg(icons.copy, 12)), 1200)
+        copy.replaceChildren(svg(icons.check, 13))
+        window.setTimeout(() => copy.replaceChildren(svg(icons.copy, 13)), 1200)
       })
     })
     meta.appendChild(copy)
 
+    const body = el('div', 'assistant-body')
     if (message.todos?.length) {
-      wrap.appendChild(renderTodoCard(message.todos))
+      body.appendChild(renderTodoCard(message.todos))
     }
     if (message.tools?.length) {
-      wrap.append(bubble, renderToolTrace(message.tools), meta)
+      body.append(bubble, renderToolTrace(message.tools))
     } else {
-      wrap.append(bubble, meta)
+      body.appendChild(bubble)
     }
+    wrap.append(body, meta)
     return wrap
   }
 
-  const userMeta = el('div', 'meta')
-  userMeta.appendChild(el('span', undefined, formatTime(message.createdAt)))
+  if (message.role === 'system') {
+    wrap.appendChild(el('div', 'bubble selectable', message.content))
+    return wrap
+  }
+
+  // user
+  const stack = el('div', 'user-stack')
+  stack.appendChild(el('div', 'bubble selectable', message.content))
+  const meta = el('div', 'meta')
+  meta.appendChild(el('span', 'time-start', formatTime(message.createdAt)))
   const userCopy = el('button', 'copy-msg') as HTMLButtonElement
   userCopy.type = 'button'
   userCopy.title = 'Copy message'
-  userCopy.appendChild(svg(icons.copy, 12))
+  userCopy.appendChild(svg(icons.copy, 13))
   userCopy.addEventListener('click', () => {
     void navigator.clipboard.writeText(message.content).then(() => {
-      userCopy.replaceChildren(svg(icons.check, 12))
-      window.setTimeout(() => userCopy.replaceChildren(svg(icons.copy, 12)), 1200)
+      userCopy.replaceChildren(svg(icons.check, 13))
+      window.setTimeout(() => userCopy.replaceChildren(svg(icons.copy, 13)), 1200)
     })
   })
-  userMeta.appendChild(userCopy)
-  wrap.appendChild(el('div', 'bubble selectable', message.content))
-  wrap.appendChild(userMeta)
+  meta.appendChild(userCopy)
+  wrap.appendChild(stack)
+  wrap.appendChild(meta)
   return wrap
 }
 
@@ -1008,22 +1106,30 @@ function renderMessage(message: ChatMessage): HTMLElement {
 function renderTodoCard(todos: TodoItem[]): HTMLElement {
   const card = el('div', 'todo-card')
   const done = todos.filter((item) => item.status === 'completed').length
-  const header = el('div', 'todo-head')
-  header.append(el('span', 'todo-title', 'Plan'), el('span', 'todo-count', `${done}/${todos.length}`))
-  card.appendChild(header)
+  const head = el('div', 'todo-head')
+  const lead = el('span', 'todo-lead')
+  lead.appendChild(svg(icons.todo, 13))
+  head.append(
+    lead,
+    el('span', 'todo-title', 'Plan'),
+    el('span', 'todo-count', `${done}/${todos.length} done`)
+  )
+  card.appendChild(head)
+  const rows = el('div', 'todo-rows')
   for (const item of todos) {
     const row = el('div', `todo-row ${item.status}`)
-    const state = el('span', 'todo-state')
+    const glyph = el('span', 'todo-glyph')
     if (item.status === 'completed') {
-      state.appendChild(svg(icons.check, 11))
+      glyph.appendChild(svg(icons.check, 12))
     } else if (item.status === 'in_progress') {
-      state.appendChild(el('span', 'todo-spinner'))
+      glyph.appendChild(el('span', 'todo-spinner'))
     } else {
-      state.appendChild(svg(icons.circle, 11))
+      glyph.appendChild(svg(icons.circle, 12))
     }
-    row.append(state, el('span', 'todo-text', item.content))
-    card.appendChild(row)
+    row.append(glyph, el('span', 'todo-text', item.content))
+    rows.appendChild(row)
   }
+  card.appendChild(rows)
   return card
 }
 
@@ -1035,52 +1141,74 @@ function renderToolTrace(tools: ToolTrace[]): HTMLElement {
     el('span', undefined, `${tools.length} tool ${tools.length === 1 ? 'call' : 'calls'}`)
   )
   details.appendChild(summary)
+  const log = el('div', 'tool-log')
   for (const trace of tools) {
-    details.appendChild(renderToolRow(trace, false))
+    log.appendChild(renderToolRow(trace, false))
   }
+  details.appendChild(log)
   return details
 }
 
-/** One tool call: spinner while running, expandable output once done. */
-function renderToolRow(trace: ToolTrace, running: boolean): HTMLElement {
-  if (running) {
+/** One tool call: shimmer while running, expandable output once done. */
+function renderToolRow(trace: ToolTrace, live: boolean): HTMLElement {
+  if (live) {
     const row = el('div', 'tool-row live')
-    row.appendChild(el('span', 'tool-spinner'))
-    row.appendChild(el('span', 'tool-name', trace.name))
-    row.appendChild(el('span', 'tool-arg', toolArgSummary(trace)))
+    const glyph = el('span', 'tool-glyph')
+    glyph.appendChild(el('span', 'tool-spinner'))
+    const shimmer = mountShimmer(trace.name)
+    row.append(glyph, shimmer.root)
+    if (toolArgSummary(trace)) {
+      row.appendChild(el('span', 'tool-sep'))
+      const arg = el('span', 'tool-arg')
+      arg.appendChild(mountShimmer(toolArgSummary(trace)).root)
+      row.appendChild(arg)
+    }
     return row
   }
 
-  const item = el('details', `tool-row done ${trace.ok ? 'ok' : 'fail'}`)
+  const item = el('details', `tool-row done`)
+  item.dataset.tool = trace.name
+  if (!trace.ok) item.classList.add('fail')
+
   const summary = el('summary')
-  const status = el('span', 'tool-status')
+  const glyph = el('span', 'tool-glyph')
+  const chev = svg(icons.chevronDown, 13)
+  chev.classList.add('chev')
+  glyph.appendChild(chev)
+  summary.appendChild(glyph)
+  summary.appendChild(el('span', 'tool-name', trace.name))
+
+  const argText = toolArgSummary(trace)
+  if (argText) {
+    summary.appendChild(el('span', 'tool-sep'))
+    summary.appendChild(el('span', 'tool-arg', argText))
+  }
+
+  const status = el('span', `tool-status ${trace.ok ? 'ok' : 'fail'}`)
   if (trace.ok) {
-    status.appendChild(svg(icons.check, 11))
+    status.appendChild(svg(icons.check, 12))
     status.appendChild(el('span', undefined, formatDuration(trace.durationMs)))
   } else {
-    status.appendChild(svg(icons.close, 11))
+    status.appendChild(svg(icons.close, 12))
     status.appendChild(el('span', undefined, 'failed'))
   }
-  summary.append(
-    el('span', 'tool-name', trace.name),
-    el('span', 'tool-arg', toolArgSummary(trace)),
-    status
-  )
+  summary.appendChild(status)
   item.appendChild(summary)
+
+  const bodyWrap = el('div', 'tool-body-wrap')
+  const bodyScroll = el('div', 'tool-body-scroll')
 
   const diff = toolDiff(trace)
   if (diff) {
-    if (diff.added > 0 || diff.removed > 0) {
-      const totals = el('span', 'diff-totals')
-      if (diff.added > 0) totals.appendChild(el('span', 'diff-added', `+${diff.added}`))
-      if (diff.removed > 0) totals.appendChild(el('span', 'diff-removed', `−${diff.removed}`))
-      summary.insertBefore(totals, status)
-    }
-    item.appendChild(renderDiffBlock(diff))
+    bodyScroll.appendChild(renderDiffBlock(diff, trace))
   } else if (trace.output) {
     const output = el('pre', 'tool-output')
     output.textContent = stripAnsi(trace.output)
-    item.appendChild(output)
+    bodyScroll.appendChild(output)
+  }
+  if (bodyScroll.childNodes.length > 0) {
+    bodyWrap.appendChild(bodyScroll)
+    item.appendChild(bodyWrap)
   }
   return item
 }
@@ -1174,16 +1302,28 @@ function capDiff(lines: DiffLine[], maxLines: number): ToolDiff {
   return { lines: gap, added, removed }
 }
 
-function renderDiffBlock(diff: ToolDiff): HTMLElement {
-  const block = el('div', 'tool-diff')
+function renderDiffBlock(diff: ToolDiff, trace: ToolTrace): HTMLElement {
+  const wrap = el('div', 'tool-diff')
+  const head = el('div', 'diff-head')
+  head.appendChild(el('span', 'diff-file', diffPath(trace)))
+  const totals = el('span', 'diff-totals')
+  if (diff.added > 0) totals.appendChild(el('span', 'diff-added', `+${diff.added}`))
+  if (diff.removed > 0) totals.appendChild(el('span', 'diff-removed', `−${diff.removed}`))
+  head.appendChild(totals)
+  wrap.appendChild(head)
   for (const line of diff.lines) {
     if (line.kind === 'del' && (line.text === '…' || line.text.startsWith('… '))) {
-      block.appendChild(el('div', 'diff-gap', line.text))
+      wrap.appendChild(el('div', 'diff-gap', line.text))
       continue
     }
-    block.appendChild(el('div', `diff-line ${line.kind}`, line.text))
+    wrap.appendChild(el('div', `diff-line ${line.kind}`, line.text))
   }
-  return block
+  return wrap
+}
+
+function diffPath(trace: ToolTrace): string {
+  const path = typeof trace.input.path === 'string' ? trace.input.path : ''
+  return path.split(/[\\/]/).pop() || path
 }
 
 /** The most identifying argument of a call, kept short for the row label. */
@@ -1213,4 +1353,8 @@ function scrollToBottom(list: HTMLElement, force = false): void {
 
 function formatTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+function fileName(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).pop() || path
 }

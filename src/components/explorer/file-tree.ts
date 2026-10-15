@@ -69,7 +69,7 @@ export function mountFileTree(container: HTMLElement): void {
 
     const twist = el('span', 'twist')
     if (entry.kind === 'directory') {
-      twist.appendChild(svg(icons.chevron, 12))
+      twist.appendChild(svg(icons.chevronRight, 12))
     }
     row.appendChild(twist)
 

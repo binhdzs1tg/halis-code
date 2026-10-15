@@ -1,74 +1,212 @@
-.shell {
+/* Halis Code — app frame ported from the DeepSeek Harness desktop shell.
+ * Grid: [sidebar | centre conversation | workspace rail] below a caption
+ * strip. Collapse/expand rides the 300ms grid-track curve; the rails' inner
+ * content fades on the choreographed two-phase timeline. */
+
+.frame {
+  position: relative;
   display: grid;
-  grid-template-rows: 38px 1fr 25px;
+  grid-template-rows: auto minmax(0, 1fr);
   height: 100%;
-}
-
-.shell-body {
-  display: grid;
-  grid-template-columns: 48px auto minmax(0, 1fr) auto;
-  min-height: 0;
-  background: var(--bg-1);
-}
-
-.shell-body.no-sidebar {
-  grid-template-columns: 48px 0 minmax(0, 1fr) auto;
-}
-
-.shell-body.no-chat {
-  grid-template-columns: 48px auto minmax(0, 1fr) 0;
-}
-
-.shell-body.no-sidebar.no-chat {
-  grid-template-columns: 48px 0 minmax(0, 1fr) 0;
-}
-
-.activity-bar {
-  grid-row: 1;
-  width: 48px;
   overflow: hidden;
+  background: var(--dsw-specific-sidebar-fill);
 }
 
-.sidebar {
-  width: 248px;
-  min-width: 0;
-  overflow: hidden;
-  border-right: 1px solid var(--border-soft);
-  background: var(--bg-1);
-  display: flex;
-  flex-direction: column;
-}
+/* ---- Windows/linux caption strip ---------------------------------- */
 
-.workbench {
-  min-width: 0;
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-}
-
-.chat-panel {
-  width: 360px;
-  overflow: hidden;
-  border-left: 1px solid var(--border-soft);
-  background: var(--bg-1);
-  display: flex;
-  flex-direction: column;
-}
-
-.hidden-panel {
-  display: none !important;
-}
-
-.panel-header {
-  height: 35px;
-  flex: none;
+.caption {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 12px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--fg-1);
-  border-bottom: 1px solid var(--border-soft);
+  justify-content: flex-end;
+  height: var(--dsh-caption-height, 40px);
+  padding: 0 0 0 12px;
+  -webkit-app-region: drag;
+  background: var(--dsw-specific-sidebar-fill);
+}
+
+.caption-caption-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-secondary);
+  padding-right: 12px;
+}
+
+body:not(.is-mac) .frame {
+  --dsh-windows-content-radius: 16px;
+  padding-top: 0;
+}
+
+body:not(.is-mac) .shell {
+  border-radius: var(--dsh-windows-content-radius) 0 0 0;
+}
+
+.caption-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 40px;
+  -webkit-app-region: no-drag;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.caption-btn:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.caption-btn.close:hover {
+  background: var(--dsw-static-red-600);
+  color: #fff;
+}
+
+/* macOS: traffic lights sit in the sidebar top strip; no caption row. */
+body.is-mac .caption {
+  display: none;
+}
+
+body.is-mac .frame {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+/* ---- The three-column shell ---------------------------------------- */
+
+.shell {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--dsw-alias-bg-base);
+}
+
+.shell[data-animating] {
+  transition: grid-template-columns var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+.shell[data-dragging] {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell[data-animating] {
+    transition: none;
+  }
+}
+
+/* ---- Sidebar column ------------------------------------------------- */
+
+.sidebar-col {
+  min-width: 0;
+  overflow: hidden;
+  background: var(--dsw-specific-sidebar-fill);
+  border-right: 0.5px solid var(--dsw-alias-border-l3);
+}
+
+.shell[data-sidebar-collapsed] .sidebar-col {
+  border-right-color: transparent;
+}
+
+/* ---- Centre column --------------------------------------------------- */
+
+.center-col {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--dsw-alias-bg-base);
+}
+
+/* ---- Workspace rail (right column) ---------------------------------- */
+
+.rail-col {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--dsw-alias-bg-base);
+  border-left: 0.5px solid var(--dsw-alias-border-l3);
+}
+
+.shell[data-rail-collapsed] .rail-col {
+  border-left-color: transparent;
+}
+
+/* ---- Drag handles ----------------------------------------------------- */
+
+.handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 11;
+  touch-action: none;
+}
+
+.handle-left {
+  margin-left: -4px;
+}
+
+.handle-right {
+  margin-right: -4px;
+}
+
+.shell[data-animating] .handle {
+  transition: left var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    right var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+.shell[data-dragging] .handle {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell[data-animating] .handle {
+    transition: none;
+  }
+}
+
+/* ---- Splash ----------------------------------------------------------- */
+
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  background: var(--dsw-alias-bg-base);
+  transition: opacity 300ms var(--ds-ease-in-out);
+}
+
+.splash[data-leaving] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.splash .splash-brand {
+  display: block;
+  height: 40px;
+  width: auto;
+  aspect-ratio: 5.408;
+  -webkit-mask: url('../assets/name.png') center / contain no-repeat;
+  mask: url('../assets/name.png') center / contain no-repeat;
+  background: var(--dsw-alias-label-primary);
+}
+
+.splash .splash-tagline {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 24px;
+  font-weight: 300;
+  line-height: 40px;
+  text-align: center;
+  white-space: nowrap;
 }

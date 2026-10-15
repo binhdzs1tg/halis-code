@@ -13,32 +13,97 @@ interface ShortcutRow {
 
 const SHORTCUTS: ShortcutRow[] = [
   { keys: 'Ctrl+B', description: 'Toggle the sidebar' },
-  { keys: 'Ctrl+J', description: 'Toggle the agent chat panel' },
+  { keys: 'Ctrl+J', description: 'Toggle the workspace panel' },
   { keys: 'Ctrl+`', description: 'Toggle the terminal' },
+  { keys: 'Ctrl+N', description: 'Start a new session' },
   { keys: 'Ctrl+S', description: 'Save the active file' },
   { keys: 'Enter / Shift+Enter', description: 'Send / newline in the chat composer' }
 ]
 
-/**
- * Settings sidebar view: app + workspace facts, model providers, API key
- * management and the keyboard map. Keys themselves never render here —
- * only their source badge does.
- */
-export function mountSettingsView(container: HTMLElement): void {
-  const view = el('div', 'settings-view')
-  container.appendChild(view)
+type SettingsPage = 'general' | 'agent' | 'models' | 'keys' | 'shortcuts'
 
-  renderAppSection(view)
-  renderAgentSection(view)
-  renderWorkspaceSection(view)
-  renderModelsSection(view)
-  renderKeysSection(view)
-  renderShortcutsSection(view)
+const PAGES: Array<{ id: SettingsPage; label: string; icon: string }> = [
+  { id: 'general', label: 'General', icon: icons.settings },
+  { id: 'agent', label: 'Agent', icon: icons.terminal },
+  { id: 'models', label: 'Models', icon: icons.folder },
+  { id: 'keys', label: 'API keys', icon: icons.key },
+  { id: 'shortcuts', label: 'Shortcuts', icon: icons.todo }
+]
+
+/**
+ * Settings as a modal panel, ported from the DeepSeek Harness settings
+ * surface: an 800px dialog with a left nav (General / Agent / Models / …)
+ * and fact cards on the right.
+ */
+export function openSettingsModal(): void {
+  if (document.querySelector('.settings-overlay')) return
+
+  const overlay = el('div', 'overlay settings-overlay')
+  const panel = el('div', 'settings-panel')
+
+  const nav = el('div', 'settings-nav')
+  nav.appendChild(el('h2', 'settings-nav-title', 'Settings'))
+  const content = el('div', 'settings-content')
+
+  let currentPage: SettingsPage = 'general'
+  const navButtons = new Map<SettingsPage, HTMLButtonElement>()
+
+  const paintPage = (): void => {
+    clear(content)
+    if (currentPage === 'general') renderGeneral(content)
+    else if (currentPage === 'agent') renderAgent(content)
+    else if (currentPage === 'models') renderModels(content)
+    else if (currentPage === 'keys') renderKeys(content)
+    else renderShortcuts(content)
+  }
+
+  for (const page of PAGES) {
+    const btn = el('button', 'settings-nav-item') as HTMLButtonElement
+    btn.type = 'button'
+    const iconWrap = el('span', 'nav-icon')
+    iconWrap.appendChild(svg(page.icon, 16))
+    btn.append(iconWrap, el('span', undefined, page.label))
+    btn.addEventListener('click', () => {
+      currentPage = page.id
+      for (const [id, node] of navButtons) {
+        node.classList.toggle('active', id === currentPage)
+      }
+      paintPage()
+    })
+    navButtons.set(page.id, btn)
+    nav.appendChild(btn)
+  }
+  navButtons.get('general')?.classList.add('active')
+
+  panel.append(nav, content)
+  overlay.appendChild(panel)
+  document.body.appendChild(overlay)
+
+  const close = (): void => overlay.remove()
+  overlay.addEventListener('mousedown', (event) => {
+    if (event.target === overlay) close()
+  })
+  document.addEventListener('keydown', function onKey(event) {
+    if (!document.body.contains(overlay)) {
+      document.removeEventListener('keydown', onKey)
+      return
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      close()
+    }
+  })
+
+  paintPage()
 }
 
-function section(title: string): { root: HTMLElement; body: HTMLElement } {
-  const root = el('div', 'settings-section')
-  root.appendChild(el('div', 'settings-title', title))
+function pageTitle(content: HTMLElement, title: string, description: string): void {
+  content.appendChild(el('h3', 'settings-page-title', title))
+  content.appendChild(el('p', 'settings-page-desc', description))
+}
+
+function card(): { root: HTMLElement; body: HTMLElement } {
+  const root = el('div', 'settings-card')
   const body = el('div', 'settings-body')
   root.appendChild(body)
   return { root, body }
@@ -53,18 +118,38 @@ function factRow(label: string, value: string): HTMLElement {
   return row
 }
 
-function renderAppSection(view: HTMLElement): void {
-  const { root, body } = section('Application')
+function renderGeneral(content: HTMLElement): void {
+  pageTitle(content, 'General', 'How Halis Code presents itself on this machine.')
+  const { root, body } = card()
   const info = store.get().appInfo
   body.appendChild(factRow('Name', info?.name ?? 'halis-code'))
   body.appendChild(factRow('Version', info ? `v${info.version}` : 'v0.1.0'))
   body.appendChild(factRow('Electron', info?.electron ?? '—'))
   body.appendChild(factRow('Platform', info?.platform ?? '—'))
-  view.appendChild(root)
+  body.appendChild(factRow('Appearance', 'Follows the system theme'))
+  content.appendChild(root)
+
+  const workspace = card()
+  const rootPath = store.get().workspaceRoot
+  workspace.body.appendChild(factRow('Folder', rootPath ?? 'No folder opened'))
+  const actions = el('div', 'settings-actions')
+  actions.style.padding = '0 16px 12px'
+  const openBtn = el('button', 'btn ghost', rootPath ? 'Switch folder' : 'Open folder') as HTMLButtonElement
+  openBtn.type = 'button'
+  openBtn.addEventListener('click', async () => {
+    const next = await window.halis.pickWorkspace()
+    if (next) {
+      store.update({ workspaceRoot: next })
+    }
+  })
+  actions.appendChild(openBtn)
+  workspace.body.appendChild(actions)
+  content.appendChild(workspace.root)
 }
 
-function renderAgentSection(view: HTMLElement): void {
-  const { root, body } = section('Agent')
+function renderAgent(content: HTMLElement): void {
+  pageTitle(content, 'Agent', 'How much freedom the coding agent has in your workspace.')
+  const { root, body } = card()
 
   const row = el('div', 'settings-row')
   row.appendChild(el('span', 'settings-label', 'Command approval'))
@@ -96,35 +181,17 @@ function renderAgentSection(view: HTMLElement): void {
   })
 
   void window.halis.getAgentSettings().then((settings) => paint(settings.commandApproval))
+  content.appendChild(root)
 
   const hint = el('div', 'settings-hint')
   hint.textContent =
     '"Ask first" shows a prompt whenever the agent runs a command that looks destructive. "Full access" runs everything without asking.'
-  body.appendChild(hint)
-  view.appendChild(root)
+  content.appendChild(hint)
 }
 
-function renderWorkspaceSection(view: HTMLElement): void {
-  const { root, body } = section('Workspace')
-  const rootPath = store.get().workspaceRoot
-  body.appendChild(factRow('Folder', rootPath ?? 'No folder opened'))
-
-  const actions = el('div', 'settings-actions')
-  const openBtn = el('button', 'btn', rootPath ? 'Switch folder' : 'Open folder') as HTMLButtonElement
-  openBtn.type = 'button'
-  openBtn.addEventListener('click', async () => {
-    const next = await window.halis.pickWorkspace()
-    if (next) {
-      store.update({ workspaceRoot: next })
-    }
-  })
-  actions.appendChild(openBtn)
-  body.appendChild(actions)
-  view.appendChild(root)
-}
-
-function renderModelsSection(view: HTMLElement): void {
-  const { root, body } = section('Models')
+function renderModels(content: HTMLElement): void {
+  pageTitle(content, 'Models', 'Providers and models come from the models.dev catalog.')
+  const { root, body } = card()
   const facts = el('div', 'settings-row')
   const label = el('span', 'settings-label', 'Catalog')
   const value = el('span', 'settings-value', 'loading…')
@@ -146,7 +213,8 @@ function renderModelsSection(view: HTMLElement): void {
   })
 
   const actions = el('div', 'settings-actions')
-  const refreshBtn = el('button', 'btn', 'Refresh catalog') as HTMLButtonElement
+  actions.style.padding = '0 16px 12px'
+  const refreshBtn = el('button', 'btn ghost', 'Refresh catalog') as HTMLButtonElement
   refreshBtn.type = 'button'
   refreshBtn.title = 'Re-fetch the models.dev catalog'
   refreshBtn.addEventListener('click', () => {
@@ -161,16 +229,12 @@ function renderModelsSection(view: HTMLElement): void {
   })
   actions.appendChild(refreshBtn)
   body.appendChild(actions)
-
-  const hint = el('div', 'settings-hint')
-  hint.textContent =
-    'Models come from the models.dev catalog. Pick one in the agent panel; reasoning variants and favorites are stored locally.'
-  body.appendChild(hint)
-  view.appendChild(root)
+  content.appendChild(root)
 }
 
-function renderKeysSection(view: HTMLElement): void {
-  const { root, body } = section('API keys')
+function renderKeys(content: HTMLElement): void {
+  pageTitle(content, 'API keys', 'Provider keys live in the app vault; they never leave this machine.')
+  const { root, body } = card()
   const list = el('div', 'key-list')
   body.appendChild(list)
 
@@ -182,7 +246,7 @@ function renderKeysSection(view: HTMLElement): void {
         el(
           'div',
           'settings-hint',
-          'No provider keys yet. Select a model in the agent panel and use the API key chip, or press "Add a key" below.'
+          'No provider keys yet. Select a model and use the API key chip in the composer, or press "Add a key" below.'
         )
       )
     }
@@ -207,7 +271,7 @@ function renderKeysSection(view: HTMLElement): void {
     const removeBtn = el('button', 'key-remove-btn') as HTMLButtonElement
     removeBtn.type = 'button'
     removeBtn.title = 'Remove stored key'
-    removeBtn.appendChild(svg(icons.trash, 12))
+    removeBtn.appendChild(svg(icons.trash, 13))
     removeBtn.addEventListener('click', () => {
       removeBtn.disabled = true
       window.halis
@@ -224,7 +288,8 @@ function renderKeysSection(view: HTMLElement): void {
   }
 
   const actions = el('div', 'settings-actions')
-  const addBtn = el('button', 'btn', 'Add a key') as HTMLButtonElement
+  actions.style.padding = '0 16px 12px'
+  const addBtn = el('button', 'btn ghost', 'Add a key') as HTMLButtonElement
   addBtn.type = 'button'
   addBtn.addEventListener('click', () => {
     openKeyDialog()
@@ -236,7 +301,20 @@ function renderKeysSection(view: HTMLElement): void {
   window.halis.onKeysChanged(() => {
     void refreshKeyStatuses().then(paint)
   })
-  view.appendChild(root)
+  content.appendChild(root)
+}
+
+function renderShortcuts(content: HTMLElement): void {
+  pageTitle(content, 'Shortcuts', 'The keyboard map, matching the desktop conventions.')
+  const { root, body } = card()
+  for (const shortcut of SHORTCUTS) {
+    const row = el('div', 'settings-row')
+    const keys = el('kbd', 'settings-kbd', shortcut.keys)
+    const description = el('span', 'settings-value', shortcut.description)
+    row.append(keys, description)
+    body.appendChild(row)
+  }
+  content.appendChild(root)
 }
 
 function currentStatuses(): Array<[string, ProviderKeyStatus]> {
@@ -252,16 +330,4 @@ function currentStatuses(): Array<[string, ProviderKeyStatus]> {
 
 function providerName(providerId: string): string {
   return catalog.providers().find((provider) => provider.id === providerId)?.name ?? providerId
-}
-
-function renderShortcutsSection(view: HTMLElement): void {
-  const { root, body } = section('Shortcuts')
-  for (const shortcut of SHORTCUTS) {
-    const row = el('div', 'settings-row')
-    const keys = el('kbd', 'settings-kbd', shortcut.keys)
-    const description = el('span', 'settings-value', shortcut.description)
-    row.append(keys, description)
-    body.appendChild(row)
-  }
-  view.appendChild(root)
 }

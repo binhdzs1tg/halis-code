@@ -1,56 +1,210 @@
 import './styles/base.css'
 import './styles/layout.css'
-import './styles/components.css'
+import './styles/sidebar.css'
+import './styles/chat.css'
+import './styles/workspace.css'
+import './styles/overlays.css'
 
 import { el } from './app/dom'
 import { store } from './app/store'
 import { loadConfig, saveConfig } from './core/config/config-service'
 
-import { mountTitlebar } from './components/titlebar'
-import { mountActivityBar } from './components/activity-bar'
+import { mountCaption } from './components/caption'
 import { mountSidebar } from './components/sidebar'
-import { mountEditorArea } from './components/editor-area'
-import { mountTerminalPanel } from './components/terminal-panel'
-import { mountChatPanel } from './components/chat-panel'
-import { mountStatusBar } from './components/status-bar'
+import { mountConversation } from './components/conversation'
+import { mountWorkspaceRail } from './components/right-rail'
 
-function buildShell(): HTMLElement {
+/* Column geometry, mirroring the harness sidebar/rail solve. */
+const SIDEBAR_DEFAULT = 280
+const RAIL_DEFAULT = 420
+const SIDEBAR_MIN = 264
+const SIDEBAR_MAX = 420
+const RAIL_MIN = 320
+const RAIL_MAX = 640
+
+interface FrameSizes {
+  sidebar: number
+  rail: number
+}
+
+function loadSizes(): FrameSizes {
+  try {
+    const raw = localStorage.getItem('halis.frame-sizes')
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<FrameSizes>
+      return {
+        sidebar: clamp(parsed.sidebar ?? SIDEBAR_DEFAULT, SIDEBAR_MIN, SIDEBAR_MAX),
+        rail: clamp(parsed.rail ?? RAIL_DEFAULT, RAIL_MIN, RAIL_MAX)
+      }
+    }
+  } catch {
+    // fall through to defaults
+  }
+  return { sidebar: SIDEBAR_DEFAULT, rail: RAIL_DEFAULT }
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
+}
+
+function saveSizes(sizes: FrameSizes): void {
+  try {
+    localStorage.setItem('halis.frame-sizes', JSON.stringify(sizes))
+  } catch {
+    // storage unavailable — sizes just do not persist
+  }
+}
+
+function buildShell(): void {
   const root = document.querySelector<HTMLDivElement>('#app')
   if (!root) {
     throw new Error('#app container missing')
   }
 
+  const frame = el('div', 'frame')
+  const isMac = document.body.classList.contains('is-mac')
+  if (!isMac) {
+    frame.appendChild(mountCaption())
+  }
+
   const shell = el('div', 'shell')
+  shell.dataset.sidebarOpen = ''
+  shell.dataset.railOpen = ''
 
-  const body = el('div', 'shell-body')
-  const workbench = el('div', 'workbench')
+  const sidebarCol = el('aside', 'sidebar-col')
+  sidebarCol.appendChild(mountSidebar())
 
-  body.append(
-    mountActivityBar(),
-    mountSidebar(),
-    workbench
-  )
+  const centerCol = el('main', 'center-col')
+  centerCol.appendChild(mountConversation())
 
-  workbench.append(mountEditorArea(), mountTerminalPanel())
-  body.appendChild(mountChatPanel())
+  const railCol = el('div', 'rail-col')
+  railCol.appendChild(mountWorkspaceRail())
 
-  shell.append(mountTitlebar(), body, mountStatusBar())
-  root.appendChild(shell)
+  shell.append(sidebarCol, centerCol, railCol)
+  frame.appendChild(shell)
+  root.appendChild(frame)
 
-  store.subscribe((state, prev) => {
-    if (state.sidebarVisible !== prev.sidebarVisible) {
-      body.classList.toggle('no-sidebar', !state.sidebarVisible)
+  const sizes = loadSizes()
+
+  const paint = (): void => {
+    const state = store.get()
+    const sidebarWidth = state.sidebarVisible ? sizes.sidebar : 0
+    const railWidth = state.railVisible ? sizes.rail : 0
+    shell.style.gridTemplateColumns = `${sidebarWidth}px minmax(0, 1fr) ${railWidth}px`
+    if (state.sidebarVisible) {
+      shell.dataset.sidebarOpen = ''
+    } else {
+      delete shell.dataset.sidebarOpen
     }
-    if (state.chatOpen !== prev.chatOpen) {
-      body.classList.toggle('no-chat', !state.chatOpen)
+    if (state.railVisible) {
+      shell.dataset.railOpen = ''
+    } else {
+      delete shell.dataset.railOpen
     }
+  }
+  paint()
+
+  // Only a discrete collapse/expand toggle eases the tracks; steady-state
+  // drags land instantly, exactly as in the harness frame.
+  let animatingTimer = 0
+  const animateOnce = (): void => {
+    shell.dataset.animating = ''
+    window.clearTimeout(animatingTimer)
+    animatingTimer = window.setTimeout(() => {
+      delete shell.dataset.animating
+    }, 320)
+  }
+
+  let prevSidebar = store.get().sidebarVisible
+  let prevRail = store.get().railVisible
+  store.subscribe((state) => {
+    if (state.sidebarVisible !== prevSidebar || state.railVisible !== prevRail) {
+      prevSidebar = state.sidebarVisible
+      prevRail = state.railVisible
+      animateOnce()
+    }
+    paint()
   })
 
-  return shell
+  // ---- drag handles, ported from the harness frame --------------------
+  const leftHandle = el('div', 'handle handle-left')
+  const rightHandle = el('div', 'handle handle-right')
+  shell.append(leftHandle, rightHandle)
+
+  const positionHandles = (): void => {
+    const state = store.get()
+    leftHandle.style.left = state.sidebarVisible ? `${sizes.sidebar - 4}px` : '-100px'
+    leftHandle.style.display = state.sidebarVisible ? '' : 'none'
+    rightHandle.style.right = state.railVisible ? `${sizes.rail - 4}px` : '-100px'
+    rightHandle.style.display = state.railVisible ? '' : 'none'
+  }
+  positionHandles()
+  store.subscribe(positionHandles)
+
+  const drag = (
+    handle: HTMLElement,
+    pick: () => number,
+    apply: (start: number, dx: number) => void
+  ): void => {
+    handle.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0) return
+      event.preventDefault()
+      handle.setPointerCapture(event.pointerId)
+      const origin = event.clientX
+      const start = pick()
+      shell.dataset.dragging = ''
+      const move = (moveEvent: PointerEvent): void => {
+        apply(start, moveEvent.clientX - origin)
+        paint()
+        positionHandles()
+      }
+      const up = (): void => {
+        handle.removeEventListener('pointermove', move)
+        handle.removeEventListener('pointerup', up)
+        delete shell.dataset.dragging
+        saveSizes(sizes)
+      }
+      handle.addEventListener('pointermove', move)
+      handle.addEventListener('pointerup', up)
+    })
+  }
+
+  drag(
+    leftHandle,
+    () => sizes.sidebar,
+    (_start, dx) => {
+      sizes.sidebar = clamp(_start + dx, SIDEBAR_MIN, SIDEBAR_MAX)
+    }
+  )
+  drag(
+    rightHandle,
+    () => sizes.rail,
+    (_start, dx) => {
+      sizes.rail = clamp(_start - dx, RAIL_MIN, RAIL_MAX)
+    }
+  )
+}
+
+function mountSplash(): HTMLElement {
+  const splash = el('div', 'splash')
+  const brand = el('span', 'splash-brand')
+  const tagline = el('p', 'splash-tagline')
+  tagline.append('Your desktop coding ', el('em', undefined, 'agent'))
+  splash.append(brand, tagline)
+  return splash
 }
 
 async function boot(): Promise<void> {
-  buildShell()
+  const splash = mountSplash()
+  document.body.appendChild(splash)
+
+  // Theme follows the system, as the harness does.
+  const palette = window.matchMedia('(prefers-color-scheme: dark)')
+  const syncTheme = (): void => {
+    document.body.toggleAttribute('data-ds-dark-theme', palette.matches)
+  }
+  syncTheme()
+  palette.addEventListener('change', syncTheme)
 
   try {
     const info = await window.halis.getInfo()
@@ -61,6 +215,8 @@ async function boot(): Promise<void> {
   } catch {
     // bridge not available (e.g. opened outside electron) — keep going with defaults
   }
+
+  buildShell()
 
   // restore the last workspace if it still exists
   const config = loadConfig()
@@ -104,11 +260,25 @@ async function boot(): Promise<void> {
     } else if (command === 'toggle-sidebar') {
       store.update({ sidebarVisible: !store.get().sidebarVisible })
     } else if (command === 'toggle-terminal') {
-      store.update({ terminalOpen: !store.get().terminalOpen })
+      toggleTerminal()
     } else if (command === 'toggle-chat') {
-      store.update({ chatOpen: !store.get().chatOpen })
+      store.update({ railVisible: !store.get().railVisible })
     }
   })
+
+  window.setTimeout(() => {
+    splash.dataset.leaving = ''
+    window.setTimeout(() => splash.remove(), 320)
+  }, 450)
+}
+
+function toggleTerminal(): void {
+  const state = store.get()
+  if (state.railVisible && state.railTab === 'terminal') {
+    store.update({ railTab: 'files' })
+  } else {
+    store.update({ railVisible: true, railTab: 'terminal' })
+  }
 }
 
 function installKeymap(): void {
@@ -118,13 +288,16 @@ function installKeymap(): void {
 
     if (event.key === '`') {
       event.preventDefault()
-      store.update({ terminalOpen: !store.get().terminalOpen })
+      toggleTerminal()
     } else if (event.key.toLowerCase() === 'b') {
       event.preventDefault()
       store.update({ sidebarVisible: !store.get().sidebarVisible })
     } else if (event.key.toLowerCase() === 'j') {
       event.preventDefault()
-      store.update({ chatOpen: !store.get().chatOpen })
+      store.update({ railVisible: !store.get().railVisible })
+    } else if (event.key.toLowerCase() === 'n') {
+      event.preventDefault()
+      window.dispatchEvent(new CustomEvent('halis:new-session'))
     }
   })
 }

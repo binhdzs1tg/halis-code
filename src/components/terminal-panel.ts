@@ -14,26 +14,24 @@ const MAX_OUT_CHARS = 400_000
  * test and git workflows all behave.
  */
 export function mountTerminalPanel(): HTMLElement {
-  const panel = el('section', 'terminal-panel hidden-panel')
+  const panel = el('section', 'terminal-panel')
 
-  // ---- header ----
-  const header = el('div', 'panel-header')
-  header.appendChild(svg(icons.terminal, 13))
-  header.appendChild(el('span', undefined, 'Terminal'))
+  // ---- toolbar ----
+  const header = el('div', 'term-toolbar')
 
   const statusHint = el('span', 'tab-hint', 'idle')
   header.appendChild(statusHint)
 
-  const clearBtn = el('button', 'dismiss') as HTMLButtonElement
+  const clearBtn = el('button', 'icon-btn') as HTMLButtonElement
   clearBtn.type = 'button'
   clearBtn.title = 'Clear terminal (Ctrl+L)'
-  clearBtn.appendChild(svg(icons.trash, 12))
+  clearBtn.appendChild(svg(icons.trash, 14))
   header.appendChild(clearBtn)
 
-  const dismiss = el('button', 'dismiss') as HTMLButtonElement
+  const dismiss = el('button', 'icon-btn') as HTMLButtonElement
   dismiss.type = 'button'
   dismiss.title = 'Close panel'
-  dismiss.appendChild(svg(icons.close, 12))
+  dismiss.appendChild(svg(icons.close, 14))
   header.appendChild(dismiss)
 
   // ---- body ----
@@ -170,7 +168,7 @@ export function mountTerminalPanel(): HTMLElement {
     input.focus()
   })
   dismiss.addEventListener('click', () => {
-    store.update({ terminalOpen: false })
+    store.update({ railTab: 'files' })
   })
 
   body.addEventListener('click', (event) => {
@@ -202,15 +200,14 @@ export function mountTerminalPanel(): HTMLElement {
       cwd = event.cwd
       paintPrompt()
     }
-    if (store.get().terminalOpen) {
+    if (store.get().railTab === 'terminal') {
       input.focus()
     }
   })
 
   // Follow the workspace: jump the shell to the newly opened folder.
   store.subscribe((state, prev) => {
-    panel.classList.toggle('hidden-panel', !state.terminalOpen)
-    if (state.terminalOpen && !prev.terminalOpen) {
+    if (state.railTab === 'terminal' && prev.railTab !== 'terminal') {
       input.focus()
     }
     if (state.workspaceRoot && state.workspaceRoot !== prev.workspaceRoot && !busy) {

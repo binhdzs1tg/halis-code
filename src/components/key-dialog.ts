@@ -13,7 +13,7 @@ export function openKeyDialog(): void {
   const selection = store.get().selectedModel
   const found = selection ? catalog.findModel(selection) : null
 
-  const overlay = el('div', 'key-overlay')
+  const overlay = el('div', 'overlay key-overlay')
   const dialog = el('div', 'key-dialog')
   overlay.appendChild(dialog)
   document.body.appendChild(overlay)
@@ -31,7 +31,9 @@ export function openKeyDialog(): void {
 
   if (!found) {
     dialog.appendChild(el('div', 'dialog-title', 'API key'))
-    dialog.appendChild(el('div', 'key-body', 'Select a model first — its provider decides which key is used.'))
+    const emptyBody = el('div', 'key-body', 'Select a model first — its provider decides which key is used.')
+    emptyBody.style.paddingBottom = '20px'
+    dialog.appendChild(emptyBody)
     return
   }
 
@@ -47,10 +49,10 @@ export function openKeyDialog(): void {
   input.autocomplete = 'off'
   input.placeholder = 'Paste an API key'
 
-  const save = el('button', 'key-save', 'Save') as HTMLButtonElement
+  const save = el('button', 'btn small key-save', 'Save') as HTMLButtonElement
   save.type = 'button'
 
-  const remove = el('button', 'key-remove', 'Remove') as HTMLButtonElement
+  const remove = el('button', 'btn small ghost key-remove', 'Remove') as HTMLButtonElement
   remove.type = 'button'
 
   const actions = el('div', 'key-actions')

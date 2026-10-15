@@ -13,13 +13,23 @@ const DIST = path.join(__dirname, '..')
 const RESOURCES = path.join(app.getAppPath(), 'resources')
 
 export function createMainWindow(): BrowserWindow {
+  // The harness desktop shell: hidden chrome everywhere. macOS keeps native
+  // traffic lights inside the sidebar strip; Windows/linux draw the custom
+  // caption row in the renderer.
+  const mac = process.platform === 'darwin'
   const win = new BrowserWindow({
     ...windowBoundsOptions(),
     minWidth: 960,
     minHeight: 620,
-    frame: false,
+    frame: !mac,
     titleBarStyle: 'hidden',
-    backgroundColor: '#0e1014',
+    ...(mac
+      ? {
+          titleBarStyle: 'hiddenInset' as const,
+          trafficLightPosition: { x: 16, y: 18 }
+        }
+      : {}),
+    backgroundColor: '#ffffff',
     title: 'Halis Code',
     icon: path.join(RESOURCES, 'icon.png'),
     webPreferences: {

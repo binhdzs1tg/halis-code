@@ -1,12 +1,13 @@
 # Halis Code
 
-Halis Code is a desktop coding agent built on Electron. It pairs a small
-VS Code-style workspace (explorer, editor, terminal, search) with a
-streaming chat agent that reads, edits and runs code in the open folder.
-The agent runtime borrows its best ideas from
-[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) —
-compaction, guards, approvals, skills — scaled down to a single-user
-desktop app.
+Halis Code is a desktop coding agent built on Electron. It pairs a
+session-list sidebar, a centered conversation and a workspace rail
+(files, search, editor, terminal) with a streaming chat agent that
+reads, edits and runs code in the open folder. The interface follows
+the design language of
+[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness),
+and the agent runtime borrows its best ideas — compaction, guards,
+approvals, skills — scaled down to a single-user desktop app.
 
 ## Highlights
 
@@ -50,9 +51,9 @@ npm run dev        # build + launch Electron
 Other scripts: `npm run typecheck`, `npm run build`, `npm run watch`,
 `npm run smoke` (algorithm smoke tests).
 
-Pick a model from the models.dev catalog in the chat panel, add its API
-key (stored in the local vault, never leaving the machine), open a folder,
-and start talking.
+Pick a model from the models.dev catalog through the composer's model
+pill, add its API key (stored in the local vault, never leaving the
+machine), open a folder, and start talking.
 
 ## Layout
 
@@ -62,6 +63,7 @@ electron/main/agent/    run loop, providers, tools, compaction, guard,
                         approvals, instructions, skills, file refs, diffs
 electron/preload/       context bridge
 electron/shared/        ipc channels, api contract, types
-src/                    renderer: panels, composer, markdown, catalog
+src/                    renderer: sidebar, conversation, workspace rail,
+                        composer, markdown, catalog
 scripts/                build + smoke tests
 ```

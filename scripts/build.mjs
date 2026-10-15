@@ -10,6 +10,15 @@ const common = {
   target: 'es2023'
 }
 
+// Fonts and brand images ride the CSS url()/new URL() paths and land in
+// dist/renderer/assets alongside the bundle.
+const assetLoader = {
+  '.png': 'file',
+  '.woff2': 'file',
+  '.woff': 'file',
+  '.svg': 'file'
+}
+
 const targets = [
   {
     name: 'main',
@@ -42,6 +51,7 @@ const targets = [
       entryPoints: ['src/main.ts'],
       platform: 'browser',
       format: 'iife',
+      loader: assetLoader,
       outfile: 'dist/renderer/bundle.js'
     }
   }
