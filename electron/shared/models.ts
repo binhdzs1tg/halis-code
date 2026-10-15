@@ -182,3 +182,24 @@ const KEYLESS_PROVIDERS = new Set(['lmstudio', 'ollama', 'vllm', 'jan', 'llama-c
 export function providerNeedsKey(provider: Pick<ProviderEntry, 'id' | 'env'>): boolean {
   return !KEYLESS_PROVIDERS.has(provider.id) && provider.env.length > 0
 }
+
+/**
+ * The opencode free tier serves its `-free` models (family `muse-free`)
+ * unauthenticated, so they run without a key even though the provider
+ * normally gatekeeps. Everything else follows the provider rule.
+ */
+export function modelNeedsKey(
+  provider: Pick<ProviderEntry, 'id' | 'env'>,
+  model: Pick<ModelEntry, 'id' | 'family'>
+): boolean {
+  return providerNeedsKey(provider) && !(provider.id === 'opencode' && model.family === 'muse-free')
+}
+
+/**
+ * Out-of-the-box pick: strong, free, and served without an API key.
+ * Applies whenever the user has not chosen a model yet.
+ */
+export const DEFAULT_MODEL: ModelSelection = {
+  providerID: 'opencode',
+  modelID: 'muse-spark-1.3-contributor-free'
+}

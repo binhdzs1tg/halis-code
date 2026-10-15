@@ -1,4 +1,5 @@
 import type { ModelCatalog, ModelEntry, ModelSelection, ProviderEntry } from '../../../electron/shared/models'
+import { DEFAULT_MODEL } from '../../../electron/shared/models'
 
 const PREFS_KEY = 'halis.model-prefs'
 const RECENT_LIMIT = 10
@@ -16,6 +17,8 @@ export interface ModelPrefs {
 let catalog: ModelCatalog | null = null
 let pending: Promise<ModelCatalog> | null = null
 let prefsCache: ModelPrefs | null = null
+/** Bumped by invalidate(); an in-flight fetch from before it must not land. */
+let generation = 0
 
 export function keyOf(selection: ModelSelection): string {
   return `${selection.providerID}/${selection.modelID}`
@@ -24,21 +27,26 @@ export function keyOf(selection: ModelSelection): string {
 export async function ensureCatalog(): Promise<ModelCatalog> {
   if (catalog) return catalog
   if (!pending) {
+    const current = (generation += 1)
     pending = window.halis
       .getModels()
       .then((next) => {
-        catalog = next
+        // Only the newest fetch may fill the cache; an older one that was
+        // invalidated mid-flight would otherwise resurrect stale data.
+        if (current === generation) catalog = next
         return next
       })
       .finally(() => {
-        pending = null
+        if (current === generation) pending = null
       })
   }
   return pending
 }
 
 export function invalidate(): void {
+  generation += 1
   catalog = null
+  pending = null
 }
 
 /** Drop selections that no longer exist in the catalog. */
@@ -142,8 +150,8 @@ export function variantFor(selection: ModelSelection): string | undefined {
 }
 
 /**
- * Fallback chain like opencode's: last used model, else the most recent
- * valid pick, else the top of the sorted catalog.
+ * Fallback chain like opencode's: last used model, else the built-in free
+ * default, else the top of the sorted catalog.
  */
 export function defaultSelection(): ModelSelection | null {
   const prefs = loadPrefs()
@@ -152,6 +160,10 @@ export function defaultSelection(): ModelSelection | null {
       const variant = variantFor(candidate)
       return variant === undefined ? candidate : { ...candidate, variant }
     }
+  }
+  if (isValid(DEFAULT_MODEL)) {
+    const variant = variantFor(DEFAULT_MODEL)
+    return variant === undefined ? { ...DEFAULT_MODEL } : { ...DEFAULT_MODEL, variant }
   }
   for (const provider of providers()) {
     const [model] = sortModels(provider.models)
