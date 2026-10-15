@@ -62,9 +62,9 @@ function renderWithinBudget(files: InstructionFile[]): string | null {
     if (dropped) omitted.push(dropped.path)
   }
 
-  if (kept.length > 0 && totalBytes(kept) > MAX_TOTAL_BYTES) {
+  const file = kept[0]
+  if (file && totalBytes(kept) > MAX_TOTAL_BYTES) {
     // Only the last file remains; binary-search the longest prefix that fits.
-    const file = kept[0]
     let low = 0
     let high = file.content.length
     while (low < high) {

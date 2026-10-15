@@ -183,6 +183,7 @@ export function searchWorkspace(
       const lines = text.split('\n')
       for (let i = 0; i < lines.length; i += 1) {
         const line = lines[i]
+        if (line === undefined) continue
         const haystack = caseSensitive ? line : line.toLowerCase()
         if (!haystack.includes(needle)) continue
         if (hits.length >= MAX_SEARCH_HITS) {

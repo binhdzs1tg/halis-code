@@ -241,8 +241,8 @@ async function boot(): Promise<void> {
       lastTouchedFile: {
         path: event.path,
         seq: (previous?.seq ?? 0) + 1,
-        change: event.change,
-        from: event.from
+        ...(event.change !== undefined ? { change: event.change } : {}),
+        ...(event.from !== undefined ? { from: event.from } : {})
       }
     })
   })

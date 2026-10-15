@@ -31,11 +31,15 @@ function lcsTable(a: string[], b: string[]): Int32Array {
   const width = b.length + 1
   const table = new Int32Array((a.length + 1) * width)
   for (let i = a.length - 1; i >= 0; i -= 1) {
+    const left = a[i]
+    if (left === undefined) continue
     for (let j = b.length - 1; j >= 0; j -= 1) {
-      table[i * width + j] =
-        a[i] === b[j]
-          ? table[(i + 1) * width + j + 1] + 1
-          : Math.max(table[(i + 1) * width + j], table[i * width + j + 1])
+      const right = b[j]
+      if (right === undefined) continue
+      const diagonal = table[(i + 1) * width + j + 1] ?? 0
+      const down = table[(i + 1) * width + j] ?? 0
+      const next = table[i * width + j + 1] ?? 0
+      table[i * width + j] = left === right ? diagonal + 1 : Math.max(down, next)
     }
   }
   return table
@@ -49,24 +53,31 @@ function editScript(a: string[], b: string[]): DiffLine[] {
   let i = 0
   let j = 0
   while (i < a.length && j < b.length) {
-    if (a[i] === b[j]) {
-      script.push({ kind: 'ctx', text: a[i] })
+    const left = a[i]
+    const right = b[j]
+    if (left === undefined || right === undefined) break
+    if (left === right) {
+      script.push({ kind: 'ctx', text: left })
       i += 1
       j += 1
-    } else if (table[(i + 1) * width + j] >= table[i * width + j + 1]) {
-      script.push({ kind: 'del', text: a[i] })
+    } else if ((table[(i + 1) * width + j] ?? 0) >= (table[i * width + j + 1] ?? 0)) {
+      script.push({ kind: 'del', text: left })
       i += 1
     } else {
-      script.push({ kind: 'add', text: b[j] })
+      script.push({ kind: 'add', text: right })
       j += 1
     }
   }
   while (i < a.length) {
-    script.push({ kind: 'del', text: a[i] })
+    const left = a[i]
+    if (left === undefined) break
+    script.push({ kind: 'del', text: left })
     i += 1
   }
   while (j < b.length) {
-    script.push({ kind: 'add', text: b[j] })
+    const right = b[j]
+    if (right === undefined) break
+    script.push({ kind: 'add', text: right })
     j += 1
   }
   return script

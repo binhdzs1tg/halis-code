@@ -86,7 +86,7 @@ export function pruneToolResults(messages: ProviderMessage[]): boolean {
   let pruned = false
   for (let i = 0; i < messages.length - 1; i += 1) {
     const message = messages[i]
-    if (!message.toolResults) continue
+    if (!message?.toolResults) continue
     for (const result of message.toolResults) {
       if (result.output.length <= PRUNE_THRESHOLD_CHARS) continue
       result.output =
@@ -130,15 +130,21 @@ function splitForCompaction(
   let start = messages.length
   let acc = 0
   while (start > 0) {
-    const cost = estimateTokens([messages[start - 1]])
+    const previous = messages[start - 1]
+    if (!previous) break
+    const cost = estimateTokens([previous])
     if (start < messages.length && acc + cost > retainTokens) break
     acc += cost
     start -= 1
   }
-  while (start < messages.length && hasToolResults(messages[start])) {
+  while (start < messages.length) {
+    const candidate = messages[start]
+    if (!candidate || !hasToolResults(candidate)) break
     start -= 1
   }
-  while (start > 0 && hasToolCalls(messages[start - 1])) {
+  while (start > 0) {
+    const candidate = messages[start - 1]
+    if (!candidate || !hasToolCalls(candidate)) break
     start -= 1
   }
   return { head: messages.slice(0, start), tail: messages.slice(start) }
@@ -180,6 +186,7 @@ export async function compactMessages(request: CompactionRequest): Promise<Provi
   // turn (Anthropic insists on alternating roles); otherwise it is appended.
   const instruction: ProviderMessage = { role: 'user', content: COMPACTION_INSTRUCTION }
   const last = head[head.length - 1]
+  if (!last) return null
   const replay = [...head]
   if (last.role === 'user') {
     replay[replay.length - 1] = { ...last, content: `${last.content}\n\n${COMPACTION_INSTRUCTION}` }
@@ -221,6 +228,7 @@ export async function compactMessages(request: CompactionRequest): Promise<Provi
 
   const compacted: ProviderMessage[] = []
   const first = tail[0]
+  if (!first) return null
   if (first.role === 'user') {
     compacted.push({ ...first, content: `${checkpoint}\n\n${first.content}` })
     compacted.push(...tail.slice(1))

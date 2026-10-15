@@ -149,14 +149,16 @@ export function defaultSelection(): ModelSelection | null {
   const prefs = loadPrefs()
   for (const candidate of prefs.recent) {
     if (isValid(candidate)) {
-      return { ...candidate, variant: variantFor(candidate) }
+      const variant = variantFor(candidate)
+      return variant === undefined ? candidate : { ...candidate, variant }
     }
   }
   for (const provider of providers()) {
     const [model] = sortModels(provider.models)
     if (model) {
       const base = { providerID: provider.id, modelID: model.id }
-      return { ...base, variant: variantFor(base) }
+      const variant = variantFor(base)
+      return variant === undefined ? base : { ...base, variant }
     }
   }
   return null

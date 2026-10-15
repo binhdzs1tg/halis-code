@@ -59,6 +59,7 @@ function styleKey(style: AnsiStyle): string {
 function applySgr(style: AnsiStyle, codes: number[]): void {
   for (let i = 0; i < codes.length; i += 1) {
     const code = codes[i]
+    if (code === undefined) break
     if (code === 0) {
       delete style.fgValue
       delete style.bgValue

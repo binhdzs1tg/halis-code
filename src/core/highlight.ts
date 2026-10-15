@@ -138,7 +138,9 @@ export function highlightCode(code: string, lang: string): string {
       // and punctuation only — so token-starting characters are always
       // re-checked against the rules.
       let end = pos + 1
-      while (end < code.length && !/[\w$"'`#/<>&]/.test(code[end])) {
+      while (end < code.length) {
+        const char = code[end]
+        if (char === undefined || /[\w$"'`#/<>&]/.test(char)) break
         end += 1
       }
       out += escapeHtml(code.slice(pos, end))

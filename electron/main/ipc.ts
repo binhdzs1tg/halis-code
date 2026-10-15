@@ -100,10 +100,9 @@ export function registerIpcHandlers(): void {
           properties: ['openDirectory']
         })
       : await dialog.showOpenDialog({ title: 'Open workspace folder', properties: ['openDirectory'] })
-    if (result.canceled || result.filePaths.length === 0) {
-      return null
-    }
-    return openWorkspaceByPath(result.filePaths[0])
+    if (result.canceled) return null
+    const picked = result.filePaths[0]
+    return picked ? openWorkspaceByPath(picked) : null
   })
 
   handle(IpcChannel.WorkspaceOpen, (_event, absolutePath: string): string | null => {
@@ -164,7 +163,7 @@ export function registerIpcHandlers(): void {
       caseSensitive?: unknown
     }
     return searchWorkspace(query, {
-      scope: typeof opts.scope === 'string' ? opts.scope : undefined,
+      ...(typeof opts.scope === 'string' ? { scope: opts.scope } : {}),
       caseSensitive: opts.caseSensitive === true
     })
   })
@@ -218,10 +217,12 @@ export function registerIpcHandlers(): void {
     if (candidate.commandApproval !== undefined && candidate.commandApproval !== 'ask' && candidate.commandApproval !== 'fullAccess') {
       throw new Error('settings:set: commandApproval must be "ask" or "fullAccess"')
     }
+    const settingsPatch =
+      candidate.commandApproval === undefined
+        ? {}
+        : { commandApproval: candidate.commandApproval as 'ask' | 'fullAccess' }
     return {
-      commandApproval: updateShellSettings({
-        commandApproval: candidate.commandApproval as 'ask' | 'fullAccess' | undefined
-      }).commandApproval
+      commandApproval: updateShellSettings(settingsPatch).commandApproval
     }
   })
 

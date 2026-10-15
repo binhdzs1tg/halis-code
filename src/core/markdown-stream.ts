@@ -110,7 +110,9 @@ export class StreamingMarkdown {
       // of the tail host.
       const anchor = this.container.querySelector('.md-tail')
       for (let i = this.frozen; i < settleCount; i += 1) {
-        anchor?.before(renderBlock(blocks[i].text))
+        const block = blocks[i]
+        if (!block) continue
+        anchor?.before(renderBlock(block.text))
       }
       this.frozen = settleCount
     }

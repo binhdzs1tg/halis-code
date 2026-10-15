@@ -256,7 +256,7 @@ async function execute(
         apiKey: key.value,
         system,
         messages,
-        tools: wrapUp ? undefined : specs,
+        ...(wrapUp ? {} : { tools: specs }),
         signal: controller.signal,
         onDelta: (text) => {
           const event: ChatDeltaEvent = { runId, text }

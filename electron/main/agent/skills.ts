@@ -36,9 +36,10 @@ function parseSkillFile(filePath: string, raw: string): SkillDefinition | null {
     return null
   }
   const fields = new Map<string, string>()
-  for (const line of match[1].split(/\r?\n/)) {
+  for (const line of (match[1] ?? '').split(/\r?\n/)) {
     const entry = /^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$/.exec(line.trim())
-    if (entry) fields.set(entry[1], entry[2].trim())
+    const key = entry?.[1]
+    if (entry && key !== undefined) fields.set(key, (entry[2] ?? '').trim())
   }
   const name = fields.get('name') ?? ''
   const description = (fields.get('description') ?? '').slice(0, DESCRIPTION_MAX_CHARS)

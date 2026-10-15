@@ -181,8 +181,8 @@ function normalize(catalog: RawCatalog): ProviderEntry[] {
         name: item.name,
         env: [...(item.env ?? [])],
         npm: item.npm,
-        api: item.api,
-        doc: item.doc,
+        ...(item.api !== undefined ? { api: item.api } : {}),
+        ...(item.doc !== undefined ? { doc: item.doc } : {}),
         models: expandModels(item)
       }))
   )
@@ -200,8 +200,8 @@ function expandModels(provider: SourceProvider): ModelEntry[] {
       const entry = toEntry(provider, raw, `${raw.id}-${mode}`, modeName(raw.name, mode))
       entry.cost = mergeCost(base.cost, readCost(options.cost))
       entry.variants = base.variants
-      entry.modeBody = options.provider?.body ? { ...options.provider.body } : undefined
-      entry.modeHeaders = options.provider?.headers ? { ...options.provider.headers } : undefined
+      if (options.provider?.body) entry.modeBody = { ...options.provider.body }
+      if (options.provider?.headers) entry.modeHeaders = { ...options.provider.headers }
       models.push(entry)
     }
   }
@@ -209,24 +209,18 @@ function expandModels(provider: SourceProvider): ModelEntry[] {
 }
 
 function toEntry(provider: SourceProvider, raw: SourceModel, id: string, name: string): ModelEntry {
-  return {
+  const entry: ModelEntry = {
     id,
     providerID: provider.id,
     name,
-    family: raw.family,
-    description: raw.description,
     released: parseDate(raw.release_date),
     reasoning: raw.reasoning,
     attachment: raw.attachment,
     toolCall: raw.tool_call,
-    temperature: raw.temperature,
-    structuredOutput: raw.structured_output,
-    openWeights: raw.open_weights,
-    knowledge: raw.knowledge,
     status: raw.status ?? 'active',
     limit: {
       context: raw.limit.context,
-      input: raw.limit.input,
+      ...(raw.limit.input !== undefined ? { input: raw.limit.input } : {}),
       output: raw.limit.output
     },
     cost: readCost(raw.cost),
@@ -235,10 +229,17 @@ function toEntry(provider: SourceProvider, raw: SourceModel, id: string, name: s
       output: [...(raw.modalities?.output ?? [])]
     },
     variants: [],
-    npm: raw.provider?.npm ?? provider.npm,
-    providerApi: raw.provider?.api,
-    shape: raw.provider?.shape
+    npm: raw.provider?.npm ?? provider.npm
   }
+  if (raw.family !== undefined) entry.family = raw.family
+  if (raw.description !== undefined) entry.description = raw.description
+  if (raw.temperature !== undefined) entry.temperature = raw.temperature
+  if (raw.structured_output !== undefined) entry.structuredOutput = raw.structured_output
+  if (raw.open_weights !== undefined) entry.openWeights = raw.open_weights
+  if (raw.knowledge !== undefined) entry.knowledge = raw.knowledge
+  if (raw.provider?.api !== undefined) entry.providerApi = raw.provider.api
+  if (raw.provider?.shape !== undefined) entry.shape = raw.provider.shape
+  return entry
 }
 
 function available(providers: ProviderEntry[]): ProviderEntry[] {
@@ -263,10 +264,8 @@ function supportsText(model: ModelEntry): boolean {
 function readSupports(raw: SourceModel): ReasoningOption[] {
   return (raw.reasoning_options ?? []).map((option): ReasoningOption => {
     if (option.type !== 'effort') return option
-    return {
-      type: 'effort',
-      values: option.values?.filter((value): value is string => value !== null && value !== 'null')
-    }
+    const values = option.values?.filter((value): value is string => value !== null && value !== 'null')
+    return values ? { type: 'effort', values } : { type: 'effort' }
   })
 }
 
@@ -338,11 +337,12 @@ function readCost(raw: RawCost | undefined): ModelCost {
 }
 
 function mergeCost(base: ModelCost, override: ModelCost): ModelCost {
+  const tiers = override.tiers ?? base.tiers
   return {
     input: override.input || base.input,
     output: override.output || base.output,
     cacheRead: override.cacheRead || base.cacheRead,
     cacheWrite: override.cacheWrite || base.cacheWrite,
-    tiers: override.tiers ?? base.tiers
+    ...(tiers ? { tiers } : {})
   }
 }

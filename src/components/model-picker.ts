@@ -148,15 +148,14 @@ export function openModelDialog(): void {
   function rowSelection(row: Row): ModelSelection | null {
     switch (row.kind) {
       case 'model': {
-        const variant = catalog.variantFor({ providerID: row.provider.id, modelID: row.model.id })
-        return { providerID: row.provider.id, modelID: row.model.id, variant }
+        const base = { providerID: row.provider.id, modelID: row.model.id }
+        const variant = catalog.variantFor(base)
+        return variant === undefined ? base : { ...base, variant }
       }
       case 'variant': {
-        return {
-          providerID: row.base.providerID,
-          modelID: row.base.modelID,
-          variant: row.variant?.id
-        }
+        const base = { providerID: row.base.providerID, modelID: row.base.modelID }
+        const variantID = row.variant?.id
+        return variantID === undefined ? base : { ...base, variant: variantID }
       }
       default:
         return null
@@ -279,7 +278,8 @@ export function openModelDialog(): void {
       return
     }
 
-    finish({ ...selection, variant: selection.variant ?? undefined })
+    const { variant, ...rest } = selection
+    finish(variant != null ? { ...rest, variant } : rest)
   }
 
   function moveHighlight(delta: number): void {
@@ -290,7 +290,8 @@ export function openModelDialog(): void {
     if (rows.length === 0) return
     const clamped = Math.max(0, Math.min(rows.length - 1, index))
     highlighted = clamped
-    if (rows[clamped].kind === 'header') {
+    const row = rows[clamped]
+    if (row && row.kind === 'header') {
       const next = clamped + (direction >= 0 ? 1 : -1)
       if (next >= 0 && next < rows.length) {
         jump(next, direction)
@@ -323,7 +324,8 @@ export function openModelDialog(): void {
     }
     if (event.ctrlKey && event.key.toLowerCase() === 'f') {
       event.preventDefault()
-      const selection = rowSelection(rows[highlighted])
+      const current = rows[highlighted]
+      const selection = current ? rowSelection(current) : null
       if (selection) toggleFavoriteOf(selection)
       return
     }

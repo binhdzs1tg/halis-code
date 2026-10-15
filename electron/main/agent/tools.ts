@@ -289,7 +289,7 @@ async function writeFileTool(input: Record<string, unknown>): Promise<ToolOutcom
     ok: true,
     output: `Wrote ${lineCount} line${lineCount === 1 ? '' : 's'} to ${relPath}.`,
     changedPath: relPath,
-    diff: asSingleDiff(fileDiff(relPath, before, content))
+    ...asDiffPatch(fileDiff(relPath, before, content))
   }
 }
 
@@ -303,8 +303,8 @@ function readBefore(target: string): string | null {
   }
 }
 
-function asSingleDiff(diff: FileDiff | null): FileDiff[] | undefined {
-  return diff ? [diff] : undefined
+function asDiffPatch(diff: FileDiff | null): { diff: FileDiff[] } | Record<string, never> {
+  return diff ? { diff: [diff] } : {}
 }
 
 async function editFileTool(input: Record<string, unknown>): Promise<ToolOutcome> {
@@ -327,7 +327,7 @@ async function editFileTool(input: Record<string, unknown>): Promise<ToolOutcome
     ok: true,
     output: `Edited ${relPath}.`,
     changedPath: relPath,
-    diff: asSingleDiff(fileDiff(relPath, content, updated))
+    ...asDiffPatch(fileDiff(relPath, content, updated))
   }
 }
 

@@ -70,8 +70,8 @@ export function renderMarkdown(source: string): string {
     const heading = line.match(/^(#{1,6})\s+(.*)$/)
     if (heading) {
       flushAll()
-      const level = heading[1].length
-      out.push(`<h${level}>${inline(heading[2])}</h${level}>`)
+      const level = heading[1]?.length ?? 1
+      out.push(`<h${level}>${inline(heading[2] ?? '')}</h${level}>`)
       continue
     }
 
@@ -86,7 +86,7 @@ export function renderMarkdown(source: string): string {
     if (quoteLine) {
       flushParagraph()
       flushList()
-      quote.push(quoteLine[1])
+      quote.push(quoteLine[1] ?? '')
       continue
     }
 
@@ -95,7 +95,7 @@ export function renderMarkdown(source: string): string {
     if (bullet || ordered) {
       flushParagraph()
       flushQuote()
-      const item = (bullet ?? ordered)![1]
+      const item = (bullet ?? ordered)?.[1] ?? ''
       const wanted = Boolean(ordered)
       if (!list || list.ordered !== wanted) {
         flushList()
