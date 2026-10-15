@@ -40,8 +40,9 @@ const BEDROCK_PROFILE_ONLY_IDS = new Set([
   'mistral.pixtral-large-2502-v1:0'
 ])
 
-/** Deprecated aliases replaced by canonical Azure / Google Vertex providers. */
-const EXCLUDED_PROVIDERS = new Set(['azure-cognitive-services', 'google-vertex-anthropic'])
+/** Deprecated aliases replaced by canonical Azure / Google Vertex providers.
+ *  302.AI is an aggregator middleman Halis refuses to surface at all. */
+const EXCLUDED_PROVIDERS = new Set(['azure-cognitive-services', 'google-vertex-anthropic', '302ai'])
 
 interface CacheFile {
   updatedAt: number
