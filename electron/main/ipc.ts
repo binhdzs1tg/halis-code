@@ -51,7 +51,13 @@ function handle<T>(channel: IpcChannel, fn: (event: Electron.IpcMainInvokeEvent,
 /** `ipcMain.on` with the same check, for the fire-and-forget window controls. */
 function on(channel: IpcChannel, fn: (event: Electron.IpcMainEvent, ...args: any[]) => void): void {
   ipcMain.on(channel, (event, ...args) => {
-    assertMainSender(event)
+    // A foreign sender is a violation to ignore, not one to die on: an ipcMain.on
+    // listener that throws becomes an uncaughtException in the main process.
+    try {
+      assertMainSender(event)
+    } catch {
+      return
+    }
     fn(event, ...args)
   })
 }
@@ -105,7 +111,8 @@ export function registerIpcHandlers(): void {
     return picked ? openWorkspaceByPath(picked) : null
   })
 
-  handle(IpcChannel.WorkspaceOpen, (_event, absolutePath: string): string | null => {
+  handle(IpcChannel.WorkspaceOpen, (_event, absolutePath: unknown): string | null => {
+    if (typeof absolutePath !== 'string') return null
     return openWorkspaceByPath(absolutePath)
   })
 

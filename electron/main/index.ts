@@ -9,6 +9,7 @@ import { createTray, destroyTray } from './tray'
 import { installApplicationMenu } from './menu'
 import { installCrashHandlers, markRunning } from './crash'
 import { applyLoginShellEnvironment } from './login-shell-env'
+import { shutdown as shutdownTerminals } from './terminal'
 
 const gotLock = app.requestSingleInstanceLock()
 installCrashHandlers()
@@ -45,8 +46,11 @@ if (!gotLock) {
       createTray(path.join(app.getAppPath(), 'resources', 'tray.png'))
     }
 
-    // Warm up the model catalog; errors are handled inside the service.
-    void refreshModels()
+    // Warm up the model catalog; a cold snapshot keeps the app usable when
+    // the network (or the upstream payload) misbehaves.
+    void refreshModels().catch((err) => {
+      console.warn('[models-dev] warm-up failed:', err instanceof Error ? err.message : err)
+    })
 
     const [win] = BrowserWindow.getAllWindows()
     win?.webContents.once('did-finish-load', () => markRunning())
@@ -65,6 +69,9 @@ if (!gotLock) {
   })
 
   app.on('will-quit', () => {
+    // Orphaned shells outlive the window otherwise; the quit dialog promised
+    // quitting would interrupt them.
+    shutdownTerminals()
     destroyTray()
   })
 }

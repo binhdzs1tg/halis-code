@@ -123,7 +123,13 @@ export function installCrashHandlers(): void {
     })
   })
   process.on('unhandledRejection', (reason) => {
+    // The app stays alive for rejections, so the guard must release too —
+    // a later fatal error still deserves its own report.
     void handleFatal('unhandledRejection', reason)
+      .catch(() => undefined)
+      .then(() => {
+        handling = false
+      })
   })
 }
 

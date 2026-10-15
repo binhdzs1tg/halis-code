@@ -56,8 +56,9 @@ function probe(shell: string): Promise<Map<string, string> | null> {
     }
     const timer = setTimeout(() => done(null), PROBE_TIMEOUT_MS)
 
-    child.stdout.on('data', (chunk: Buffer) => {
-      out += chunk.toString('utf8')
+    child.stdout.setEncoding('utf8')
+    child.stdout.on('data', (chunk: string) => {
+      out += chunk
     })
     child.on('error', () => done(null))
     child.on('close', (code) => {
@@ -95,9 +96,12 @@ export function mergeEnvironments(
     if (skip.has(key) || prefixes.some((prefix) => key.startsWith(prefix))) continue
     if (key === 'PATH') {
       const current = target.PATH ?? ''
-      const have = new Set(current.split(pathSeparator()).filter(Boolean))
-      const additions = value.split(pathSeparator()).filter((entry) => entry && !have.has(entry))
-      target.PATH = additions.length > 0 ? `${value}${pathSeparator()}${current}` : current
+      const separator = pathSeparator()
+      const have = new Set(current.split(separator).filter(Boolean))
+      const additions = value.split(separator).filter((entry) => entry && !have.has(entry))
+      // Only the shell's new entries go in front; prepending the whole probe
+      // would duplicate every path the launch environment already had.
+      target.PATH = additions.length > 0 ? `${additions.join(separator)}${separator}${current}` : current
       continue
     }
     if (target[key] === undefined) {

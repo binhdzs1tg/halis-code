@@ -31,21 +31,23 @@ async function load(): Promise<KeyFile> {
   if (cache) return cache
   try {
     const raw = JSON.parse(await readFile(keysPath(), 'utf8')) as KeyFile
-    cache = {}
+    // Null prototype: a renderer-supplied provider id like "__proto__" must
+    // never reach the object's prototype slot.
+    cache = Object.create(null) as KeyFile
     for (const [providerId, entry] of Object.entries(raw)) {
       if (entry && typeof entry.value === 'string') {
         cache[providerId] = { value: entry.value, encrypted: Boolean(entry.encrypted) }
       }
     }
   } catch {
-    cache = {}
+    cache = Object.create(null) as KeyFile
   }
   return cache
 }
 
 async function persist(): Promise<void> {
   const file = keysPath()
-  await writeFile(file, JSON.stringify(cache ?? {}, null, 2), { mode: 0o600 })
+  await writeFile(file, JSON.stringify({ ...cache }, null, 2), { mode: 0o600 })
   broadcast()
 }
 

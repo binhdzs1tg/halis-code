@@ -91,7 +91,7 @@ export async function refresh(force = false): Promise<ModelCatalog> {
 async function ensure(): Promise<ModelCatalog> {
   const cached = await readCache()
   if (cached) {
-    loaded = build(cached.catalog, cached.updatedAt, 'cache')
+    loaded = cached
     lastRefresh = cached.updatedAt
   } else {
     const snapshot = readBundledSnapshot()
@@ -120,8 +120,11 @@ async function fetchLatest(): Promise<void> {
     throw new Error('catalog looks truncated, ignoring')
   }
   const updatedAt = Date.now()
+  // Build first: normalize() is the real shape validation, and a payload that
+  // cannot be built must never reach the disk cache.
+  const next = build(catalog, updatedAt, 'network')
   await writeCache(catalog, updatedAt)
-  loaded = build(catalog, updatedAt, 'network')
+  loaded = next
   lastRefresh = updatedAt
   broadcast()
 }
@@ -134,7 +137,11 @@ function broadcast(): void {
   }
 }
 
-async function readCache(): Promise<CacheFile | null> {
+/**
+ * The disk cache, validated by actually building it — a payload that fails
+ * normalization is treated as absent so the bundled snapshot takes over.
+ */
+async function readCache(): Promise<ModelCatalog | null> {
   try {
     const file = path.join(app.getPath('userData'), CACHE_FILE)
     if (!existsSync(file)) return null
@@ -142,7 +149,7 @@ async function readCache(): Promise<CacheFile | null> {
     if (!raw || typeof raw.catalog !== 'object' || Object.keys(raw.catalog).length < MIN_PROVIDERS) {
       return null
     }
-    return raw
+    return build(raw.catalog, raw.updatedAt, 'cache')
   } catch {
     return null
   }

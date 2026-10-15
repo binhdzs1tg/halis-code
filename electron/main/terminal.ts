@@ -43,7 +43,10 @@ export function run(command: string, win: BrowserWindow | null): string {
     shell: true,
     cwd,
     windowsHide: true,
-    env: process.env
+    env: process.env,
+    // Its own process group so kill() reaches the whole tree, not just the
+    // shell that spawned it (a `npm run build && say done` has grandchildren).
+    detached: process.platform !== 'win32'
   })
   child = proc
 
@@ -65,11 +68,29 @@ export function run(command: string, win: BrowserWindow | null): string {
   return id
 }
 
+/** Signal the whole process group of a spawned shell. */
+function killTree(proc: ChildProcess): void {
+  if (process.platform !== 'win32' && proc.pid !== undefined) {
+    try {
+      process.kill(-proc.pid, 'SIGTERM')
+      return
+    } catch {
+      // group already gone; the direct kill below is a no-op then
+    }
+  }
+  proc.kill()
+}
+
 /** Kill the running command; returns false when nothing is running. */
 export function kill(): boolean {
   if (!child) return false
-  child.kill()
+  killTree(child)
   return true
+}
+
+/** Kill anything still running; called on quit so nothing outlives the app. */
+export function shutdown(): void {
+  if (child) killTree(child)
 }
 
 /** True while a command is in flight; the quit confirmation reports it as active work. */

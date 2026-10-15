@@ -31,13 +31,41 @@ export function resolveInWorkspace(relPath: string): string {
     throw new Error('No workspace open')
   }
   const target = path.resolve(workspaceRoot, relPath)
-  if (target !== workspaceRoot && !target.startsWith(workspaceRoot + path.sep)) {
+  const prefix = workspaceRoot.endsWith(path.sep) ? workspaceRoot : workspaceRoot + path.sep
+  if (target !== workspaceRoot && !target.startsWith(prefix)) {
+    throw new Error('Path escapes the workspace')
+  }
+  // The lexical check stops `..`; symlinks need the real path. Probe the
+  // deepest existing ancestor so `link/newfile` (link -> /etc) is caught too.
+  const real = realPathDeepest(target)
+  const root = realPathDeepest(workspaceRoot)
+  const rootPrefix = root.endsWith(path.sep) ? root : root + path.sep
+  if (real !== root && real !== workspaceRoot && !real.startsWith(rootPrefix)) {
     throw new Error('Path escapes the workspace')
   }
   return target
 }
 
+/** realpath of the deepest existing ancestor; falls back to the input. */
+function realPathDeepest(target: string): string {
+  let probe = target
+  for (;;) {
+    try {
+      const real = fs.realpathSync(probe)
+      // Re-attach the part below the existing ancestor.
+      return probe === target ? real : real + target.slice(probe.length)
+    } catch {
+      const parent = path.dirname(probe)
+      if (parent === probe) return target
+      probe = parent
+    }
+  }
+}
+
 export function openWorkspaceByPath(absolutePath: string): string | null {
+  if (typeof absolutePath !== 'string' || absolutePath.trim().length === 0) {
+    return null
+  }
   try {
     const resolved = path.resolve(absolutePath)
     if (fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()) {

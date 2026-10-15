@@ -8,6 +8,7 @@ import { shellSettings } from './settings'
 import { saveWindowState, windowBoundsOptions } from './window-state'
 import { attachWindowDiagnostics } from './crash'
 import { attachContextMenu } from './context-menu'
+import { dropApprovalsForWindow } from './agent/approval'
 
 const DIST = path.join(__dirname, '..')
 const RESOURCES = path.join(app.getAppPath(), 'resources')
@@ -82,7 +83,20 @@ export function createMainWindow(): BrowserWindow {
   win.webContents.on('will-navigate', (event, url) => {
     const devUrl = process.env.HALIS_DEV_URL
     const selfUrl = pathToFileURL(path.join(DIST, 'renderer', 'index.html')).href
-    if (url === selfUrl || (devUrl && url.startsWith(devUrl))) return
+    // Same-origin only: a bare prefix would let http://localhost:5173.evil.example through.
+    let devOrigin: string | null = null
+    try {
+      devOrigin = devUrl ? new URL(devUrl).origin : null
+    } catch {
+      devOrigin = null
+    }
+    let urlOrigin: string | null = null
+    try {
+      urlOrigin = new URL(url).origin
+    } catch {
+      urlOrigin = null
+    }
+    if (url === selfUrl || (devOrigin && urlOrigin === devOrigin)) return
     event.preventDefault()
     if (url.startsWith('http://') || url.startsWith('https://')) {
       void shell.openExternal(url)
@@ -99,6 +113,12 @@ export function createMainWindow(): BrowserWindow {
     if (!shellSettings().closeToTray) return
     event.preventDefault()
     void hideToTray(win)
+  })
+
+  // A closed window withdraws every approval it was asked about, failing
+  // closed — the runs waiting on them stop instead of hanging.
+  win.on('closed', () => {
+    dropApprovalsForWindow(win)
   })
 
   // Dev server hook for later hot-reload tooling.
