@@ -594,6 +594,14 @@ body[data-ds-dark-theme] .key-badge.env {
   font-weight: 500;
 }
 
+/* Marks models whose provider has no key on file yet. */
+.row-key {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  color: var(--dsw-alias-state-warn-label);
+}
+
 .row-star {
   flex: none;
   display: inline-flex;
@@ -647,6 +655,13 @@ body[data-ds-dark-theme] .key-badge.env {
   box-shadow: var(--dsw-elevation-prominent);
   background: var(--dsw-alias-bg-layer-2);
   overflow: hidden;
+}
+
+.key-subtitle {
+  margin: 2px 20px 0;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
 }
 
 .key-status {

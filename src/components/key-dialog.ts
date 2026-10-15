@@ -4,10 +4,14 @@ import * as catalog from '../core/models/catalog'
 import { keyStatusOf, refreshKeyStatuses } from '../core/keys'
 
 /**
- * Small dialog to manage the API key of the currently selected model's
- * provider. Keys never travel back to the renderer — only this status.
+ * The provider key dialog, opencode-style: picking a model whose provider
+ * has no key yet (or hitting a rejected key) pops this over the chat. Keys
+ * never travel back to the renderer — only the status does.
+ *
+ * `onSaved` fires once after a key lands, so a deferred send can continue;
+ * `onCancelled` fires when the dialog closes without one.
  */
-export function openKeyDialog(): void {
+export function openKeyDialog(onSaved?: () => void, onCancelled?: () => void): void {
   if (document.querySelector('.key-overlay')) return
 
   const selection = store.get().selectedModel
@@ -18,7 +22,12 @@ export function openKeyDialog(): void {
   overlay.appendChild(dialog)
   document.body.appendChild(overlay)
 
-  const close = (): void => overlay.remove()
+  let saved = false
+  const close = (): void => {
+    overlay.remove()
+    if (saved) onSaved?.()
+    else onCancelled?.()
+  }
   overlay.addEventListener('mousedown', (event) => {
     if (event.target === overlay) close()
   })
@@ -39,6 +48,9 @@ export function openKeyDialog(): void {
 
   const provider = found.provider
   dialog.appendChild(el('div', 'dialog-title', `${provider.name} API key`))
+  dialog.appendChild(
+    el('div', 'key-subtitle', `This model needs a key from ${provider.name}. Paste it below to start using it.`)
+  )
 
   const status = el('div', 'key-status')
   const body = el('div', 'key-body')
@@ -90,8 +102,8 @@ export function openKeyDialog(): void {
     try {
       await window.halis.setProviderKey(provider.id, value)
       await refreshKeyStatuses()
-      input.value = ''
-      paintStatus()
+      saved = true
+      close()
     } finally {
       save.disabled = false
     }
@@ -102,7 +114,7 @@ export function openKeyDialog(): void {
     try {
       await window.halis.removeProviderKey(provider.id)
       await refreshKeyStatuses()
-      paintStatus()
+      close()
     } finally {
       remove.disabled = false
     }
@@ -127,7 +139,7 @@ export function openKeyDialog(): void {
   }
   if (provider.doc) {
     const doc = el('div', 'key-hint')
-    const link = el('a', undefined, 'Provider documentation') as HTMLAnchorElement
+    const link = el('a', undefined, `Get a key from ${provider.name}`) as HTMLAnchorElement
     link.href = provider.doc
     link.target = '_blank'
     link.rel = 'noreferrer'

@@ -1,8 +1,10 @@
 import { el, svg } from '../app/dom'
 import { icons } from '../app/icons'
 import { store } from '../app/store'
-import type { ModelEntry, ModelSelection, ModelVariant, ProviderEntry } from '../../electron/shared/models'
+import { providerNeedsKey, type ModelEntry, type ModelSelection, type ModelVariant, type ProviderEntry } from '../../electron/shared/models'
 import * as catalog from '../core/models/catalog'
+import { keyStatusOf, refreshKeyStatuses } from '../core/keys'
+import { openKeyDialog } from './key-dialog'
 
 interface ModelRow {
   kind: 'model'
@@ -65,6 +67,16 @@ export function openModelDialog(): void {
     catalog.rememberSelection(selection)
     store.update({ selectedModel: selection })
     close()
+    // Like opencode: a model whose provider has no key on file asks for one
+    // the moment it is picked.
+    const found = catalog.findModel(selection)
+    if (found && providerNeedsKey(found.provider)) {
+      void refreshKeyStatuses().then(() => {
+        if (!keyStatusOf(found.provider.id) && !document.querySelector('.key-overlay')) {
+          openKeyDialog()
+        }
+      })
+    }
   }
 
   function searchText(model: ModelEntry): string {
@@ -225,6 +237,12 @@ export function openModelDialog(): void {
     if (catalog.isFree(model)) {
       node.appendChild(el('span', 'row-free', 'Free'))
     }
+    if (providerNeedsKey(row.provider) && !keyStatusOf(row.provider.id)) {
+      const missingKey = el('span', 'row-key')
+      missingKey.title = `${row.provider.name} needs an API key`
+      missingKey.appendChild(svg(icons.key, 12))
+      node.appendChild(missingKey)
+    }
 
     const favorite = el('button', `row-star${catalog.isFavorite(selection) ? ' faved' : ''}`) as HTMLButtonElement
     favorite.type = 'button'
@@ -371,4 +389,6 @@ export function openModelDialog(): void {
   search.focus()
   // If the dialog was opened before the catalog arrived, repaint once it does.
   void catalog.ensureCatalog().then(render)
+  // Same for key statuses, so the "needs a key" marks are current.
+  void refreshKeyStatuses().then(render)
 }

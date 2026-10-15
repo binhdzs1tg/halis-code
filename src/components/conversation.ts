@@ -11,6 +11,7 @@ import { StreamingMarkdown } from '../core/markdown-stream'
 import { stripAnsi } from '../core/ansi'
 import { openModelDialog } from './model-picker'
 import { openKeyDialog } from './key-dialog'
+import { providerNeedsKey } from '../../electron/shared/models'
 
 let counter = 0
 
@@ -457,7 +458,6 @@ export function mountConversation(): HTMLElement {
   const getCommands = (): SlashCommand[] => [
     { name: 'new', description: 'Start a new chat', requireIdle: true, run: () => void newChat() },
     { name: 'model', description: 'Switch model', run: () => void openModelDialog() },
-    { name: 'key', description: 'Manage API keys', run: () => openKeyDialog() },
     { name: 'compact', description: 'Fold this conversation into a checkpoint', requireIdle: true, run: () => void compactFlow() },
     { name: 'export', description: 'Save this conversation as Markdown', run: () => void exportFlow() },
     {
@@ -465,7 +465,7 @@ export function mountConversation(): HTMLElement {
       description: 'List the commands',
       run: () =>
         appendSystemNote(
-          `Commands: ${['/new', '/model', '/key', '/compact', '/export', '/help']
+          `Commands: ${['/new', '/model', '/compact', '/export', '/help']
             .map((name) => name)
             .join(', ')} — @path in a message attaches that file.`
         )
@@ -504,6 +504,35 @@ export function mountConversation(): HTMLElement {
       return
     }
     stoppedManually = false
+
+    // Everything that can bail without a run happens before the user's
+    // message lands, so a blocked turn never leaves an orphan bubble.
+    const selection = store.get().selectedModel
+    if (!selection || !catalog.isValid(selection)) {
+      if (rootEl.hasAttribute('data-hero')) {
+        exitHero()
+      }
+      appendSystemNote('No model selected yet — pick one to start.', {
+        label: 'Select model',
+        onClick: () => openModelDialog()
+      })
+      return
+    }
+
+    // A provider gatekeeping its models gets its key dialog right here, the
+    // way opencode asks for credentials the first time a model needs them.
+    const found = catalog.findModel(selection)
+    if (found && providerNeedsKey(found.provider)) {
+      await refreshKeyStatuses()
+      if (!keyStatusOf(found.provider.id)) {
+        openKeyDialog(
+          () => void send(text),
+          () => composer.setText(text)
+        )
+        return
+      }
+    }
+
     if (rootEl.hasAttribute('data-hero')) {
       exitHero()
     }
@@ -513,15 +542,6 @@ export function mountConversation(): HTMLElement {
     column.appendChild(renderMessage(userMsg))
     syncCrumb(messages)
     scrollToBottom(scroll, true)
-
-    const selection = store.get().selectedModel
-    if (!selection || !catalog.isValid(selection)) {
-      appendSystemNote('No model selected yet — pick one to start.', {
-        label: 'Select model',
-        onClick: () => openModelDialog()
-      })
-      return
-    }
 
     running = true
     composer.setRunning(true)
@@ -648,8 +668,13 @@ export function mountConversation(): HTMLElement {
       }
       if (agentErr?.code === 'missing-key') {
         appendSystemNote(agentErr.message, { label: 'Add API key', onClick: () => openKeyDialog() })
+        openKeyDialog()
       } else if (agentErr?.code === 'invalid-model') {
         appendSystemNote(agentErr.message, { label: 'Select model', onClick: () => openModelDialog() })
+      } else if (agentErr?.code === 'http' && (agentErr.status === 401 || agentErr.status === 403)) {
+        // A stored key stopped working — surface the same dialog to replace it.
+        appendSystemNote(agentErr.message, { label: 'Update API key', onClick: () => openKeyDialog() })
+        openKeyDialog()
       } else {
         appendSystemNote(agentErr ? agentErr.message : `Something went wrong: ${err instanceof Error ? err.message : String(err)}`)
         store.update({ agentStatus: 'error' })
@@ -720,7 +745,13 @@ interface ComposerHandlers {
 
 function buildComposer(
   handlers: ComposerHandlers
-): { root: HTMLElement; setRunning(running: boolean): void; setLocked(locked: boolean): void } {
+): {
+  root: HTMLElement
+  setRunning(running: boolean): void
+  setLocked(locked: boolean): void
+  /** Put text back into the input, e.g. when a send was deferred. */
+  setText(text: string): void
+} {
   const composer = el('div', 'composer')
 
   const card = el('div', 'composer-card')
@@ -739,7 +770,6 @@ function buildComposer(
   addBtn.title = 'Commands'
   addBtn.appendChild(svg(icons.plus, 14))
   tools.appendChild(addBtn)
-  tools.appendChild(buildKeyChip())
 
   const trailing = el('div', 'composer-trailing')
   const modelPill = el('button', 'model-pill') as HTMLButtonElement
@@ -979,49 +1009,13 @@ function buildComposer(
       locked = value
       textarea.disabled = locked
       addBtn.disabled = locked
+    },
+    setText(text: string): void {
+      textarea.value = text
+      textarea.focus()
+      autoGrow()
     }
   }
-}
-
-/** Key status chip inside the composer tools, as in the harness. */
-function buildKeyChip(): HTMLElement {
-  const chip = el('button', 'composer-key-chip') as HTMLButtonElement
-  chip.type = 'button'
-  const dot = el('span', 'key-dot')
-  chip.append(dot, svg(icons.key, 13), el('span', undefined, 'API key'))
-  chip.addEventListener('click', () => openKeyDialog())
-
-  const refresh = (): void => {
-    const selection = store.get().selectedModel
-    const status = keyStatusOf(selection?.providerID)
-    const found = selection ? catalog.findModel(selection) : null
-    if (!selection || !found) {
-      dot.className = 'key-dot'
-      chip.title = 'Select a model to manage its API key'
-      return
-    }
-    if (status) {
-      dot.className = 'key-dot ok'
-      chip.title =
-        status.source === 'env'
-          ? `Using ${status.envVar} from the environment`
-          : `${found.provider.name} key stored in the app vault`
-    } else {
-      dot.className = 'key-dot missing'
-      chip.title = `No API key for ${found.provider.name} yet`
-    }
-  }
-
-  store.subscribe((state, prev) => {
-    if (state.selectedModel !== prev.selectedModel) refresh()
-  })
-  window.halis.onKeysChanged(() => {
-    void refreshKeyStatuses().then(refresh)
-  })
-  void refreshKeyStatuses().then(refresh)
-  void catalog.ensureCatalog().then(refresh)
-
-  return chip
 }
 
 /* ---------- message rendering ---------- */
