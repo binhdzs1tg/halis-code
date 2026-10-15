@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { IpcChannel } from '../shared/ipc-channels'
 import type { AppInfo, WorkspaceEntry, WorkspaceEntryKind } from '../shared/types'
 import {
@@ -42,7 +42,7 @@ function assertMainSender(event: Electron.IpcMainEvent | Electron.IpcMainInvokeE
 
 /** `ipcMain.handle` with the main-frame sender check folded in. */
 function handle<T>(channel: IpcChannel, fn: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => T): void {
-  handle(channel, (event, ...args) => {
+  ipcMain.handle(channel, (event, ...args) => {
     assertMainSender(event)
     return fn(event, ...args)
   })
@@ -50,7 +50,7 @@ function handle<T>(channel: IpcChannel, fn: (event: Electron.IpcMainInvokeEvent,
 
 /** `ipcMain.on` with the same check, for the fire-and-forget window controls. */
 function on(channel: IpcChannel, fn: (event: Electron.IpcMainEvent, ...args: any[]) => void): void {
-  on(channel, (event, ...args) => {
+  ipcMain.on(channel, (event, ...args) => {
     assertMainSender(event)
     fn(event, ...args)
   })
