@@ -118,9 +118,14 @@ async function handleFatal(kind: 'uncaughtException' | 'unhandledRejection', err
  */
 export function installCrashHandlers(): void {
   process.on('uncaughtException', (error) => {
-    void handleFatal('uncaughtException', error).then(() => {
-      app.exit(1)
-    })
+    void handleFatal('uncaughtException', error)
+      .then(() => {
+        app.exit(1)
+      })
+      .catch(() => {
+        // The report pipeline itself failed; exiting late beats never exiting.
+        app.exit(1)
+      })
   })
   process.on('unhandledRejection', (reason) => {
     // The app stays alive for rejections, so the guard must release too —

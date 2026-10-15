@@ -105,7 +105,14 @@ export function readFileContent(relPath: string): string {
   if (stat.size > MAX_READ_SIZE) {
     throw new Error('File is too large to preview (max 1 MB)')
   }
-  return fs.readFileSync(target, 'utf8')
+  const content = fs.readFileSync(target, 'utf8')
+  // Same binary test the search and file-reference paths use: NUL bytes
+  // never appear in text worth previewing, and decoding them as utf8
+  // only produces mojibake for the editor and the model.
+  if (content.includes('\u0000')) {
+    throw new Error('This file looks binary and cannot be previewed as text')
+  }
+  return content
 }
 
 /** Create missing parents and write a file inside the workspace. */

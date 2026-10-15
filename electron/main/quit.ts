@@ -108,5 +108,7 @@ export function requestQuit(): void {
     }
     markQuitting()
     app.quit()
+  }).catch(() => {
+    // The confirmation could not be shown; staying open is the safe answer.
   })
 }

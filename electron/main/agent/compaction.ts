@@ -137,7 +137,9 @@ function splitForCompaction(
     acc += cost
     start -= 1
   }
-  while (start < messages.length) {
+  // Walking back past tool results must stop at the first message: going
+  // below zero would silently produce head=all-but-last, tail=[last].
+  while (start > 0 && start < messages.length) {
     const candidate = messages[start]
     if (!candidate || !hasToolResults(candidate)) break
     start -= 1

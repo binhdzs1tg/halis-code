@@ -110,7 +110,12 @@ export function createMainWindow(): BrowserWindow {
       saveWindowState(win)
       return
     }
-    if (!shellSettings().closeToTray) return
+    if (!shellSettings().closeToTray) {
+      // A real close (tray disabled) still ends the session — the bounds
+      // must land on disk now, because the quit path never sees this window.
+      saveWindowState(win)
+      return
+    }
     event.preventDefault()
     void hideToTray(win)
   })

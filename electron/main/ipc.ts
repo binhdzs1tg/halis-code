@@ -153,8 +153,13 @@ export function registerIpcHandlers(): void {
       throw new Error('file:delete expects a path string')
     }
     const absolute = resolveForDelete(relPath)
-    // Move to the OS trash so a slip of the hand is recoverable.
-    const trashed = await shell.trashItem(absolute).catch(() => false)
+    // Move to the OS trash so a slip of the hand is recoverable. trashItem
+    // resolves void on success, so map the outcome to an explicit boolean —
+    // a bare `catch(() => false)` leaves success as undefined too.
+    const trashed = await shell.trashItem(absolute).then(
+      () => true,
+      () => false
+    )
     if (!trashed) {
       throw new Error(`Could not move "${relPath}" to the trash`)
     }

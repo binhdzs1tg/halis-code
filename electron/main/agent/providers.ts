@@ -89,6 +89,8 @@ interface OpenAiChunk {
       tool_calls?: Array<{ index?: number; id?: string; function?: { name?: string; arguments?: string } }>
     }
   }>
+  /** Providers report mid-stream failures as a data event with no choices. */
+  error?: { message?: string }
 }
 
 /** Streams argument fragments for tool calls, indexed like the provider sends them. */
@@ -214,6 +216,12 @@ async function streamOpenAiCompatible(request: ProviderStreamRequest): Promise<P
       chunk = JSON.parse(event.data) as OpenAiChunk
     } catch {
       continue // keep-alive noise or a stray line
+    }
+    if (chunk.error) {
+      // A mid-stream failure ends the answer here; throwing (rather than
+      // ending silently) lets the retry/backoff layer decide whether the
+      // turn can restart, and surfaces the reason when it cannot.
+      throw new ProviderError('http', chunk.error.message ?? 'stream error')
     }
     const delta = chunk.choices?.[0]?.delta
     if (delta?.content) {
