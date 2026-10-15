@@ -46,10 +46,15 @@ approvals, skills — scaled down to a single-user desktop app.
 | | |
 | --- | --- |
 | ![Startup splash](docs/screenshots/01-startup-splash.png) <br>**Startup splash** | ![First-run home](docs/screenshots/02-welcome-home.png) <br>**First-run home** |
-| ![Workspace explorer](docs/screenshots/03-workspace-explorer.png) <br>**Workspace explorer** | ![Editor](docs/screenshots/04-editor.png) <br>**Editor** |
-| ![Workspace search](docs/screenshots/05-search.png) <br>**Workspace search** | ![Built-in terminal](docs/screenshots/06-terminal.png) <br>**Built-in terminal** |
-| ![Settings](docs/screenshots/07-settings.png) <br>**Settings** | ![Model picker](docs/screenshots/08-model-picker.png) <br>**Model picker** |
-| ![Slash commands](docs/screenshots/09-slash-commands.png) <br>**Slash commands** | |
+| ![Workspace explorer](docs/screenshots/03-workspace-explorer.png) <br>**Workspace explorer** | ![Expanded folders](docs/screenshots/04-explorer-expanded.png) <br>**Expanded folders** |
+| ![Editor](docs/screenshots/05-editor.png) <br>**Editor** | ![Editor tabs](docs/screenshots/06-editor-tabs.png) <br>**Editor tabs** |
+| ![Workspace search](docs/screenshots/07-workspace-search.png) <br>**Workspace search** | ![Built-in terminal](docs/screenshots/08-terminal.png) <br>**Built-in terminal** |
+| ![Settings](docs/screenshots/09-settings.png) <br>**Settings** | ![Model picker](docs/screenshots/10-model-picker.png) <br>**Model picker** |
+| ![Model search](docs/screenshots/11-model-picker-search.png) <br>**Model search** | ![Reasoning variants](docs/screenshots/12-model-variants.png) <br>**Reasoning variants** |
+| ![Slash commands](docs/screenshots/13-slash-commands.png) <br>**Slash commands** | ![Streaming answer](docs/screenshots/14-agent-streaming.png) <br>**Streaming answer** |
+| ![Plan and tool cards](docs/screenshots/15-tool-cards.png) <br>**Plan + tool cards** | ![Command approval](docs/screenshots/16-approval-card.png) <br>**Command approval** |
+| ![Provider key dialog](docs/screenshots/17-key-dialog.png) <br>**Provider key dialog** | ![Dark theme](docs/screenshots/18-dark-theme.png) <br>**Dark theme** |
+| ![Focus mode](docs/screenshots/19-focus-mode.png) <br>**Focus mode** | ![Session history](docs/screenshots/20-session-history.png) <br>**Session history** |
 
 ## Getting started
 
@@ -62,10 +67,12 @@ Other scripts: `npm run typecheck`, `npm run build`, `npm run watch`,
 `npm run smoke` (algorithm smoke tests).
 
 Pick a model from the models.dev catalog through the composer's model
-pill. The first time you use a model whose provider needs a key, Halis
-pops a dialog asking for it — the key stays in the local vault and never
-leaves the machine. Local servers like LM Studio run without any key at
-all. Open a folder, and start talking.
+pill. Halis boots with **Muse Spark 1.3 Free** (OpenCode) as the default —
+strong, free, and served without an API key, so the first chat works out
+of the box. The first time you pick a model whose provider does need a
+key, Halis pops a dialog asking for it — the key stays in the local vault
+and never leaves the machine. Local servers like LM Studio run without
+any key at all. Open a folder, and start talking.
 
 ## Layout
 
