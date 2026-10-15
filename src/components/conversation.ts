@@ -807,6 +807,7 @@ function buildComposer(
 
   const slashPop = el('div', 'slash-pop')
   slashPop.hidden = true
+  composer.appendChild(slashPop)
   let slashItems: Array<{ name: string; description: string }> = []
   let slashIndex = 0
 
