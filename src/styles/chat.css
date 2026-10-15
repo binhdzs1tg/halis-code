@@ -1414,39 +1414,6 @@ body[data-ds-dark-theme] .tok-lit {
   color: var(--dsw-alias-label-caption);
 }
 
-.composer-key-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 8px;
-  border-radius: var(--dsw-radius-sm);
-  font-size: 13px;
-  line-height: 20px;
-  color: var(--dsw-alias-label-secondary);
-  transition: background-color 100ms ease;
-}
-
-.composer-key-chip:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
-.key-dot {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--dsw-alias-state-idle-primary);
-}
-
-.key-dot.ok {
-  background: var(--dsw-alias-state-success-primary);
-}
-
-.key-dot.missing {
-  background: var(--dsw-alias-state-warn-primary);
-}
-
 /* ---- Dock cards (queue / approval), tucked under the composer card ---------- */
 
 .dock {

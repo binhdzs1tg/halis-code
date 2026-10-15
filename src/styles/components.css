@@ -1446,39 +1446,6 @@ body.is-mac .window-controls {
   color: #fff;
 }
 
-.chat-panel .panel-header .key-chip {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 8px;
-  border-radius: 6px;
-  font-size: 10.5px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  color: var(--fg-1);
-}
-
-.chat-panel .panel-header .key-chip:hover {
-  background: var(--bg-2);
-  color: var(--fg-0);
-}
-
-.chat-panel .panel-header .key-chip .key-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--fg-2);
-}
-
-.chat-panel .panel-header .key-chip.ok .key-dot {
-  background: var(--green);
-}
-
-.chat-panel .panel-header .key-chip.missing .key-dot {
-  background: var(--yellow);
-}
-
 .chat-panel .composer-bar {
   margin-top: 6px;
   display: flex;

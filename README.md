@@ -32,7 +32,7 @@ approvals, skills — scaled down to a single-user desktop app.
   deletes, sudo, force pushes, pipes into `sh`, …) ask the user first.
   Decisions are one-shot and fail closed; "Full access" turns the gate off
   (Settings → Agent). `@path` tokens in a message attach the referenced
-  files, and slash commands (`/new`, `/model`, `/key`, `/compact`,
+  files, and slash commands (`/new`, `/model`, `/compact`,
   `/export`, `/help`) live in the composer.
 - **Provider resilience**: transient failures (429/5xx, flaky networks)
   retry with bounded exponential backoff and jitter; sampled time context
@@ -49,7 +49,7 @@ approvals, skills — scaled down to a single-user desktop app.
 | ![Workspace explorer](docs/screenshots/03-workspace-explorer.png) <br>**Workspace explorer** | ![Editor](docs/screenshots/04-editor.png) <br>**Editor** |
 | ![Workspace search](docs/screenshots/05-search.png) <br>**Workspace search** | ![Built-in terminal](docs/screenshots/06-terminal.png) <br>**Built-in terminal** |
 | ![Settings](docs/screenshots/07-settings.png) <br>**Settings** | ![Model picker](docs/screenshots/08-model-picker.png) <br>**Model picker** |
-| ![Slash commands](docs/screenshots/09-slash-commands.png) <br>**Slash commands** | ![API key vault](docs/screenshots/10-api-keys.png) <br>**API key vault** |
+| ![Slash commands](docs/screenshots/09-slash-commands.png) <br>**Slash commands** | |
 
 ## Getting started
 
@@ -62,8 +62,10 @@ Other scripts: `npm run typecheck`, `npm run build`, `npm run watch`,
 `npm run smoke` (algorithm smoke tests).
 
 Pick a model from the models.dev catalog through the composer's model
-pill, add its API key (stored in the local vault, never leaving the
-machine), open a folder, and start talking.
+pill. The first time you use a model whose provider needs a key, Halis
+pops a dialog asking for it — the key stays in the local vault and never
+leaves the machine. Local servers like LM Studio run without any key at
+all. Open a folder, and start talking.
 
 ## Layout
 
