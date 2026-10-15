@@ -125,6 +125,8 @@ export interface ChatErrorEvent {
   runId: string
   code: ChatErrorCode
   message: string
+  /** HTTP status, set when the failure came from a provider response. */
+  status?: number
 }
 
 /* ---------- agent tools ---------- */

@@ -17,7 +17,9 @@ export class AgentError extends Error {
     readonly code: AgentErrorCode,
     message: string,
     /** Text that had already streamed in when the run failed. */
-    readonly partial: string
+    readonly partial: string,
+    /** HTTP status, present when a provider response failed. */
+    readonly status?: number
   ) {
     super(message)
     this.name = 'AgentError'
@@ -95,7 +97,7 @@ export class AgentService {
       const offError = window.halis.onChatError((event) => {
         if (event.runId !== runId) return
         cleanup()
-        reject(new AgentError(event.code, event.message, text))
+        reject(new AgentError(event.code, event.message, text, event.status))
       })
       const cleanup = (): void => {
         this.activeRunId = null

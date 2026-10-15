@@ -15,7 +15,7 @@ import type {
   TodoItem,
   TodoUpdatedEvent
 } from '../../shared/types'
-import type { ModelEntry, ModelSelection, ModelVariant, ProviderEntry } from '../../shared/models'
+import { providerNeedsKey, type ModelEntry, type ModelSelection, type ModelVariant, type ProviderEntry } from '../../shared/models'
 import * as modelsCatalog from '../models-dev/catalog'
 import * as keyStore from '../keys/store'
 import { ProviderError, streamChat, type ProviderMessage } from './providers'
@@ -188,8 +188,8 @@ async function execute(
       controller.abort()
     }
   }
-  const fail = (code: ChatErrorCode, message: string): void => {
-    const event: ChatErrorEvent = { runId, code, message }
+  const fail = (code: ChatErrorCode, message: string, status?: number): void => {
+    const event: ChatErrorEvent = { runId, code, message, ...(status !== undefined ? { status } : {}) }
     emit(IpcChannel.ChatError, event)
   }
 
@@ -326,7 +326,7 @@ async function execute(
       return
     }
     if (err instanceof ProviderError) {
-      fail(err.code, err.message)
+      fail(err.code, err.message, err.status)
       return
     }
     fail('network', err instanceof Error ? err.message : String(err))
@@ -358,13 +358,17 @@ async function resolveModelTarget(
     }
   }
   const variant = entry.variants.find((item) => item.id === selection.variant) ?? null
+  // Local servers take unauthenticated traffic; everyone else needs a key.
+  if (!providerNeedsKey(provider)) {
+    return { provider, entry, variant, key: { value: '' } }
+  }
   const key = await keyStore.resolve(provider)
   if (!key) {
     const envHint = provider.env.length > 0 ? `, or set ${provider.env.join(' / ')} and restart` : ''
     return {
       error: {
         code: 'missing-key',
-        message: `No API key for ${provider.name}. Add one from the chat header${envHint}.`
+        message: `No API key for ${provider.name}. Enter one in the dialog that opens${envHint}.`
       }
     }
   }

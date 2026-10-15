@@ -168,3 +168,17 @@ export interface ModelSelection {
   modelID: string
   variant?: string
 }
+
+/**
+ * Local inference servers that answer unauthenticated requests — models from
+ * these providers run with no API key at all.
+ */
+const KEYLESS_PROVIDERS = new Set(['lmstudio', 'ollama', 'vllm', 'jan', 'llama-cpp'])
+
+/**
+ * Whether a provider gatekeeps its models behind an API key. Everything with
+ * documented env credentials does; local servers and the like do not.
+ */
+export function providerNeedsKey(provider: Pick<ProviderEntry, 'id' | 'env'>): boolean {
+  return !KEYLESS_PROVIDERS.has(provider.id) && provider.env.length > 0
+}

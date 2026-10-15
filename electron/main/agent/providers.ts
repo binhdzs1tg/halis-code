@@ -152,9 +152,10 @@ async function streamOpenAiCompatible(request: ProviderStreamRequest): Promise<P
   applyReasoning(body, request)
 
   const headers: Record<string, string> = { 'content-type': 'application/json' }
+  // Keyless providers (local servers) get no auth header at all.
   if (endpoint.auth === 'api-key') {
-    headers['api-key'] = request.apiKey
-  } else {
+    if (request.apiKey) headers['api-key'] = request.apiKey
+  } else if (request.apiKey) {
     headers.authorization = `Bearer ${request.apiKey}`
   }
   Object.assign(headers, request.model.modeHeaders ?? {})
@@ -295,8 +296,10 @@ async function streamAnthropic(request: ProviderStreamRequest): Promise<Provider
 
   const headers: Record<string, string> = {
     'content-type': 'application/json',
-    'x-api-key': request.apiKey,
     'anthropic-version': '2023-06-01'
+  }
+  if (request.apiKey) {
+    headers['x-api-key'] = request.apiKey
   }
   Object.assign(headers, request.model.modeHeaders ?? {})
 
