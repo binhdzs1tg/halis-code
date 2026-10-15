@@ -163,17 +163,27 @@ export interface CompactionRequest {
   force?: boolean
 }
 
+export interface CompactionOutcome {
+  messages: ProviderMessage[]
+  /** The framed checkpoint text on its own, for UI surfaces like /compact. */
+  checkpoint: string
+}
+
 /**
  * Compact the request messages when they pass the model's pressure point.
- * Returns the replacement list, or null when compaction was not needed or
- * could not be produced — callers then proceed with the original messages.
+ * Returns the replacement list plus the framed checkpoint, or null when
+ * compaction was not needed or could not be produced — callers then proceed
+ * with the original messages.
  */
-export async function compactMessages(request: CompactionRequest): Promise<ProviderMessage[] | null> {
+export async function compactMessages(request: CompactionRequest): Promise<CompactionOutcome | null> {
   const context = request.model.limit.context || FALLBACK_CONTEXT
   const threshold = Math.floor(context * THRESHOLD_RATIO)
   const retain = Math.floor(context * RETAIN_RATIO)
 
-  if (!request.force && estimateTokens(request.messages) < threshold) {
+  // The request also carries the system prompt and tool schemas; counting
+  // the prompt keeps the trigger honest about the real payload size.
+  const systemTokens = Math.ceil(request.system.length / 4)
+  if (!request.force && estimateTokens(request.messages) + systemTokens < threshold) {
     return null
   }
 
@@ -236,5 +246,5 @@ export async function compactMessages(request: CompactionRequest): Promise<Provi
     compacted.push({ role: 'user', content: checkpoint })
     compacted.push(...tail)
   }
-  return compacted
+  return { messages: compacted, checkpoint }
 }

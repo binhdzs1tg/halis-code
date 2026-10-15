@@ -94,13 +94,47 @@ interface OpenAiChunk {
 /** Streams argument fragments for tool calls, indexed like the provider sends them. */
 class ToolCallCollector {
   private slots = new Map<number, { id: string; name: string; args: string }>()
+  /** Slot a fragment without an explicit index belongs to. */
+  private lastAuto: number | null = null
+  private autoCounter = 0
 
-  add(index: number, id: string | undefined, name: string | undefined, args: string | undefined): void {
-    const slot = this.slots.get(index) ?? { id: '', name: '', args: '' }
+  add(index: number | undefined, id: string | undefined, name: string | undefined, args: string | undefined): void {
+    let slotIndex = index
+    if (slotIndex === undefined) {
+      // Providers that omit the index: a known id joins its own slot, a new
+      // id opens one, and a bare continuation extends the current slot.
+      if (id) {
+        for (const [key, slot] of this.slots) {
+          if (slot.id === id) {
+            slotIndex = key
+            break
+          }
+        }
+        if (slotIndex === undefined) {
+          const current = this.lastAuto === null ? undefined : this.slots.get(this.lastAuto)
+          if (this.lastAuto === null || (current !== undefined && current.id !== '' && current.id !== id)) {
+            slotIndex = this.autoCounter
+            this.autoCounter += 1
+          } else {
+            slotIndex = this.lastAuto
+          }
+        }
+      } else {
+        if (this.lastAuto === null) {
+          slotIndex = this.autoCounter
+          this.autoCounter += 1
+        } else {
+          slotIndex = this.lastAuto
+        }
+      }
+    }
+    slotIndex = slotIndex ?? 0
+    const slot = this.slots.get(slotIndex) ?? { id: '', name: '', args: '' }
     if (id) slot.id = id
     if (name) slot.name = name
     if (args) slot.args += args
-    this.slots.set(index, slot)
+    this.slots.set(slotIndex, slot)
+    this.lastAuto = slotIndex
   }
 
   calls(): ProviderToolCall[] {
@@ -187,7 +221,7 @@ async function streamOpenAiCompatible(request: ProviderStreamRequest): Promise<P
       request.onDelta(delta.content)
     }
     for (const part of delta?.tool_calls ?? []) {
-      collector.add(part.index ?? 0, part.id, part.function?.name, part.function?.arguments)
+      collector.add(part.index, part.id, part.function?.name, part.function?.arguments)
     }
   }
   return { text, toolCalls: collector.calls() }
@@ -314,7 +348,7 @@ async function streamAnthropic(request: ProviderStreamRequest): Promise<Provider
   }
 
   let text = ''
-  const toolBlocks = new Map<number, { id: string; name: string; json: string }>()
+  const toolBlocks = new Map<number, { id: string; name: string; json: string; seeded: boolean }>()
   for await (const event of readSse(response)) {
     let payload: AnthropicStreamEvent
     try {
@@ -327,10 +361,17 @@ async function streamAnthropic(request: ProviderStreamRequest): Promise<Provider
     }
     if (event.event === 'message_stop') break
     if (event.event === 'content_block_start' && payload.content_block?.type === 'tool_use') {
+      // Gateways may inline the full input instead of streaming json deltas.
+      const seed = (payload.content_block as { input?: unknown }).input
+      const initial =
+        seed && typeof seed === 'object' && Object.keys(seed as object).length > 0
+          ? JSON.stringify(seed)
+          : ''
       toolBlocks.set(payload.index ?? 0, {
         id: payload.content_block.id ?? '',
         name: payload.content_block.name ?? '',
-        json: ''
+        json: initial,
+        seeded: initial !== ''
       })
     }
     if (event.event === 'content_block_delta') {
@@ -340,7 +381,15 @@ async function streamAnthropic(request: ProviderStreamRequest): Promise<Provider
       }
       if (payload.delta?.type === 'input_json_delta' && payload.delta.partial_json) {
         const block = toolBlocks.get(payload.index ?? 0)
-        if (block) block.json += payload.delta.partial_json
+        if (block) {
+          // Deltas supersede an inlined input: mixing the two would weld a
+          // full JSON document onto its own fragments and break the parse.
+          if (block.seeded) {
+            block.json = ''
+            block.seeded = false
+          }
+          block.json += payload.delta.partial_json
+        }
       }
     }
   }
@@ -359,6 +408,17 @@ async function streamAnthropic(request: ProviderStreamRequest): Promise<Provider
 /** Flatten the harness message shape into Anthropic content blocks. */
 function toAnthropicMessages(request: ProviderStreamRequest): unknown[] {
   const out: Array<Record<string, unknown>> = []
+  // Anthropic rejects consecutive same-role messages, so blocks merge into
+  // the previous turn when the flattening produces two in a row (time notes,
+  // wrap-up nudges, queued tool results after text).
+  const push = (role: 'user' | 'assistant', blocks: Array<Record<string, unknown>>): void => {
+    const last = out[out.length - 1]
+    if (last && last.role === role) {
+      last.content = [...(last.content as Array<Record<string, unknown>>), ...blocks]
+      return
+    }
+    out.push({ role, content: blocks })
+  }
   for (const message of request.messages) {
     if (message.role === 'assistant') {
       const blocks: Array<Record<string, unknown>> = []
@@ -366,7 +426,7 @@ function toAnthropicMessages(request: ProviderStreamRequest): unknown[] {
       for (const call of message.toolCalls ?? []) {
         blocks.push({ type: 'tool_use', id: call.id, name: call.name, input: call.input })
       }
-      if (blocks.length) out.push({ role: 'assistant', content: blocks })
+      if (blocks.length) push('assistant', blocks)
       continue
     }
     const blocks: Array<Record<string, unknown>> = []
@@ -379,7 +439,7 @@ function toAnthropicMessages(request: ProviderStreamRequest): unknown[] {
       })
     }
     if (message.content) blocks.push({ type: 'text', text: message.content })
-    if (blocks.length) out.push({ role: 'user', content: blocks })
+    if (blocks.length) push('user', blocks)
   }
   return out
 }
@@ -470,7 +530,8 @@ async function* readSse(response: Response): AsyncGenerator<SseEvent> {
         } else if (line.startsWith('event:')) {
           eventName = line.slice(6).trim()
         } else if (line.startsWith('data:')) {
-          dataLines.push(line.slice(5).trimStart())
+          // SSE strips one leading space, no more — payloads can start with whitespace.
+          dataLines.push(line.slice(5).replace(/^ /, ''))
         }
         newline = buffer.indexOf('\n')
       }

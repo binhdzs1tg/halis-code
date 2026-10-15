@@ -15,7 +15,7 @@ import type {
   TodoItem,
   TodoUpdatedEvent
 } from '../../shared/types'
-import { providerNeedsKey, type ModelEntry, type ModelSelection, type ModelVariant, type ProviderEntry } from '../../shared/models'
+import { modelNeedsKey, type ModelEntry, type ModelSelection, type ModelVariant, type ProviderEntry } from '../../shared/models'
 import * as modelsCatalog from '../models-dev/catalog'
 import * as keyStore from '../keys/store'
 import { ProviderError, streamChat, type ProviderMessage } from './providers'
@@ -115,31 +115,43 @@ function backoffDelay(attempt: number): number {
 
 function wait(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, ms)
-    signal.addEventListener(
-      'abort',
-      () => {
-        clearTimeout(timer)
-        reject(new ProviderError('aborted', 'cancelled'))
-      },
-      { once: true }
-    )
+    if (signal.aborted) {
+      reject(new ProviderError('aborted', 'cancelled'))
+      return
+    }
+    const onAbort = (): void => {
+      clearTimeout(timer)
+      reject(new ProviderError('aborted', 'cancelled'))
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    signal.addEventListener('abort', onAbort, { once: true })
   })
 }
 
 /**
  * streamChat with the harness's bounded backoff: transient provider
  * failures (rate limits, server errors, flaky connections) retry with an
- * exponential, jittered delay; anything structural fails through.
+ * exponential, jittered delay; anything structural fails through. Once a
+ * retry's target has already streamed deltas to the user, retrying would
+ * replay the answer from byte zero — `allowRetry` puts a stop to that.
  */
 async function streamWithRetry(
-  request: Parameters<typeof streamChat>[0]
+  request: Parameters<typeof streamChat>[0],
+  allowRetry: () => boolean
 ): Promise<ReturnType<typeof streamChat>> {
   for (let attempt = 1; ; attempt += 1) {
     try {
       return await streamChat(request)
     } catch (err) {
-      if (attempt >= RETRY_MAX || !(err instanceof ProviderError) || !retryable(err)) {
+      if (
+        attempt >= RETRY_MAX ||
+        !allowRetry() ||
+        !(err instanceof ProviderError) ||
+        !retryable(err)
+      ) {
         throw err
       }
       await wait(backoffDelay(attempt), request.signal)
@@ -181,10 +193,15 @@ async function execute(
   win: BrowserWindow | null
 ): Promise<void> {
   const emit = (channel: IpcChannel, payload: unknown): void => {
-    if (win && !win.isDestroyed()) {
-      win.webContents.send(channel, payload)
-    } else {
+    if (!win || win.isDestroyed()) {
       // Nobody is listening anymore; stop burning tokens.
+      controller.abort()
+      return
+    }
+    try {
+      win.webContents.send(channel, payload)
+    } catch {
+      // The frame died mid-run (crash, reload); same treatment.
       controller.abort()
     }
   }
@@ -205,7 +222,14 @@ async function execute(
     let messages = buildMessages(turn)
     const timeNote = sampleTimeContext()
     if (timeNote) {
-      messages.push({ role: 'user', content: timeNote })
+      // Attach to the prompt's user message when there is one — two user
+      // messages in a row make Anthropic reject the whole request.
+      const last = messages[messages.length - 1]
+      if (last && last.role === 'user') {
+        last.content = `${last.content}\n\n${timeNote}`
+      } else {
+        messages.push({ role: 'user', content: timeNote })
+      }
     }
 
     // Free context before the first step when the history runs long.
@@ -219,7 +243,7 @@ async function execute(
       signal: controller.signal
     }).catch(() => null)
     if (compacted) {
-      messages = compacted
+      messages = compacted.messages
       const notice: ChatNoticeEvent = {
         runId,
         kind: 'compacted',
@@ -239,30 +263,41 @@ async function execute(
       // Budget spent: force one plain, tool-less completion so the turn still ends with an answer.
       const wrapUp = step >= MAX_TOOL_STEPS
       if (wrapUp) {
-        messages.push({
-          role: 'user',
-          content: 'The tool budget for this turn is used up. Give your final answer now, without calling any more tools.'
-        })
+        const wrapUpText =
+          'The tool budget for this turn is used up. Give your final answer now, without calling any more tools.'
+        const last = messages[messages.length - 1]
+        if (last && last.role === 'user') {
+          last.content = `${last.content}\n\n${wrapUpText}`.trim()
+        } else {
+          messages.push({ role: 'user', content: wrapUpText })
+        }
       }
 
       // Deterministic relief before spending a model call: old oversized
       // tool results lose their middle, the newest message stays intact.
       pruneToolResults(messages)
 
-      const result = await streamWithRetry({
-        provider,
-        model: entry,
-        variant,
-        apiKey: key.value,
-        system,
-        messages,
-        ...(wrapUp ? {} : { tools: specs }),
-        signal: controller.signal,
-        onDelta: (text) => {
-          const event: ChatDeltaEvent = { runId, text }
-          emit(IpcChannel.ChatDelta, event)
-        }
-      })
+      // Once a delta has reached the user, a mid-stream failure must not
+      // retry — a fresh attempt would replay the whole answer on screen.
+      let streamed = false
+      const result = await streamWithRetry(
+        {
+          provider,
+          model: entry,
+          variant,
+          apiKey: key.value,
+          system,
+          messages,
+          ...(wrapUp ? {} : { tools: specs }),
+          signal: controller.signal,
+          onDelta: (text) => {
+            streamed = true
+            const event: ChatDeltaEvent = { runId, text }
+            emit(IpcChannel.ChatDelta, event)
+          }
+        },
+        () => !streamed
+      )
 
       if (result.toolCalls.length === 0 || wrapUp) break
 
@@ -315,8 +350,6 @@ async function execute(
       messages.push({ role: 'user', content: '', toolResults: results })
     }
 
-    setApprovalWindow(null)
-
     const done: ChatDoneEvent = { runId, aborted: controller.signal.aborted }
     emit(IpcChannel.ChatDone, done)
   } catch (err) {
@@ -331,6 +364,8 @@ async function execute(
     }
     fail('network', err instanceof Error ? err.message : String(err))
   } finally {
+    // Clear on every exit path, or an aborted run pins its window forever.
+    setApprovalWindow(null)
     runs.delete(runId)
   }
 }
@@ -358,8 +393,8 @@ async function resolveModelTarget(
     }
   }
   const variant = entry.variants.find((item) => item.id === selection.variant) ?? null
-  // Local servers take unauthenticated traffic; everyone else needs a key.
-  if (!providerNeedsKey(provider)) {
+  // Local servers and the free tier take unauthenticated traffic; everyone else needs a key.
+  if (!modelNeedsKey(provider, entry)) {
     return { provider, entry, variant, key: { value: '' } }
   }
   const key = await keyStore.resolve(provider)
@@ -422,12 +457,12 @@ export async function compactNow(raw: unknown): Promise<CompactResult> {
   if (!compacted) {
     throw new Error('Could not produce a checkpoint for this conversation.')
   }
-  // The replacement list starts with the framed checkpoint message.
-  const checkpoint = compacted[0]?.content ?? ''
+  // The framed checkpoint alone — never the merged first tail message,
+  // whose text the conversation keeps as-is.
   return {
-    checkpoint,
+    checkpoint: compacted.checkpoint,
     beforeTokens,
-    afterTokens: estimateTokens(compacted)
+    afterTokens: estimateTokens(compacted.messages)
   }
 }
 
@@ -513,7 +548,13 @@ function buildMessages(turn: Turn): ProviderMessage[] {
     const attachment = buildFileRefBlock(prompt)
     push('user', attachment ? `${prompt}\n\n${attachment}` : prompt)
   }
-  return out.slice(-MAX_HISTORY_MESSAGES)
+  const trimmed = out.slice(-MAX_HISTORY_MESSAGES)
+  // Providers like Anthropic require the first message to be a user turn;
+  // a slice landing on an assistant message breaks the whole request.
+  while (trimmed.length > 0 && trimmed[0]?.role === 'assistant') {
+    trimmed.shift()
+  }
+  return trimmed
 }
 
 function readTurn(value: unknown): Turn | null {

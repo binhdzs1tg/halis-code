@@ -267,6 +267,12 @@ async function readFileTool(input: Record<string, unknown>): Promise<ToolOutcome
 
   const content = readFileContent(relPath)
   const lines = content.split('\n')
+  if (offset > lines.length) {
+    return {
+      ok: false,
+      output: `Offset ${offset} is past the end of the file (${lines.length} line${lines.length === 1 ? '' : 's'}).`
+    }
+  }
   const slice = lines.slice(offset - 1, offset - 1 + limit)
   let output = slice.join('\n')
   const remaining = lines.length - (offset - 1 + slice.length)
@@ -405,20 +411,6 @@ async function runCommandTool(
       finish(false, `command timed out after ${timeout} ms and was killed`)
     }, timeout)
 
-    const finish = (ok: boolean, note?: string): void => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      if (!child.killed) {
-        child.kill()
-      }
-      let output = `$ ${command}\n`
-      if (truncated) output += '… (earlier output dropped)\n'
-      output += combined.trim()
-      if (note) output += `\n(${note})`
-      resolve({ ok, output })
-    }
-
     child.on('error', (err) => {
       finish(false, err.message)
     })
@@ -431,11 +423,26 @@ async function runCommandTool(
         finish(code === 0, code === 0 ? undefined : `exit code ${code ?? 'unknown'}`)
       }
     })
-    signal.addEventListener(
-      'abort',
-      () => finish(false, 'cancelled'),
-      { once: true }
-    )
+    // Hoisted pair so finish can release the listener: a long run makes one
+    // command at a time, and piled-up abort listeners trip the leak warning.
+    function onAbort(): void {
+      finish(false, 'cancelled')
+    }
+    function finish(ok: boolean, note?: string): void {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      signal.removeEventListener('abort', onAbort)
+      if (!child.killed) {
+        child.kill()
+      }
+      let output = `$ ${command}\n`
+      if (truncated) output += '… (earlier output dropped)\n'
+      output += combined.trim()
+      if (note) output += `\n(${note})`
+      resolve({ ok, output })
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
   })
 }
 

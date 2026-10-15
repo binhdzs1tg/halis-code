@@ -153,7 +153,13 @@ export function fileDiff(path: string, before: string | null, after: string): Fi
   }
   const hunks = computeHunks(before, after)
   if (hunks.length === 0) return null
-  const merged = hunks.flatMap((hunk) => hunk.lines)
+  // Flattened hunks lose the unchanged stretch between them; the '…' del
+  // marker keeps the card honest (the renderer paints it as a gap row).
+  const merged: DiffLine[] = []
+  hunks.forEach((hunk, index) => {
+    if (index > 0) merged.push({ kind: 'del', text: '…' })
+    merged.push(...hunk.lines)
+  })
   return {
     path,
     op: 'update',
