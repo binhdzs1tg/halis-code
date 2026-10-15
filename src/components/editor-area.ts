@@ -20,10 +20,16 @@ export function mountEditorArea(): HTMLElement {
   const area = el('section', 'editor-area')
 
   store.subscribe((state, prev) => {
+    if (state.workspaceRoot !== prev.workspaceRoot) {
+      // Paths from the old workspace have no meaning here; keeping their
+      // buffers would shadow the new workspace's files of the same name.
+      unsaved.clear()
+      render(area)
+      return
+    }
     if (
       state.openFile !== prev.openFile ||
-      state.openFiles !== prev.openFiles ||
-      state.workspaceRoot !== prev.workspaceRoot
+      state.openFiles !== prev.openFiles
     ) {
       render(area)
       return
@@ -221,9 +227,15 @@ async function saveActive(): Promise<void> {
   showStatus('Saving…')
   try {
     await window.halis.writeFile(path, content)
-    unsaved.delete(path)
-    showStatus('Saved')
-    markDirty(path, false)
+    // Only clear when nothing newer was typed during the await — otherwise
+    // those edits would be silently dropped from the save.
+    if (unsaved.get(path) === content) {
+      unsaved.delete(path)
+      markDirty(path, false)
+      showStatus('Saved')
+    } else {
+      showStatus('Saved — newer edits pending')
+    }
   } catch (err) {
     showStatus(err instanceof Error ? err.message : String(err), true)
   }
@@ -279,12 +291,18 @@ function reconcile(area: HTMLElement, touched: TouchedFile): void {
     gutter &&
     !textarea.disabled
   ) {
+    const input = textarea
+    const linesNode = gutter
     void window.halis
       .readFile(touched.path)
       .then((content) => {
-        if (textarea && textarea.value !== content) {
-          textarea.value = content
-          if (gutter) paintGutter(gutter, content)
+        // The user may have switched tabs while the read was in flight —
+        // writing into the (now different) textarea would paste this file's
+        // content into another file's buffer.
+        if (textarea !== input || store.get().openFile !== touched.path) return
+        if (input.value !== content) {
+          input.value = content
+          paintGutter(linesNode, content)
         }
       })
       .catch(() => undefined)

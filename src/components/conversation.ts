@@ -3,6 +3,7 @@ import { icons } from '../app/icons'
 import { store } from '../app/store'
 import { mountShimmer } from '../app/shimmer'
 import type { ApprovalDecision, ApprovalRequestEvent, ChatMessage, TodoItem, ToolTrace } from '../../electron/shared/types'
+import type { ModelSelection } from '../../electron/shared/models'
 import { agentService, AgentError } from '../core/agent/agent-service'
 import * as catalog from '../core/models/catalog'
 import { keyStatusOf, refreshKeyStatuses } from '../core/keys'
@@ -11,7 +12,7 @@ import { StreamingMarkdown } from '../core/markdown-stream'
 import { stripAnsi } from '../core/ansi'
 import { openModelDialog } from './model-picker'
 import { openKeyDialog } from './key-dialog'
-import { providerNeedsKey } from '../../electron/shared/models'
+import { modelNeedsKey } from '../../electron/shared/models'
 
 let counter = 0
 
@@ -211,6 +212,9 @@ export function mountConversation(): HTMLElement {
   let pendingApproval: ApprovalRequestEvent | null = null
   const approvalHost = el('div', 'dock approval-host')
   approvalHost.hidden = true
+  // The dock lives under the composer card; without this the approval UI
+  // never reaches the DOM and risky commands sit unanswered in silence.
+  seat.appendChild(approvalHost)
 
   const clearApprovalCard = (): void => {
     pendingApproval = null
@@ -254,6 +258,9 @@ export function mountConversation(): HTMLElement {
     dockCard.appendChild(card)
     approvalHost.appendChild(dockCard)
     allow.focus()
+    // The composer is taken over until the user decides — without the lock,
+    // one Enter press both approves and queues the composer text.
+    composer.setLocked(true)
     // Enter approves, Escape rejects — the same keys as DeepSeek Harness's
     // approval panel; the composer is taken over until the user decides.
     const onKey = (event: KeyboardEvent): void => {
@@ -277,6 +284,7 @@ export function mountConversation(): HTMLElement {
   const queue: string[] = []
   const queueBox = el('div', 'dock queue-box')
   queueBox.hidden = true
+  seat.appendChild(queueBox)
 
   const paintQueue = (): void => {
     clear(queueBox)
@@ -503,38 +511,53 @@ export function mountConversation(): HTMLElement {
       paintQueue()
       return
     }
+    // Raised synchronously, before any await: a double-tap of Enter during
+    // the key-status roundtrip must not start two runs.
+    running = true
     stoppedManually = false
 
     // Everything that can bail without a run happens before the user's
     // message lands, so a blocked turn never leaves an orphan bubble.
-    const selection = store.get().selectedModel
-    if (!selection || !catalog.isValid(selection)) {
+    // The gate itself must never wedge the composer: any failure here
+    // releases the run lock instead of queueing forever.
+    let selection: ModelSelection
+    try {
+      const picked = store.get().selectedModel
+      if (!picked || !catalog.isValid(picked)) {
+        if (rootEl.hasAttribute('data-hero')) {
+          exitHero()
+        }
+        running = false
+        appendSystemNote('No model selected yet — pick one to start.', {
+          label: 'Select model',
+          onClick: () => openModelDialog()
+        })
+        return
+      }
+      selection = picked
+
+      // A provider gatekeeping its models gets its key dialog right here, the
+      // way opencode asks for credentials the first time a model needs them.
+      const found = catalog.findModel(selection)
+      if (found && modelNeedsKey(found.provider, found.model)) {
+        await refreshKeyStatuses()
+        if (!keyStatusOf(found.provider.id)) {
+          running = false
+          openKeyDialog(
+            () => void send(text),
+            () => composer.setText(text)
+          )
+          return
+        }
+      }
+
       if (rootEl.hasAttribute('data-hero')) {
         exitHero()
       }
-      appendSystemNote('No model selected yet — pick one to start.', {
-        label: 'Select model',
-        onClick: () => openModelDialog()
-      })
+    } catch (err) {
+      running = false
+      appendSystemNote(`Could not start the run: ${err instanceof Error ? err.message : String(err)}`)
       return
-    }
-
-    // A provider gatekeeping its models gets its key dialog right here, the
-    // way opencode asks for credentials the first time a model needs them.
-    const found = catalog.findModel(selection)
-    if (found && providerNeedsKey(found.provider)) {
-      await refreshKeyStatuses()
-      if (!keyStatusOf(found.provider.id)) {
-        openKeyDialog(
-          () => void send(text),
-          () => composer.setText(text)
-        )
-        return
-      }
-    }
-
-    if (rootEl.hasAttribute('data-hero')) {
-      exitHero()
     }
 
     const userMsg = makeMessage('user', text)
@@ -561,7 +584,14 @@ export function mountConversation(): HTMLElement {
     const toolLog = el('div', 'tool-log')
     const liveRows = new Map<string, HTMLElement>()
     const traceOf = new Map<string, ToolTrace>()
-    node.insertBefore(toolLog, bubble)
+    // The tool log rides above the streaming bubble, inside the assistant
+    // body — .bubble is a child of .assistant-body, not of the message node,
+    // so the insertion has to anchor on the bubble itself.
+    if (bubble) {
+      bubble.before(toolLog)
+    } else {
+      node.appendChild(toolLog)
+    }
 
     // Live plan card, replaced wholesale on every todo_write snapshot.
     let liveTodos: TodoItem[] = []
@@ -570,7 +600,7 @@ export function mountConversation(): HTMLElement {
       if (liveTodos.length === 0) return
       const next = renderTodoCard(liveTodos)
       if (todoCard) todoCard.replaceWith(next)
-      else node.insertBefore(next, toolLog)
+      else toolLog.before(next)
       todoCard = next
     }
 
@@ -620,6 +650,9 @@ export function mountConversation(): HTMLElement {
               trace.output = event.output ?? ''
               trace.ok = event.ok ?? true
               trace.durationMs = event.durationMs ?? 0
+              // Hunk data rides on the end event; without it the diff card
+              // falls back to the coarser legacy rendering after a replay.
+              if (event.diff) trace.diff = event.diff
               const row = liveRows.get(event.callId)
               if (row) row.replaceWith(renderToolRow(trace, false))
             }
@@ -654,9 +687,14 @@ export function mountConversation(): HTMLElement {
         }
       }
     } catch (err) {
-      // Drop the placeholder; a partial, if any, is re-rendered below.
+      // Drop the placeholder by identity — a compaction notice may have
+      // landed after it, and popping the last message would strand an empty
+      // assistant bubble in the session forever.
       node.remove()
-      messages.pop()
+      const placeholder = messages.indexOf(assistant)
+      if (placeholder !== -1) {
+        messages.splice(placeholder, 1)
+      }
       const agentErr = err instanceof AgentError ? err : null
       if (agentErr && (agentErr.partial.trim() || traces.length > 0)) {
         const partial = makeMessage('assistant', agentErr.partial)

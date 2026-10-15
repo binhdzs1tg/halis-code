@@ -6,6 +6,7 @@ import type { TerminalExitEvent } from '../../electron/shared/types'
 
 /** Keep the scrollback bounded so long builds don't grow the DOM forever. */
 const MAX_OUT_CHARS = 400_000
+const MAX_OUT_LINES = 2_000
 
 /**
  * Working command terminal. Each submitted line spawns through the user's
@@ -90,6 +91,14 @@ export function mountTerminalPanel(): HTMLElement {
     const mark = el('span', 'prompt', prompt.textContent ? `${prompt.textContent} $ ` : '$ ')
     line.append(mark, document.createTextNode(command))
     out.appendChild(line)
+    // Echo lines bypass the writer, so keep the scrollback budget honest
+    // by capping the DOM here too.
+    while (out.childElementCount > MAX_OUT_LINES) {
+      const first = out.firstChild
+      const removed = (first?.textContent ?? '').length
+      first?.remove()
+      writer.written = Math.max(0, writer.written - removed)
+    }
     scrollToEnd()
   }
 
@@ -132,6 +141,7 @@ export function mountTerminalPanel(): HTMLElement {
       event.preventDefault()
       const command = input.value.trim()
       if (!command) return
+      if (busy) return // the text stays; the running command owns the terminal
       input.value = ''
       history.push(command)
       historyIndex = history.length
@@ -201,7 +211,13 @@ export function mountTerminalPanel(): HTMLElement {
       paintPrompt()
     }
     if (store.get().railTab === 'terminal') {
-      input.focus()
+      // Focus only when the user was already here — a finished build must
+      // not yank the caret out of the chat composer mid-run.
+      const active = document.activeElement
+      const inside = active instanceof Node && panel.contains(active)
+      if (inside || active === document.body || active === null) {
+        input.focus()
+      }
     }
   })
 
@@ -211,8 +227,10 @@ export function mountTerminalPanel(): HTMLElement {
       input.focus()
     }
     if (state.workspaceRoot && state.workspaceRoot !== prev.workspaceRoot && !busy) {
+      // No quoting: main-side `cd` is parsed in JS, not by a shell, so the
+      // raw path (spaces included) is exactly what the parser wants.
       void window.halis
-        .runTerminalCommand(`cd "${state.workspaceRoot}"`)
+        .runTerminalCommand(`cd ${state.workspaceRoot}`)
         .catch(() => undefined)
     }
   })

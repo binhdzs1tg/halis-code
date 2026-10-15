@@ -13,6 +13,9 @@
 const ESC = '\x1b'
 const BEL = '\x07'
 
+/** A partial escape held longer than this is binary noise, not a split sequence. */
+const MAX_PENDING_ESCAPE = 1024
+
 const PALETTE_16 = [
   '#414855', '#ec6a88', '#3fdaa4', '#f9c859', '#6d95f1', '#d175d1', '#56c8d8', '#c5cbd8',
   '#6c7480', '#f08484', '#6ce8b1', '#ffd98e', '#93b3ff', '#e8a3e8', '#7cdce4', '#f0f2f5'
@@ -20,8 +23,14 @@ const PALETTE_16 = [
 
 const CUBE_LEVELS = [0, 95, 135, 175, 215, 255]
 
+/** Clamp to the valid 0-255 range; malformed SGR passes garbage in. */
+function channel(value: number): number {
+  return Math.min(255, Math.max(0, Math.trunc(value)))
+}
+
 /** CSS color for a 256-color index. */
-function color256(index: number): string {
+function color256(rawIndex: number): string {
+  const index = channel(rawIndex)
   if (index < 16) return PALETTE_16[index] ?? '#c5cbd8'
   if (index < 232) {
     const n = index - 16
@@ -107,7 +116,10 @@ function applySgr(style: AnsiStyle, codes: number[]): void {
         assign(color256(codes[i + 2] ?? 0))
         i += 2
       } else if (mode === 2 && codes.length >= i + 5) {
-        assign(`rgb(${codes[i + 2] ?? 0}, ${codes[i + 3] ?? 0}, ${codes[i + 4] ?? 0})`)
+        const r = channel(codes[i + 2] ?? 0)
+        const g = channel(codes[i + 3] ?? 0)
+        const b = channel(codes[i + 4] ?? 0)
+        assign(`rgb(${r}, ${g}, ${b})`)
         i += 4
       } else {
         break // incomplete sequence; stop consuming
@@ -186,9 +198,15 @@ export class AnsiWriter {
         // CSI: parameters and one final byte in @..~
         const end = this.findCsiEnd(data, i + 2)
         if (end === -1) {
-          // split across chunks; keep from the ESC on and stop here
           flush()
-          this.pending = data.slice(i)
+          const rest = data.slice(i)
+          if (rest.length > MAX_PENDING_ESCAPE) {
+            // Never completes: binary output, not a sequence split by the
+            // stream boundary. Drop it so the terminal keeps flowing.
+            this.pending = ''
+            return
+          }
+          this.pending = rest
           return
         }
         flush()
@@ -206,7 +224,12 @@ export class AnsiWriter {
         const st = data.indexOf(`${ESC}\\`, i + 2)
         if (bel === -1 && st === -1) {
           flush()
-          this.pending = data.slice(i)
+          const rest = data.slice(i)
+          if (rest.length > MAX_PENDING_ESCAPE) {
+            this.pending = ''
+            return
+          }
+          this.pending = rest
           return
         }
         flush()
@@ -242,7 +265,7 @@ export class AnsiWriter {
   }
 
   private findCsiEnd(data: string, from: number): number {
-    for (let i = from; i < data.length && i - from < 64; i += 1) {
+    for (let i = from; i < data.length; i += 1) {
       const code = data.charCodeAt(i)
       if (code >= 0x40 && code <= 0x7e) return i
     }

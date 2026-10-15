@@ -12,7 +12,12 @@ import { keyStatusOf, refreshKeyStatuses } from '../core/keys'
  * `onCancelled` fires when the dialog closes without one.
  */
 export function openKeyDialog(onSaved?: () => void, onCancelled?: () => void): void {
-  if (document.querySelector('.key-overlay')) return
+  if (document.querySelector('.key-overlay')) {
+    // One dialog at a time. A deferred send must not lose its text: treat
+    // this request as "not saved" so the composer gets it back.
+    onCancelled?.()
+    return
+  }
 
   const selection = store.get().selectedModel
   const found = selection ? catalog.findModel(selection) : null
@@ -104,6 +109,10 @@ export function openKeyDialog(onSaved?: () => void, onCancelled?: () => void): v
       await refreshKeyStatuses()
       saved = true
       close()
+    } catch (err) {
+      status.classList.remove('ok')
+      status.classList.add('missing')
+      status.textContent = `Could not save the key: ${err instanceof Error ? err.message : String(err)}`
     } finally {
       save.disabled = false
     }
@@ -115,6 +124,10 @@ export function openKeyDialog(onSaved?: () => void, onCancelled?: () => void): v
       await window.halis.removeProviderKey(provider.id)
       await refreshKeyStatuses()
       close()
+    } catch (err) {
+      status.classList.remove('ok')
+      status.classList.add('missing')
+      status.textContent = `Could not remove the key: ${err instanceof Error ? err.message : String(err)}`
     } finally {
       remove.disabled = false
     }

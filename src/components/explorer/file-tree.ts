@@ -24,6 +24,9 @@ export function mountFileTree(container: HTMLElement): void {
   container.append(toolbar, errorNote, tree)
 
   let errorTimer = 0
+  // Bumps on every render; an older async render that finishes late must
+  // not paint stale entries on top of the fresh listing.
+  let renderGen = 0
 
   function showError(message: string): void {
     errorNote.textContent = message
@@ -42,13 +45,56 @@ export function mountFileTree(container: HTMLElement): void {
     return btn
   }
 
+  /** Directories currently expanded, so a re-render can restore them. */
+  function collectExpanded(): string[] {
+    const out: string[] = []
+    tree.querySelectorAll<HTMLElement>('.tree-item.dir[data-expanded="1"]').forEach((row) => {
+      if (row.dataset.path) out.push(row.dataset.path)
+    })
+    return out
+  }
+
+  /** Re-open the stored directories; parents restore before their children. */
+  async function restoreExpanded(gen: number, paths: string[]): Promise<void> {
+    for (const path of paths) {
+      const row = tree.querySelector<HTMLElement>(`.tree-item.dir[data-path="${CSS.escape(path)}"]`)
+      if (!row || gen !== renderGen) continue
+      row.dataset.expanded = '1'
+      row.dataset.loaded = '1'
+      row.querySelector('.twist')?.classList.add('open')
+      try {
+        const children = await window.halis.readDir(path)
+        // The user may have collapsed it during the read, or a newer render
+        // replaced the whole listing — neither may receive ghost children.
+        if (gen !== renderGen || !row.isConnected || row.dataset.expanded !== '1') continue
+        let anchor: HTMLElement = row
+        for (const child of children) {
+          const node = renderEntry(child, depthOf(path) + 1)
+          anchor.insertAdjacentElement('afterend', node)
+          anchor = node
+        }
+      } catch {
+        // The folder is gone (or unreadable): fall back to a clean collapsed
+        // row so the next click refetches instead of trusting loaded='1'.
+        if (row.isConnected && gen === renderGen) {
+          row.dataset.expanded = '0'
+          delete row.dataset.loaded
+          row.querySelector('.twist')?.classList.remove('open')
+        }
+      }
+    }
+  }
+
   async function renderRoot(): Promise<void> {
+    const gen = (renderGen += 1)
+    const expanded = collectExpanded()
     clear(tree)
     const root = store.get().workspaceRoot
     if (!root) return
 
     try {
       const entries = await window.halis.readDir('')
+      if (gen !== renderGen) return
       if (entries.length === 0) {
         const empty = el('div', 'tree-empty', 'This folder is empty.\nUse the buttons above to create files.')
         tree.appendChild(empty)
@@ -57,6 +103,7 @@ export function mountFileTree(container: HTMLElement): void {
       for (const entry of entries) {
         tree.appendChild(renderEntry(entry, 0))
       }
+      await restoreExpanded(gen, expanded)
     } catch (err) {
       tree.appendChild(el('div', 'planned', `Cannot read workspace: ${errText(err)}`))
     }
@@ -133,12 +180,23 @@ export function mountFileTree(container: HTMLElement): void {
     }
 
     // toggle visibility of the rows that follow until the next row
-    // at the same or lower depth
+    // at the same or lower depth. `expanded` is the state before the click:
+    // collapsing (true) hides the subtree, re-opening shows it again —
+    // except under a descendant folder that is itself collapsed.
     let next = row.nextElementSibling as HTMLElement | null
+    let collapsedFrom: number | null = null
     while (next && next.classList.contains('tree-item')) {
       const nextDepth = Number(next.style.paddingLeft.replace('px', ''))
       if (nextDepth <= 10 + depth * INDENT) break
-      next.style.display = expanded ? '' : 'none'
+      if (collapsedFrom !== null && nextDepth > collapsedFrom) {
+        next.style.display = 'none'
+      } else {
+        collapsedFrom = null
+        next.style.display = expanded ? 'none' : ''
+        if (next.classList.contains('dir') && next.dataset.expanded !== '1') {
+          collapsedFrom = nextDepth
+        }
+      }
       next = next.nextElementSibling as HTMLElement | null
     }
   }
@@ -298,31 +356,40 @@ export function mountFileTree(container: HTMLElement): void {
     menu.style.left = `${Math.min(event.clientX, window.innerWidth - rect.width - 8)}px`
     menu.style.top = `${Math.min(event.clientY, window.innerHeight - rect.height - 8)}px`
 
-    window.setTimeout(() => {
-      window.addEventListener('mousedown', closeOnOutside, { once: true })
-      window.addEventListener('keydown', closeOnEscape, { once: true })
-      window.addEventListener('blur', closeContextMenu, { once: true })
-    })
-
-    function closeOnOutside(mouseEvent: MouseEvent): void {
+    const closeOnOutside = (mouseEvent: MouseEvent): void => {
       if (!(mouseEvent.target instanceof Element) || !menu.contains(mouseEvent.target)) {
         closeContextMenu()
       } else {
         window.addEventListener('mousedown', closeOnOutside, { once: true })
       }
     }
-    function closeOnEscape(keyboardEvent: KeyboardEvent): void {
+    const closeOnEscape = (keyboardEvent: KeyboardEvent): void => {
       if (keyboardEvent.key === 'Escape') {
         closeContextMenu()
       } else {
         window.addEventListener('keydown', closeOnEscape, { once: true })
       }
     }
+    menuCleanup = (): void => {
+      window.removeEventListener('mousedown', closeOnOutside)
+      window.removeEventListener('keydown', closeOnEscape)
+      window.removeEventListener('blur', closeContextMenu)
+    }
+    window.setTimeout(() => {
+      window.addEventListener('mousedown', closeOnOutside, { once: true })
+      window.addEventListener('keydown', closeOnEscape, { once: true })
+      window.addEventListener('blur', closeContextMenu)
+    })
   }
 
   function closeContextMenu(): void {
     document.querySelector('.context-menu')?.remove()
+    // Drop the once-listeners too; they re-arm otherwise and pile up.
+    menuCleanup?.()
+    menuCleanup = null
   }
+
+  let menuCleanup: (() => void) | null = null
 
   // ---- toolbar wiring ----
 

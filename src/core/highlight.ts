@@ -34,7 +34,9 @@ const RULES_JS: Rule[] = [
   { re: /(["'`])(?:\\[\s\S]|(?!\1)[^\\])*?\1/y, cls: 'str' },
   wordRule(KEYWORDS_JS, 'kw'),
   { re: /\b\d[\d_]*(?:\.\d+)?(?:e[+-]?\d+)?\b/iy, cls: 'num' },
-  { re: /\b[A-Za-z_$][\w$]*(?=\s*\()/y, cls: 'fn' }
+  // Bounded so one giant identifier (minified blobs, hashes) cannot make the
+  // streaming re-highlight quadratic.
+  { re: /\b[A-Za-z_$][\w$]{0,200}(?=\s{0,16}\()/y, cls: 'fn' }
 ]
 
 const RULES_JSON: Rule[] = [
@@ -67,7 +69,7 @@ const RULES_PY: Rule[] = [
     'kw'
   ),
   { re: /\b\d[\d_]*(?:\.\d+)?(?:e[+-]?\d+)?\b/iy, cls: 'num' },
-  { re: /\b[A-Za-z_][\w]*(?=\s*\()/y, cls: 'fn' }
+  { re: /\b[A-Za-z_][\w]{0,200}(?=\s{0,16}\()/y, cls: 'fn' }
 ]
 
 const RULES_CSS: Rule[] = [
@@ -75,7 +77,9 @@ const RULES_CSS: Rule[] = [
   { re: /"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'/y, cls: 'str' },
   { re: /#[0-9a-f]{3,8}\b/iy, cls: 'num' },
   { re: /--[\w-]+/y, cls: 'prop' },
-  { re: /[.#]?[\w-]+(?=[^;{}]*\{)/y, cls: 'fn' },
+  // The bounded lookahead keeps a rule-less block (partial SCSS, token
+  // lists) from rescanning to end-of-input at every selector.
+  { re: /[.#]?[\w-]{0,200}(?=[^;{}]{0,200}\{)/y, cls: 'fn' },
   { re: /\b[a-z-]+(?=\s*:)/y, cls: 'prop' }
 ]
 

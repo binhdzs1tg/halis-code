@@ -131,12 +131,22 @@ function renderCode(lang: string, lines: string[], closed: boolean): string {
 
 /** Inline spans: code, bold, italic, strike, links. Escape first, then build. */
 function inline(text: string): string {
-  return escapeHtml(text)
-    .replace(/`([^`\n]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*\n][^*]*?)\*\*/g, '<b>$1</b>')
-    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
-    .replace(/~~([^~\n]+)~~/g, '<s>$1</s>')
-    .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
+  // Code spans come out first and ride through as placeholders, so emphasis
+  // and link rules never reach inside backticks.
+  const spans: string[] = []
+  const masked = text.replace(/`([^`\n]+)`/g, (_match, body: string) => {
+    spans.push(`<code>${escapeHtml(body)}</code>`)
+    return `\uE000${spans.length - 1}\uE001`
+  })
+  return (
+    escapeHtml(masked)
+      .replace(/\*\*([^*\n][^*]*?)\*\*/g, '<b>$1</b>')
+      .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+      .replace(/~~([^~\n]+)~~/g, '<s>$1</s>')
+      .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
+      // Private-use markers never pass through escapeHtml.
+      .replace(/\uE000(\d+)\uE001/g, (_match, index: string) => spans[Number(index)] ?? '')
+  )
 }
 
 function escapeHtml(text: string): string {

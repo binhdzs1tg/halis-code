@@ -161,11 +161,13 @@ function buildShell(): void {
       const up = (): void => {
         handle.removeEventListener('pointermove', move)
         handle.removeEventListener('pointerup', up)
+        handle.removeEventListener('pointercancel', up)
         delete shell.dataset.dragging
         saveSizes(sizes)
       }
       handle.addEventListener('pointermove', move)
       handle.addEventListener('pointerup', up)
+      handle.addEventListener('pointercancel', up)
     })
   }
 
