@@ -8,16 +8,24 @@ const RISKY_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   // Flags may sit anywhere in the rm line (`rm -v -rf x`, `rm x -rf` both count).
   { pattern: /\brm\s+(?:[^;&|]*\s)?-{1,2}[a-z]*[rf][a-z]*\b/i, reason: 'it deletes files recursively or by force' },
   { pattern: /\bsudo\b/i, reason: 'it runs with elevated privileges' },
-  { pattern: /\bgit\b[^;&|]*\bpush\b[^;&|]*(?:--force(?:-with-lease)?\b|\s-f\b)/i, reason: 'it force-pushes to a remote' },
+  // -fn, +branch and a global -f force the push just like --force does.
+  { pattern: /\bgit\b[^;&|]*\bpush\b[^;&|]*(?:--force(?:-with-lease)?\b|\s-f[a-z]*\b|\s\+\S)/i, reason: 'it force-pushes to a remote' },
+  { pattern: /\bgit\s+-f\b[^;&|]*\bpush\b/i, reason: 'it force-pushes to a remote' },
   { pattern: /\bgit\s+reset\s+--hard\b/i, reason: 'it discards local changes permanently' },
   { pattern: /\bgit\s+clean\b/i, reason: 'it deletes untracked files' },
   { pattern: /\bmkfs(?:\.\w+)?\b|\bdd\s+(?:[^;&|]*\s)?(?:if|of)=\s*\/dev\//i, reason: 'it can overwrite disk contents' },
-  { pattern: /\b(?:curl|wget)\b[^;&|]*\|\s*(?:ba|z|da)?sh\b/i, reason: 'it executes a downloaded script' },
-  { pattern: /\bchmod\s+(?:-[a-z]+\s+)*777\b/i, reason: 'it makes files world-writable' },
+  { pattern: /\bfind\b[^;&|]*\s-delete\b/i, reason: 'it deletes files in bulk' },
+  // Anything piped into a shell runs text the upstream command chose, not the user.
+  { pattern: /[^;&|`]*\|\s*(?:ba|z|da)?sh\b/i, reason: 'it pipes command output into a shell' },
+  { pattern: /[^;&|`]*\|\s*xargs\s+(?:ba|z|da)?sh\b/i, reason: 'it pipes command output into a shell' },
+  // 0777 and a=rwx make files world-writable just like 777 does.
+  { pattern: /\bchmod\s+(?:-[a-z]+\s+)*(?:0?777\b|a[=+][rwx]+\b)/i, reason: 'it makes files world-writable' },
   { pattern: /\b(?:npm|yarn|pnpm)\s+(?:publish|unpublish)\b/, reason: 'it publishes to a package registry' },
   { pattern: /\b(?:shutdown|reboot|halt|poweroff)\b/i, reason: 'it stops or restarts the machine' },
   { pattern: />\s*\/dev\//, reason: 'it writes directly to a device node' },
-  { pattern: /\bp?kill(?:all)?\b[^;&|]*\s-9\b/i, reason: 'it force-kills processes' },
+  // -9, -SIGKILL and -s KILL all force-kill.
+  { pattern: /\bp?kill(?:all)?\b[^;&|]*\s-(?:9\b|SIGKILL\b|(?:s|e)\s+(?:SIG)?(?:KILL|9)\b)/i, reason: 'it force-kills processes' },
+  { pattern: /\btruncate\s+(?:-[a-z]+\s+)*(?:-s\s*0\b|--size\s*=?\s*0\b)/i, reason: 'it empties files' },
   { pattern: /\b(?:drop|truncate)\s+(?:table|database)\b/i, reason: 'it destroys database contents' }
 ]
 
