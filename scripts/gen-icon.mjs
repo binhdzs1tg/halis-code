@@ -94,5 +94,5 @@ function render(size) {
 
 mkdirSync(path.resolve('resources'), { recursive: true })
 writeFileSync(path.resolve('resources/tray.png'), encodePng(32, render(32)))
-writeFileSync(path.resolve('resources/icon.png'), encodePng(256, render(256)))
+writeFileSync(path.resolve('resources/icon.png'), encodePng(512, render(512)))
 console.log('wrote resources/tray.png and resources/icon.png')
