@@ -140,7 +140,13 @@ function retryable(err: ProviderError): boolean {
   return false
 }
 
-function backoffDelay(attempt: number): number {
+function backoffDelay(attempt: number, retryAfterMs?: number): number {
+  // A Retry-After hint wins over the local curve, but stays capped so a
+  // confused gateway cannot stall the turn for minutes — the harness's
+  // llm-retry honors the header the same way.
+  if (retryAfterMs !== undefined && Number.isFinite(retryAfterMs)) {
+    return Math.min(Math.max(retryAfterMs, 0), RETRY_MAX_MS)
+  }
   const base = Math.min(RETRY_INITIAL_MS * 2 ** Math.min(attempt - 1, 1_024), RETRY_MAX_MS)
   const jitter = 1 - RETRY_JITTER_RATIO + 2 * RETRY_JITTER_RATIO * Math.random()
   return Math.min(base * jitter, RETRY_MAX_MS)
@@ -187,7 +193,7 @@ async function streamWithRetry(
       ) {
         throw err
       }
-      await wait(backoffDelay(attempt), request.signal)
+      await wait(backoffDelay(attempt, err.retryAfterMs), request.signal)
     }
   }
 }

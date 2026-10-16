@@ -63,7 +63,9 @@ export class ProviderError extends Error {
   constructor(
     readonly code: ProviderErrorCode,
     message: string,
-    readonly status?: number
+    readonly status?: number,
+    /** Wait the server asked for via Retry-After, when it sent one. */
+    readonly retryAfterMs?: number
   ) {
     super(message)
     this.name = 'ProviderError'
@@ -566,7 +568,23 @@ async function failResponse(response: Response, provider: ProviderEntry): Promis
     // body already consumed; the status summary is enough
   }
   const summary = httpSummary(response.status, provider)
-  throw new ProviderError('http', detail ? `${summary}: ${detail}` : summary, response.status)
+  throw new ProviderError(
+    'http',
+    detail ? `${summary}: ${detail}` : summary,
+    response.status,
+    parseRetryAfter(response.headers.get('retry-after'))
+  )
+}
+
+/** Seconds or an HTTP-date, the two spellings Retry-After allows. */
+function parseRetryAfter(value: string | null): number | undefined {
+  if (!value) return undefined
+  const trimmed = value.trim()
+  if (/^\d+$/.test(trimmed)) {
+    return Number(trimmed) * 1000
+  }
+  const asDate = Date.parse(trimmed)
+  return Number.isFinite(asDate) ? Math.max(0, asDate - Date.now()) : undefined
 }
 
 /** Error bodies are hostile input: cap the read so a broken or lying
