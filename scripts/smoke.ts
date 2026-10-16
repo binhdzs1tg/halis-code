@@ -1,4 +1,4 @@
-/** Smoke tests for the ported algorithms; run with `node scripts/smoke.ts`. */
+/** Smoke tests for the ported algorithms; run with `npm run smoke`. */
 import { computeHunks, fileDiff } from '../electron/main/agent/diff'
 import { RepeatGuard } from '../electron/main/agent/guard'
 import { extractFileRefs } from '../electron/main/agent/file-refs'
