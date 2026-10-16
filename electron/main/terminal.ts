@@ -50,27 +50,40 @@ export function run(command: string, win: BrowserWindow | null): string {
   })
   child = proc
 
-  const append = (chunk: Buffer): void => {
-    const event: TerminalDataEvent = { id, chunk: chunk.toString('utf8') }
+  // Decode at the stream level: a multi-byte character split across data
+  // events would otherwise come through as two replacement characters.
+  proc.stdout?.setEncoding('utf8')
+  proc.stderr?.setEncoding('utf8')
+
+  const append = (chunk: string): void => {
+    const event: TerminalDataEvent = { id, chunk }
     emit(win, IpcChannel.TerminalData, event)
+  }
+  const onError = (err: Error): void => {
+    append(`${err.message}\n`)
+    finish(win, proc, id, 1)
+  }
+  const onClose = (code: number | null): void => {
+    finish(win, proc, id, code)
   }
   proc.stdout?.on('data', append)
   proc.stderr?.on('data', append)
-
-  proc.on('error', (err) => {
-    append(Buffer.from(`${err.message}\n`))
-    finish(win, id, 1)
-  })
-  proc.on('close', (code) => {
-    finish(win, id, code)
-  })
+  proc.on('error', onError)
+  proc.on('close', onClose)
 
   return id
 }
 
-/** Signal the whole process group of a spawned shell. */
+/** Signal the whole process tree of a spawned shell. */
 function killTree(proc: ChildProcess): void {
-  if (process.platform !== 'win32' && proc.pid !== undefined) {
+  if (process.platform === 'win32') {
+    if (proc.pid === undefined) return
+    // A bare kill only reaches cmd.exe; taskkill walks the child tree so
+    // grandchildren (npm run build -> node) go down with it.
+    spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { windowsHide: true })
+    return
+  }
+  if (proc.pid !== undefined) {
     try {
       process.kill(-proc.pid, 'SIGTERM')
       return
@@ -98,12 +111,17 @@ export function isRunning(): boolean {
   return child !== null
 }
 
-function finish(win: BrowserWindow | null, id: string, code: number | null): void {
-  if (child) {
-    child = null
-    const event: TerminalExitEvent = { id, code, cwd }
-    emit(win, IpcChannel.TerminalExit, event)
-  }
+function finish(win: BrowserWindow | null, proc: ChildProcess, id: string, code: number | null): void {
+  // Events are keyed to the process, not the slot: a late event from an
+  // older command must not clear a newer one's slot or report its exit.
+  if (child !== proc) return
+  child = null
+  proc.stdout?.removeAllListeners('data')
+  proc.stderr?.removeAllListeners('data')
+  proc.removeAllListeners('error')
+  proc.removeAllListeners('close')
+  const event: TerminalExitEvent = { id, code, cwd }
+  emit(win, IpcChannel.TerminalExit, event)
 }
 
 function runCd(id: string, command: string, win: BrowserWindow | null): void {
