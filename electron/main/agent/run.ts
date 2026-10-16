@@ -25,7 +25,7 @@ import { RepeatGuard } from './guard'
 import { loadWorkspaceInstructions } from './instructions'
 import { skillCatalogBlock } from './skills'
 import { buildFileRefBlock } from './file-refs'
-import { askApproval, setApprovalWindow, dropApprovalsForRun, askUserQuestion } from './approval'
+import { askApproval, dropApprovalsForRun, askUserQuestion } from './approval'
 
 const MAX_HISTORY_MESSAGES = 40
 /** Rounds of tool calls before the model is asked to wrap up. */
@@ -215,7 +215,6 @@ async function execute(
   }
 
   try {
-    setApprovalWindow(win)
     const target = await resolveModelTarget(turn.model)
     if ('error' in target) {
       fail(target.error.code, target.error.message)
@@ -260,9 +259,9 @@ async function execute(
     const guard = new RepeatGuard()
     const specs = toolSpecs()
     const hooks: ToolHooks = {
-      requestApproval: (command, callId) => askApproval(runId, callId, command),
+      requestApproval: (command, callId) => askApproval(runId, callId, command, win),
       requestUserQuestion: (question, options, multiple, callId) =>
-        askUserQuestion(runId, callId, question, options, multiple)
+        askUserQuestion(runId, callId, question, options, multiple, win)
     }
 
     for (let step = 0; ; step += 1) {
@@ -282,6 +281,30 @@ async function execute(
       // Deterministic relief before spending a model call: old oversized
       // tool results lose their middle, the newest message stays intact.
       pruneToolResults(messages)
+
+      // Context pressure can arrive mid-run too: every step accumulates tool
+      // results, so re-check the budget before each model call instead of
+      // ending the turn with a provider 400.
+      if (step > 0) {
+        const compacted = await compactMessages({
+          provider,
+          model: entry,
+          variant,
+          apiKey: key.value,
+          system,
+          messages,
+          signal: controller.signal
+        }).catch(() => null)
+        if (compacted) {
+          messages = compacted.messages
+          const notice: ChatNoticeEvent = {
+            runId,
+            kind: 'compacted',
+            text: 'Context compacted mid-run — the older span now lives in a checkpoint.'
+          }
+          emit(IpcChannel.ChatNotice, notice)
+        }
+      }
 
       // Once a delta has reached the user, a mid-stream failure must not
       // retry — a fresh attempt would replay the whole answer on screen.
@@ -381,8 +404,6 @@ async function execute(
     }
     fail('network', err instanceof Error ? err.message : String(err))
   } finally {
-    // Clear on every exit path, or an aborted run pins its window forever.
-    setApprovalWindow(null)
     runs.delete(runId)
   }
 }

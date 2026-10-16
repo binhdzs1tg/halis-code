@@ -25,12 +25,15 @@ interface PendingRequest {
   request: ApprovalRequestEvent
   resolve: (decision: ApprovalDecision) => void
   timer: NodeJS.Timeout
+  /** The window the request was shown in; its death withdraws the request. */
+  win: BrowserWindow | null
 }
 
 interface PendingQuestion {
   request: UserQuestionRequestEvent
   resolve: (answers: UserQuestionAnswers) => void
   timer: NodeJS.Timeout
+  win: BrowserWindow | null
 }
 
 /** Generous ceiling; the renderer usually answers in seconds. */
@@ -41,27 +44,23 @@ const QUESTION_TIMEOUT_MS = 10 * 60_000
 let counter = 0
 const pending = new Map<string, PendingRequest>()
 const pendingQuestions = new Map<string, PendingQuestion>()
-let activeWindow: BrowserWindow | null = null
-
-/** The run loop reports the window it streams into; approvals go there. */
-export function setApprovalWindow(win: BrowserWindow | null): void {
-  activeWindow = win
-}
 
 /** A window going away withdraws everything still open, failing closed. */
 export function dropApprovalsForWindow(win: BrowserWindow | null): void {
-  if (win && win !== activeWindow) return
-  activeWindow = null
-  for (const entry of [...pending.values()]) {
+  const matches = (entry: { win: BrowserWindow | null }): boolean =>
+    win === null || entry.win === null || entry.win === win || entry.win.isDestroyed()
+  for (const [id, entry] of [...pending]) {
+    if (!matches(entry)) continue
     clearTimeout(entry.timer)
+    pending.delete(id)
     entry.resolve('rejected')
   }
-  pending.clear()
-  for (const entry of [...pendingQuestions.values()]) {
+  for (const [id, entry] of [...pendingQuestions]) {
+    if (!matches(entry)) continue
     clearTimeout(entry.timer)
+    pendingQuestions.delete(id)
     entry.resolve(null)
   }
-  pendingQuestions.clear()
 }
 
 /** Withdraw the approvals of one aborted run; the tool never runs. */
@@ -83,9 +82,15 @@ export function dropApprovalsForRun(runId: string): void {
 /**
  * Ask the user once about one flagged call. Resolves 'rejected' when the
  * preset says full access is off and there is no live window to ask, when
- * the user never answers, or when they say no.
+ * the user never answers, or when they say no. The window is the one the
+ * calling run streams into — runs never share that state.
  */
-export function askApproval(runId: string, callId: string, command: string): Promise<ApprovalDecision> {
+export function askApproval(
+  runId: string,
+  callId: string,
+  command: string,
+  win: BrowserWindow | null
+): Promise<ApprovalDecision> {
   if (shellSettings().commandApproval === 'fullAccess') {
     return Promise.resolve('allowed-once')
   }
@@ -93,7 +98,6 @@ export function askApproval(runId: string, callId: string, command: string): Pro
   if (!reason) {
     return Promise.resolve('allowed-once')
   }
-  const win = activeWindow
   if (!win || win.isDestroyed()) {
     return Promise.resolve('rejected')
   }
@@ -113,7 +117,7 @@ export function askApproval(runId: string, callId: string, command: string): Pro
       pending.delete(requestId)
       resolve('rejected')
     }, ANSWER_TIMEOUT_MS)
-    pending.set(requestId, { request, resolve, timer })
+    pending.set(requestId, { request, resolve, timer, win })
     if (!win.isDestroyed()) {
       win.webContents.send(IpcChannel.ApprovalRequest, request)
     }
@@ -144,9 +148,9 @@ export function askUserQuestion(
   callId: string,
   question: string,
   options: UserQuestionOption[],
-  multiple: boolean
+  multiple: boolean,
+  win: BrowserWindow | null
 ): Promise<UserQuestionAnswers> {
-  const win = activeWindow
   if (!win || win.isDestroyed()) {
     return Promise.resolve(null)
   }
@@ -157,7 +161,7 @@ export function askUserQuestion(
       pendingQuestions.delete(requestId)
       resolve(null)
     }, QUESTION_TIMEOUT_MS)
-    pendingQuestions.set(requestId, { request, resolve, timer })
+    pendingQuestions.set(requestId, { request, resolve, timer, win })
     if (!win.isDestroyed()) {
       win.webContents.send(IpcChannel.UserQuestionRequest, request)
     }

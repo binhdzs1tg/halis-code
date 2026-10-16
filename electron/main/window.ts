@@ -126,6 +126,17 @@ export function createMainWindow(): BrowserWindow {
     dropApprovalsForWindow(win)
   })
 
+  // A reload or a render crash wipes the renderer state that answers
+  // approvals and questions; withdraw them instead of waiting out the
+  // timeout with nobody able to answer.
+  win.webContents.on('did-start-navigation', (_event, _url, inPlace, isMainFrame) => {
+    if (inPlace || isMainFrame === false) return
+    dropApprovalsForWindow(win)
+  })
+  win.webContents.on('render-process-gone', () => {
+    dropApprovalsForWindow(win)
+  })
+
   // Dev server hook for later hot-reload tooling.
   const devUrl = process.env.HALIS_DEV_URL
   if (devUrl) {
