@@ -1,7 +1,7 @@
 import { build, context } from 'esbuild'
-import { cpSync, mkdirSync } from 'node:fs'
+import { cpSync, mkdirSync, watch } from 'node:fs'
 
-const watch = process.argv.includes('--watch')
+const watchMode = process.argv.includes('--watch')
 
 const common = {
   bundle: true,
@@ -10,8 +10,8 @@ const common = {
   target: 'es2023'
 }
 
-// Fonts and brand images ride the CSS url()/new URL() paths and land in
-// dist/renderer/assets alongside the bundle.
+// Fonts and brand images ride the CSS url() paths and land next to the
+// bundle in dist/renderer, which is exactly where the relative url()s look.
 const assetLoader = {
   '.png': 'file',
   '.woff2': 'file',
@@ -64,9 +64,33 @@ function copyStatic() {
   cpSync('electron/main/models-dev/snapshot.json', 'dist/main/models-dev/snapshot.json')
 }
 
-if (watch) {
+const STATIC_SOURCES = [
+  ['src/index.html', 'dist/renderer/index.html'],
+  ['electron/main/models-dev/snapshot.json', 'dist/main/models-dev/snapshot.json']
+]
+
+/** Neither file is an esbuild input, so watch mode must copy it itself. */
+function watchStatic() {
+  for (const [from, to] of STATIC_SOURCES) {
+    try {
+      watch(from, () => {
+        try {
+          copyStatic()
+          console.log(`static change copied: ${from}`)
+        } catch (err) {
+          console.warn(`copy failed for ${from}:`, err?.message ?? err)
+        }
+      })
+    } catch {
+      // Watching is best effort; the bundle still works.
+    }
+  }
+}
+
+if (watchMode) {
   const ctxs = await Promise.all(targets.map((t) => context(t.options)))
   copyStatic()
+  watchStatic()
   await Promise.all(ctxs.map((c) => c.watch()))
   console.log('watching for changes...')
 } else {
