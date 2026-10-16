@@ -5,6 +5,7 @@ import { extractFileRefs } from '../electron/main/agent/file-refs'
 import { assessCommand } from '../electron/main/agent/risky'
 import { expandBraces, matchGlob } from '../electron/main/agent/glob'
 import { compileLineRegex, matchesInclude, validateInclude } from '../electron/main/agent/grep'
+import { htmlToMarkdown, htmlToText, decodeEntities } from '../electron/main/agent/html-to-markdown'
 
 let failures = 0
 function check(name: string, cond: boolean): void {
@@ -95,6 +96,29 @@ try {
   negatedIncludeRejected = true
 }
 check('negated include is refused', negatedIncludeRejected)
+
+/* ---------- html to markdown ---------- */
+const page = [
+  '<html><head><style>.x{color:red}</style><script>alert(1)</script></head><body>',
+  '<h1>Title &amp; subtitle</h1>',
+  '<p>Hello <strong>bold</strong>, <em>italic</em>, <a href="https://example.com/a">a link</a>.</p>',
+  '<ul><li>one</li><li>two <ul><li>nested</li></ul></li></ul>',
+  '<pre><code class="language-ts">const x = 1</code></pre>',
+  '<table><tr><th>Name</th><th>Qty</th></tr><tr><td>box</td><td>2</td></tr></table>',
+  '</body></html>'
+].join('')
+const markdown = htmlToMarkdown(page)
+check('heading converts with level', markdown.includes('# Title & subtitle'))
+check('inline marks survive', markdown.includes('**bold**') && markdown.includes('*italic*'))
+check('links become markdown', markdown.includes('[a link](https://example.com/a)'))
+check('script and style are dropped', !markdown.includes('alert') && !markdown.includes('color:red'))
+check('entities decode', markdown.includes('Title & subtitle'))
+check('nested list stays under its item', markdown.includes('- two\n  - nested'))
+check('code fences carry the language', markdown.includes('```ts\nconst x = 1\n```'))
+check('tables render as pipes', markdown.includes('| Name | Qty |') && markdown.includes('| --- | --- |'))
+const text = htmlToText('<p>a<b>b</b>c</p><script>no()</script>')
+check('text mode keeps words, drops marks and scripts', text.includes('abc') && !text.includes('no()'))
+check('numeric entities decode', decodeEntities('&#65;&#x42;') === 'AB')
 
 /* ---------- risky command assessment ---------- */
 check('rm -rf flagged', assessCommand('rm -rf node_modules') !== null)
