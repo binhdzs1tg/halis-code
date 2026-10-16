@@ -513,17 +513,25 @@ async function runCommandTool(
       shell: true,
       cwd: root,
       windowsHide: true,
-      env: { ...process.env, ...ENV_OVERRIDES }
+      env: { ...process.env, ...ENV_OVERRIDES },
+      // Its own process group so the kill below reaches the whole tree, not
+      // just the shell (a `npm test` with workers has grandchildren).
+      detached: process.platform !== 'win32'
     })
 
     let combined = ''
     let truncated = false
     let settled = false
 
+    // Decode at the stream level: a multi-byte character split across data
+    // events would otherwise reach the model as replacement characters.
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+
     // Keep the tail, not the head: the most recent output is what tells
     // the model whether the command is failing or finished.
-    const append = (chunk: Buffer): void => {
-      combined += chunk.toString('utf8')
+    const append = (chunk: string): void => {
+      combined += chunk
       if (combined.length > MAX_COMMAND_OUTPUT) {
         combined = combined.slice(combined.length - MAX_COMMAND_OUTPUT)
         truncated = true
