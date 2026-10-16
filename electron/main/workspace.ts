@@ -43,6 +43,35 @@ export function resolveInWorkspace(relPath: string): string {
   if (real !== root && real !== workspaceRoot && !real.startsWith(rootPrefix)) {
     throw new Error('Path escapes the workspace')
   }
+  // The ancestor probe cannot see a symlink in the final component: a
+  // dangling link dereferences on first write. Check the leaf explicitly.
+  try {
+    if (fs.lstatSync(target).isSymbolicLink()) {
+      let leaf: string
+      try {
+        leaf = fs.realpathSync(target)
+      } catch {
+        // The link dangles; resolve what it points at from its real parent,
+        // following chained links a bounded number of times.
+        leaf = path.resolve(fs.realpathSync(path.dirname(target)), fs.readlinkSync(target))
+        for (let hops = 0; hops < 8; hops += 1) {
+          let next: string
+          try {
+            next = fs.readlinkSync(leaf)
+          } catch {
+            break
+          }
+          leaf = path.resolve(path.dirname(leaf), next)
+        }
+      }
+      if (leaf !== root && leaf !== workspaceRoot && !leaf.startsWith(rootPrefix)) {
+        throw new Error('Path escapes the workspace')
+      }
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message === 'Path escapes the workspace') throw err
+    // Does not exist (yet), or is unreadable: write/create paths proceed.
+  }
   return target
 }
 
