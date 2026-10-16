@@ -17,6 +17,13 @@ const RETAIN_RATIO = 0.16
 /** Fallback window for models that report no context size. */
 const FALLBACK_CONTEXT = 32_000
 
+/**
+ * Rough token cost of the tool schemas sent with every request. The specs
+ * are pure overhead the message estimate cannot see; ignoring them made the
+ * trigger fire too late for small-context models.
+ */
+const TOOL_SPEC_TOKEN_ESTIMATE = 3_000
+
 /** Tags wrapping the structured summary inside the landed checkpoint. */
 const SUMMARY_OPEN_TAG = '<compacted-summary>'
 const SUMMARY_CLOSE_TAG = '</compacted-summary>'
@@ -182,9 +189,9 @@ export async function compactMessages(request: CompactionRequest): Promise<Compa
   const threshold = Math.floor(context * THRESHOLD_RATIO)
   const retain = Math.floor(context * RETAIN_RATIO)
 
-  // The request also carries the system prompt and tool schemas; counting
-  // the prompt keeps the trigger honest about the real payload size.
-  const systemTokens = Math.ceil(request.system.length / 4)
+  // The request also carries the system prompt and the tool schemas; counting
+  // both keeps the trigger honest about the real payload size.
+  const systemTokens = Math.ceil(request.system.length / 4) + TOOL_SPEC_TOKEN_ESTIMATE
   if (!request.force && estimateTokens(request.messages) + systemTokens < threshold) {
     return null
   }
