@@ -16,12 +16,15 @@ import { GLOB_TOOL_SPEC, globTool } from './glob'
 import { GREP_TOOL_SPEC, grepTool } from './grep'
 import { WEB_FETCH_TOOL_SPEC, webFetchTool } from './web-fetch'
 import { WEB_SEARCH_TOOL_SPEC, webSearchTool } from './web-search'
+import { PATCH_TOOL_SPEC, runPatchTool } from './patch'
 
 /** What a single tool invocation produced. `changedPath` marks mutations the UI should refresh. */
 export interface ToolOutcome {
   ok: boolean
   output: string
   changedPath?: string
+  /** Every mutated path, for tools that touch several files at once. */
+  changedPaths?: string[]
   /** Hunk diffs for tools that changed file content. */
   diff?: FileDiff[]
 }
@@ -115,6 +118,7 @@ export function toolSpecs(): ToolSpec[] {
     GREP_TOOL_SPEC,
     WEB_FETCH_TOOL_SPEC,
     WEB_SEARCH_TOOL_SPEC,
+    PATCH_TOOL_SPEC,
     {
       name: 'run_command',
       description:
@@ -249,6 +253,8 @@ export async function runTool(
         return clamp(await webFetchTool(call.input, signal))
       case 'web_search':
         return clamp(await webSearchTool(call.input, signal))
+      case 'patch':
+        return await runPatchTool(call.input)
       case 'run_command':
         return await runCommandTool(call, signal, hooks)
       case SKILL_TOOL_NAME:

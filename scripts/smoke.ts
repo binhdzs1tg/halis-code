@@ -6,6 +6,7 @@ import { assessCommand } from '../electron/main/agent/risky'
 import { expandBraces, matchGlob } from '../electron/main/agent/glob'
 import { compileLineRegex, matchesInclude, validateInclude } from '../electron/main/agent/grep'
 import { htmlToMarkdown, htmlToText, decodeEntities } from '../electron/main/agent/html-to-markdown'
+import { applyUpdate, normalizeForMatch, parsePatch } from '../electron/main/agent/patch-format'
 
 let failures = 0
 function check(name: string, cond: boolean): void {
@@ -119,6 +120,85 @@ check('tables render as pipes', markdown.includes('| Name | Qty |') && markdown.
 const text = htmlToText('<p>a<b>b</b>c</p><script>no()</script>')
 check('text mode keeps words, drops marks and scripts', text.includes('abc') && !text.includes('no()'))
 check('numeric entities decode', decodeEntities('&#65;&#x42;') === 'AB')
+
+/* ---------- patch format ---------- */
+const addPatch = [
+  '*** Begin Patch',
+  '*** Add File: notes/hello.txt',
+  '+Hello world',
+  '+Second line',
+  '*** End Patch'
+].join('\n')
+const parsedAdd = parsePatch(addPatch)
+check('add file parses with contents', parsedAdd.length === 1 && parsedAdd[0]?.type === 'add' && parsedAdd[0].contents === 'Hello world\nSecond line')
+
+const updatePatch = [
+  '*** Begin Patch',
+  '*** Update File: src/app.ts',
+  '@@ function greet()',
+  '-console.log("Hi")',
+  '+console.log("Hello, world!")',
+  '*** End Patch'
+].join('\n')
+const parsedUpdate = parsePatch(updatePatch)
+check('update hunk parses lines',
+  parsedUpdate.length === 1 &&
+  parsedUpdate[0]?.type === 'update' &&
+  parsedUpdate[0].chunks.length === 1 &&
+  parsedUpdate[0].chunks[0]?.changeContext === 'function greet()' &&
+  parsedUpdate[0].chunks[0]?.oldLines[0] === 'console.log("Hi")' &&
+  parsedUpdate[0].chunks[0]?.newLines[0] === 'console.log("Hello, world!")')
+
+const source = ['header', 'function greet()', 'console.log("Hi")', 'tail'].join('\n')
+const updated = applyUpdate('src/app.ts', parsedUpdate[0]?.type === 'update' ? parsedUpdate[0].chunks : [], source)
+check('apply replaces the old lines',
+  updated === 'header\nfunction greet()\nconsole.log("Hello, world!")\ntail\n')
+
+const smartQuotes = ['header', 'function greet()', 'console.log(\u201CHi\u201D)', 'tail'].join('\n')
+const smartApplied = applyUpdate('src/app.ts', parsedUpdate[0]?.type === 'update' ? parsedUpdate[0].chunks : [], smartQuotes)
+check('normalized tier rescues smart quotes',
+  smartApplied === 'header\nfunction greet()\nconsole.log("Hello, world!")\ntail\n')
+
+const tailPatch = [
+  '*** Begin Patch',
+  '*** Update File: log.txt',
+  '@@',
+  '-last',
+  '+last (edited)',
+  '*** End of File',
+  '*** End Patch'
+].join('\n')
+const tailSource = ['first', 'middle', 'last'].join('\n')
+const tailApplied = applyUpdate('log.txt', parsePatch(tailPatch)[0]?.type === 'update' ? parsePatch(tailPatch)[0].chunks : [], tailSource)
+check('end of file anchors the last lines', tailApplied === 'first\nmiddle\nlast (edited)\n')
+
+const movePatch = [
+  '*** Begin Patch',
+  '*** Update File: a.ts',
+  '*** Move to: b.ts',
+  '@@',
+  ' x',
+  '-old',
+  '+new',
+  '*** End Patch'
+].join('\n')
+const moveHunk = parsePatch(movePatch)[0]
+check('move to parses a rename', moveHunk?.type === 'update' && moveHunk.movePath === 'b.ts')
+
+const fenced = '```\n' + addPatch + '\n```'
+check('code fences are stripped', parsePatch(fenced).length === 1)
+check('heredoc wrappers are stripped', parsePatch(`cat <<'EOF'\n${addPatch}\nEOF`).length === 1)
+
+let badPatchRejected = false
+try {
+  parsePatch(['*** Begin Patch', '*** Add File: x.txt', 'not a plus line', '*** End Patch'].join('\n'))
+} catch {
+  badPatchRejected = true
+}
+check('bad add lines throw', badPatchRejected)
+
+check('normalize folds typographic punctuation',
+  normalizeForMatch('\u201Cquoted\u201D \u2014 dash\u00a0space') === '"quoted" - dash space')
 
 /* ---------- risky command assessment ---------- */
 check('rm -rf flagged', assessCommand('rm -rf node_modules') !== null)

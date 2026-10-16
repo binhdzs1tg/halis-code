@@ -1362,13 +1362,17 @@ function renderDiffBlock(diff: ToolDiff, trace: ToolTrace): HTMLElement {
 }
 
 function diffPath(trace: ToolTrace): string {
-  const path = typeof trace.input.path === 'string' ? trace.input.path : ''
+  const path = typeof trace.input.path === 'string' ? trace.input.path : trace.diff?.[0]?.path ?? ''
   return path.split(/[\\/]/).pop() || path
 }
 
 /** The most identifying argument of a call, kept short for the row label. */
 function toolArgSummary(trace: ToolTrace): string {
   const input = trace.input
+  if (typeof input.patch_text === 'string' && input.patch_text.length > 0) {
+    const ops = (input.patch_text.match(/^\*\*\* (?:Add|Update|Delete) File:/gm) ?? []).length
+    return ops > 0 ? `${ops} file ${ops === 1 ? 'op' : 'ops'}` : 'patch'
+  }
   const pick =
     (typeof input.path === 'string' && input.path) ||
     (typeof input.url === 'string' && input.url) ||

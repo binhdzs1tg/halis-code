@@ -340,8 +340,12 @@ async function execute(
           ...(outcome.diff ? { diff: outcome.diff } : {})
         }
         emit(IpcChannel.ChatTool, end)
-        if (outcome.changedPath) {
-          emit(IpcChannel.WorkspaceChanged, { path: outcome.changedPath })
+        const changedPaths = [
+          ...(outcome.changedPath ? [outcome.changedPath] : []),
+          ...(outcome.changedPaths ?? [])
+        ]
+        for (const changed of changedPaths) {
+          emit(IpcChannel.WorkspaceChanged, { path: changed })
         }
         results.push({ callId: call.id, output: outcome.output, ok: outcome.ok })
         if (controller.signal.aborted) break

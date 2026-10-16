@@ -692,7 +692,8 @@ body[data-ds-dark-theme] .tok-lit {
 
 .tool-row[data-tool='run_command'] .tool-name,
 .tool-row[data-tool='write_file'] .tool-name,
-.tool-row[data-tool='edit_file'] .tool-name {
+.tool-row[data-tool='edit_file'] .tool-name,
+.tool-row[data-tool='patch'] .tool-name {
   font-weight: 500;
 }
 
