@@ -18,18 +18,18 @@ export function createMainWindow(): BrowserWindow {
   // traffic lights inside the sidebar strip; Windows/linux draw the custom
   // caption row in the renderer.
   const mac = process.platform === 'darwin'
+  const restored = windowBoundsOptions()
   const win = new BrowserWindow({
-    ...windowBoundsOptions(),
+    ...restored.options,
     minWidth: 960,
     minHeight: 620,
     frame: !mac,
-    titleBarStyle: 'hidden',
     ...(mac
       ? {
           titleBarStyle: 'hiddenInset' as const,
           trafficLightPosition: { x: 16, y: 18 }
         }
-      : {}),
+      : { titleBarStyle: 'hidden' as const }),
     backgroundColor: '#ffffff',
     title: 'Halis Code',
     icon: path.join(RESOURCES, 'icon.png'),
@@ -136,6 +136,14 @@ export function createMainWindow(): BrowserWindow {
   win.webContents.on('render-process-gone', () => {
     dropApprovalsForWindow(win)
   })
+
+  // Restore the saved maximized flag once the renderer is listening, so the
+  // caption button learns the state through the normal maximize event.
+  if (restored.maximized) {
+    win.webContents.once('did-finish-load', () => {
+      if (!win.isDestroyed() && !win.isMaximized() && !win.isFullScreen()) win.maximize()
+    })
+  }
 
   // Dev server hook for later hot-reload tooling.
   const devUrl = process.env.HALIS_DEV_URL

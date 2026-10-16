@@ -101,11 +101,20 @@ function positionIsVisible(state: WindowState): boolean {
   })
 }
 
+/** Constructor options for `createMainWindow` plus the maximized flag it restores. */
+export interface RestoredBounds {
+  options: Partial<Electron.BrowserWindowConstructorOptions>
+  maximized: boolean
+}
+
 /** Options for `createMainWindow` derived from the saved state. */
-export function windowBoundsOptions(): Partial<Electron.BrowserWindowConstructorOptions> {
+export function windowBoundsOptions(): RestoredBounds {
   const state = loadWindowState()
   if (state.x === null || state.y === null || !positionIsVisible(state)) {
-    return { width: state.width, height: state.height }
+    return { options: { width: state.width, height: state.height }, maximized: state.maximized }
   }
-  return { width: state.width, height: state.height, x: state.x, y: state.y }
+  return {
+    options: { width: state.width, height: state.height, x: state.x, y: state.y },
+    maximized: state.maximized
+  }
 }
