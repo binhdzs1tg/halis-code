@@ -188,7 +188,16 @@ class ToolCallCollector {
 function parseInput(raw: string, fallbackId: string): Record<string, unknown> {
   if (raw.trim().length === 0) return {}
   try {
-    const parsed = JSON.parse(raw)
+    let parsed: unknown = JSON.parse(raw)
+    // Double-encoded arguments — a JSON string holding JSON — unwrap once.
+    if (typeof parsed === 'string' && parsed.trim().length > 0) {
+      try {
+        const inner: unknown = JSON.parse(parsed)
+        if (typeof inner === 'object' && inner !== null) parsed = inner
+      } catch {
+        // genuinely a string; nothing to unwrap
+      }
+    }
     return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : {}
   } catch {
     return { _malformed: true, _raw: raw, _note: `arguments failed to parse (id ${fallbackId})` }

@@ -8,6 +8,7 @@ import { compileLineRegex, matchesInclude, validateInclude } from '../electron/m
 import { htmlToMarkdown, htmlToText, decodeEntities } from '../electron/main/agent/html-to-markdown'
 import { applyUpdate, normalizeForMatch, parsePatch } from '../electron/main/agent/patch-format'
 import { applyEditText } from '../electron/main/agent/edit-text'
+import { repairToolInput } from '../electron/main/agent/tool-input-repair'
 
 let failures = 0
 function check(name: string, cond: boolean): void {
@@ -263,6 +264,72 @@ try {
   ambiguousRejected = err instanceof Error && err.message.includes('replace_all')
 }
 check('ambiguous match points at replace_all', ambiguousRejected)
+
+/* ---------- tool input repair ---------- */
+const repairSchema = {
+  type: 'object',
+  properties: {
+    limit: { type: 'integer' },
+    enabled: { type: 'boolean' },
+    note: { type: 'string' },
+    tags: { type: 'array', items: { type: 'string' } },
+    pair: { type: 'array', items: [{ type: 'number' }, { type: 'boolean' }] },
+    counts: { type: 'object', additionalProperties: { type: 'number' } },
+    filter: { type: 'object', properties: { path: { type: 'string' }, min: { type: 'number' } } }
+  },
+  required: ['limit']
+}
+const repaired = repairToolInput({ limit: '20', enabled: 'false' }, repairSchema)
+check('numeric and boolean strings coerce', repaired.limit === 20 && repaired.enabled === false)
+const nested = repairToolInput({ filter: '{"path":"a.ts","min":"2"}' }, repairSchema)
+check(
+  'stringified nested objects parse',
+  typeof nested.filter === 'object' &&
+    nested.filter !== null &&
+    (nested.filter as Record<string, unknown>).path === 'a.ts' &&
+    (nested.filter as Record<string, unknown>).min === 2
+)
+const placeholder = repairToolInput({ limit: '5', note: null }, repairSchema)
+check('optional null placeholder drops', !('note' in placeholder) && placeholder.limit === 5)
+const wrapped = repairToolInput({ tags: '["a","b"]' }, repairSchema)
+check('stringified array parses', Array.isArray(wrapped.tags) && (wrapped.tags as unknown[]).length === 2)
+const lone = repairToolInput({ tags: 'a' }, repairSchema)
+check('compatible single item wraps into the array', Array.isArray(lone.tags) && (lone.tags as unknown[])[0] === 'a')
+const tuple = repairToolInput({ pair: ['2', 'false'] }, repairSchema)
+check(
+  'tuple positions repair against their own schemas',
+  Array.isArray(tuple.pair) && (tuple.pair as unknown[])[0] === 2 && (tuple.pair as unknown[])[1] === false
+)
+const dict = repairToolInput({ counts: { first: '2' } }, repairSchema)
+check(
+  'dictionary values coerce through additionalProperties',
+  typeof dict.counts === 'object' && dict.counts !== null && (dict.counts as Record<string, unknown>).first === 2
+)
+const closedSchema = { ...repairSchema, additionalProperties: false }
+const closed = repairToolInput({ limit: '20', extra: true }, closedSchema)
+check('extra key dropped on a closed object', !('extra' in closed))
+const open = repairToolInput({ limit: '20', extra: true }, repairSchema)
+check('extra key kept on an open object', 'extra' in open)
+const malformed = repairToolInput(
+  { _malformed: true, _raw: '{"limit":"20"}', _note: 'arguments failed to parse' },
+  repairSchema
+)
+check('malformed wrapper gets one parse chance', malformed.limit === 20)
+let deepSurvived = true
+try {
+  let deep: unknown = { limit: '1' }
+  for (let i = 0; i < 10; i += 1) {
+    deep = repairToolInput({ limit: '1', nested: deep }, {
+      type: 'object',
+      properties: { limit: { type: 'integer' }, nested: { type: 'object' } }
+    })
+  }
+} catch {
+  deepSurvived = false
+}
+check('deeply nested repair does not crash', deepSurvived)
+const untouched = repairToolInput({ limit: 'x' }, repairSchema)
+check('unparseable value passes through', untouched.limit === 'x')
 
 /* ---------- risky command assessment ---------- */
 check('rm -rf flagged', assessCommand('rm -rf node_modules') !== null)

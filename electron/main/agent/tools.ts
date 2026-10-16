@@ -18,6 +18,7 @@ import { WEB_FETCH_TOOL_SPEC, webFetchTool } from './web-fetch'
 import { WEB_SEARCH_TOOL_SPEC, webSearchTool } from './web-search'
 import { PATCH_TOOL_SPEC, runPatchTool } from './patch'
 import { applyEditText } from './edit-text'
+import { repairToolInput } from './tool-input-repair'
 
 /** What a single tool invocation produced. `changedPath` marks mutations the UI should refresh. */
 export interface ToolOutcome {
@@ -266,39 +267,52 @@ export function validateTodos(input: Record<string, unknown>): TodoItem[] {
   return todos
 }
 
+/** Parameter schemas by tool name, filled from toolSpecs on first use. */
+const specParameters = new Map<string, Record<string, unknown>>()
+
+function parametersFor(name: string): Record<string, unknown> | null {
+  if (specParameters.size === 0) {
+    for (const spec of toolSpecs()) specParameters.set(spec.name, spec.parameters)
+  }
+  return specParameters.get(name) ?? null
+}
+
 export async function runTool(
   call: ToolCall,
   signal: AbortSignal,
   hooks?: ToolHooks
 ): Promise<ToolOutcome> {
   try {
+    // Weak models emit numeric strings, stringified JSON and null
+    // placeholders; coerce against the schema before the switch sees them.
+    const input = repairToolInput(call.input, parametersFor(call.name))
     switch (call.name) {
       case 'list_dir':
-        return clamp(await listDirTool(call.input))
+        return clamp(await listDirTool(input))
       case 'read_file':
-        return clamp(await readFileTool(call.input))
+        return clamp(await readFileTool(input))
       case 'write_file':
-        return clamp(await writeFileTool(call.input))
+        return clamp(await writeFileTool(input))
       case 'edit_file':
-        return clamp(await editFileTool(call.input))
+        return clamp(await editFileTool(input))
       case 'search':
-        return clamp(await searchTool(call.input))
+        return clamp(await searchTool(input))
       case 'glob':
-        return clamp(globTool(call.input))
+        return clamp(globTool(input))
       case 'grep':
-        return clamp(await grepTool(call.input))
+        return clamp(await grepTool(input))
       case 'web_fetch':
-        return clamp(await webFetchTool(call.input, signal))
+        return clamp(await webFetchTool(input, signal))
       case 'web_search':
-        return clamp(await webSearchTool(call.input, signal))
+        return clamp(await webSearchTool(input, signal))
       case 'patch':
-        return await runPatchTool(call.input)
+        return await runPatchTool(input)
       case 'ask_user':
-        return await askUserTool(call.input, call.id, hooks)
+        return await askUserTool(input, call.id, hooks)
       case 'run_command':
-        return await runCommandTool(call, signal, hooks)
+        return await runCommandTool({ ...call, input }, signal, hooks)
       case SKILL_TOOL_NAME:
-        return clamp(runSkillTool(call.input))
+        return clamp(runSkillTool(input))
       default:
         return { ok: false, output: `Unknown tool "${call.name}".` }
     }
