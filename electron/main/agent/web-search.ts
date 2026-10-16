@@ -75,36 +75,33 @@ async function fetchSearchResults(query: string, maxResults: number, signal: Abo
     { url: `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, parse: parseHtmlResults }
   ]
   for (const endpoint of scrapeEndpoints) {
-    let html: string
     try {
-      const response = await fetchWithTimeout(endpoint.url, signal)
-      if (!response.ok) {
-        lastError = `HTTP ${response.status}`
+      const page = await fetchText(endpoint.url, signal)
+      if (!page.ok) {
+        lastError = `HTTP ${page.status}`
         continue
       }
-      html = await response.text()
+      const results = endpoint.parse(page.text).slice(0, maxResults)
+      if (results.length > 0) {
+        return results
+      }
     } catch (err) {
       if (signal.aborted) throw err
       lastError = errorText(err)
-      continue
-    }
-    const results = endpoint.parse(html).slice(0, maxResults)
-    if (results.length > 0) {
-      return results
     }
   }
   try {
-    const response = await fetchWithTimeout(
+    const page = await fetchText(
       `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`,
       signal
     )
-    if (response.ok) {
-      const results = parseInstantAnswer(await response.text()).slice(0, maxResults)
+    if (page.ok) {
+      const results = parseInstantAnswer(page.text).slice(0, maxResults)
       if (results.length > 0) {
         return results
       }
     }
-    lastError = `HTTP ${response.status}`
+    lastError = `HTTP ${page.status}`
   } catch (err) {
     if (signal.aborted) throw err
     lastError = errorText(err)
@@ -112,16 +109,20 @@ async function fetchSearchResults(query: string, maxResults: number, signal: Abo
   throw new Error(lastError)
 }
 
-async function fetchWithTimeout(url: string, signal: AbortSignal): Promise<Response> {
+/** One deadline covers headers AND body, and the run signal stays wired
+ *  through the body read so a cancel cannot be ignored. */
+async function fetchText(url: string, signal: AbortSignal): Promise<{ ok: boolean; status: number; text: string }> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS)
   const onAbort = (): void => controller.abort()
   signal.addEventListener('abort', onAbort, { once: true })
   try {
-    return await fetch(url, {
+    const response = await fetch(url, {
       signal: controller.signal,
       headers: { 'User-Agent': BROWSER_UA, Accept: 'text/html,application/json' }
     })
+    const text = await response.text()
+    return { ok: response.ok, status: response.status, text }
   } finally {
     clearTimeout(timer)
     signal.removeEventListener('abort', onAbort)
