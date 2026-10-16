@@ -116,11 +116,17 @@ export function registerIpcHandlers(): void {
     return openWorkspaceByPath(absolutePath)
   })
 
-  handle(IpcChannel.WorkspaceReadDir, (_event, relPath: string): WorkspaceEntry[] => {
+  handle(IpcChannel.WorkspaceReadDir, (_event, relPath: unknown): WorkspaceEntry[] => {
+    if (typeof relPath !== 'string') {
+      throw new Error('workspace:read-dir expects a path string')
+    }
     return listDir(relPath)
   })
 
-  handle(IpcChannel.FileRead, (_event, relPath: string): string => {
+  handle(IpcChannel.FileRead, (_event, relPath: unknown): string => {
+    if (typeof relPath !== 'string') {
+      throw new Error('file:read expects a path string')
+    }
     return readFileContent(relPath)
   })
 
