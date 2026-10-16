@@ -1,4 +1,7 @@
 /** Smoke tests for the ported algorithms; run with `npm run smoke`. */
+import fs from 'node:fs'
+import os from 'node:os'
+import { join } from 'node:path'
 import { computeHunks, fileDiff } from '../electron/main/agent/diff'
 import { RepeatGuard } from '../electron/main/agent/guard'
 import { extractFileRefs } from '../electron/main/agent/file-refs'
@@ -9,6 +12,7 @@ import { htmlToMarkdown, htmlToText, decodeEntities } from '../electron/main/age
 import { applyUpdate, normalizeForMatch, parsePatch } from '../electron/main/agent/patch-format'
 import { applyEditText } from '../electron/main/agent/edit-text'
 import { repairToolInput } from '../electron/main/agent/tool-input-repair'
+import { isSpillPath, readSpill, saveSpill, setSpillBaseForTests, truncateLongLines } from '../electron/main/agent/spill'
 
 let failures = 0
 function check(name: string, cond: boolean): void {
@@ -330,6 +334,22 @@ try {
 check('deeply nested repair does not crash', deepSurvived)
 const untouched = repairToolInput({ limit: 'x' }, repairSchema)
 check('unparseable value passes through', untouched.limit === 'x')
+
+/* ---------- spill store ---------- */
+const spillDir = fs.mkdtempSync(join(os.tmpdir(), 'halis-spill-test-'))
+setSpillBaseForTests(spillDir)
+const spilled = saveSpill('run_command', 'call-1', 'a'.repeat(100))
+check('spill saves under the configured root', spilled !== null && isSpillPath(spilled as string))
+check('spill round-trips the content', readSpill(spilled as string) === 'a'.repeat(100))
+check('outside paths are not spill reads', readSpill('/etc/hosts') === null)
+check('spill ids are filename-safe', isSpillPath(join(spillDir, 'weird name~$()')))
+const monster = `short\n${'x'.repeat(3_000)}\nshort`
+const folded = truncateLongLines(monster)
+check(
+  'long lines fold with a marker',
+  folded.includes('[... line truncated]') && !folded.includes('x'.repeat(2_100)) && folded.split('\n').length === 3
+)
+check('short text passes through untouched', truncateLongLines('one\ntwo') === 'one\ntwo')
 
 /* ---------- risky command assessment ---------- */
 check('rm -rf flagged', assessCommand('rm -rf node_modules') !== null)

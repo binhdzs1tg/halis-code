@@ -19,6 +19,7 @@ import { WEB_SEARCH_TOOL_SPEC, webSearchTool } from './web-search'
 import { PATCH_TOOL_SPEC, runPatchTool } from './patch'
 import { applyEditText } from './edit-text'
 import { repairToolInput } from './tool-input-repair'
+import { readSpill, saveSpill, truncateLongLines } from './spill'
 
 /** What a single tool invocation produced. `changedPath` marks mutations the UI should refresh. */
 export interface ToolOutcome {
@@ -66,7 +67,9 @@ export function toolSpecs(): ToolSpec[] {
       name: 'read_file',
       description:
         'Read a text file from the workspace. Use offset/limit for long files; ' +
-        'the tail tells you how many lines remain.',
+        'the tail tells you how many lines remain. Oversized tool output is ' +
+        'saved under the tool-output store; read those files back by their ' +
+        'absolute path.',
       parameters: {
         type: 'object',
         properties: {
@@ -286,25 +289,28 @@ export async function runTool(
     // Weak models emit numeric strings, stringified JSON and null
     // placeholders; coerce against the schema before the switch sees them.
     const input = repairToolInput(call.input, parametersFor(call.name))
+    // Every clamped result may spill its full text to disk first.
+    const cl = (pending: Promise<ToolOutcome> | ToolOutcome): Promise<ToolOutcome> =>
+      Promise.resolve(pending).then((outcome) => clamp(outcome, call))
     switch (call.name) {
       case 'list_dir':
-        return clamp(await listDirTool(input))
+        return cl(await listDirTool(input))
       case 'read_file':
-        return clamp(await readFileTool(input))
+        return cl(await readFileTool(input))
       case 'write_file':
-        return clamp(await writeFileTool(input))
+        return cl(await writeFileTool(input))
       case 'edit_file':
-        return clamp(await editFileTool(input))
+        return cl(await editFileTool(input))
       case 'search':
-        return clamp(await searchTool(input))
+        return cl(await searchTool(input))
       case 'glob':
-        return clamp(globTool(input))
+        return cl(globTool(input))
       case 'grep':
-        return clamp(await grepTool(input))
+        return cl(await grepTool(input))
       case 'web_fetch':
-        return clamp(await webFetchTool(input, signal))
+        return cl(await webFetchTool(input, signal))
       case 'web_search':
-        return clamp(await webSearchTool(input, signal))
+        return cl(await webSearchTool(input, signal))
       case 'patch':
         return await runPatchTool(input)
       case 'ask_user':
@@ -312,7 +318,7 @@ export async function runTool(
       case 'run_command':
         return await runCommandTool({ ...call, input }, signal, hooks)
       case SKILL_TOOL_NAME:
-        return clamp(runSkillTool(input))
+        return cl(runSkillTool(input))
       default:
         return { ok: false, output: `Unknown tool "${call.name}".` }
     }
@@ -400,9 +406,12 @@ async function readFileTool(input: Record<string, unknown>): Promise<ToolOutcome
   const relPath = requireString(input.path, 'path')
   const offset = Math.max(1, optInt(input.offset) ?? 1)
   const limit = Math.min(4_000, Math.max(1, optInt(input.limit) ?? MAX_READ_LINES))
-  requireWorkspace()
 
-  const content = readFileContent(relPath)
+  // Absolute paths are the escape hatch for spilled tool output: the
+  // pointer names a file inside the app's tool-output store, and only that.
+  const content = path.isAbsolute(relPath)
+    ? readSpill(relPath) ?? rejectAbsolute()
+    : readWorkspaceFile(relPath)
   const lines = content.split('\n')
   if (offset > lines.length) {
     return {
@@ -417,6 +426,18 @@ async function readFileTool(input: Record<string, unknown>): Promise<ToolOutcome
     output += `\n… (${remaining} more line${remaining === 1 ? '' : 's'} — continue with offset ${offset + slice.length})`
   }
   return { ok: true, output }
+}
+
+function readWorkspaceFile(relPath: string): string {
+  requireWorkspace()
+  return readFileContent(relPath)
+}
+
+function rejectAbsolute(): string {
+  throw new Error(
+    'Absolute paths are only readable inside the tool-output store. ' +
+      'Use a path relative to the workspace root instead.'
+  )
 }
 
 async function writeFileTool(input: Record<string, unknown>): Promise<ToolOutcome> {
@@ -647,16 +668,31 @@ function optInt(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? Math.trunc(value) : null
 }
 
-function clamp(outcome: ToolOutcome): ToolOutcome {
+function clamp(outcome: ToolOutcome, call?: { name: string; id: string }): ToolOutcome {
   if (outcome.output.length <= MAX_OUTPUT) return outcome
+  // Fold monster lines first; a capped single line often fits outright.
+  const folded = truncateLongLines(outcome.output)
+  if (folded.length <= MAX_OUTPUT) {
+    return { ...outcome, output: folded }
+  }
+  const source = folded.length < outcome.output.length ? folded : outcome.output
   // Keep both ends — the tail carries outcomes and completion notes the
   // model needs, the way the harness's retainer keeps head and tail.
-  const head = cutSafe(outcome.output, 0, MAX_OUTPUT - CLAMP_TAIL)
-  const tail = cutSafe(outcome.output, outcome.output.length - CLAMP_TAIL, outcome.output.length)
-  const omitted = outcome.output.length - head.length - tail.length
+  const head = cutSafe(source, 0, MAX_OUTPUT - CLAMP_TAIL)
+  const tail = cutSafe(source, source.length - CLAMP_TAIL, source.length)
+  const omitted = source.length - head.length - tail.length
+  // The full text goes to disk so the model can page through it later;
+  // a storage failure degrades to the plain omission marker.
+  let marker = `${omitted} middle characters omitted`
+  if (call) {
+    const spilled = saveSpill(call.name, call.id, outcome.output)
+    if (spilled) {
+      marker = `${omitted} middle characters omitted; full output saved to: ${spilled} — read it back with read_file using that absolute path`
+    }
+  }
   return {
     ...outcome,
-    output: `${head}\n… (${omitted} middle characters omitted) …\n${tail}`
+    output: `${head}\n… (${marker}) …\n${tail}`
   }
 }
 
