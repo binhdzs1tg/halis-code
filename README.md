@@ -75,6 +75,7 @@ npm run dev        # build + launch Electron
 ```
 
 Other scripts: `npm run typecheck`, `npm run build`, `npm run watch`,
+`npm start` (launch the built app without rebuilding),
 `npm run sync-models` (refresh the bundled models.dev snapshot),
 `npm run smoke` (algorithm smoke tests).
 
