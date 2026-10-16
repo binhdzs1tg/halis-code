@@ -20,6 +20,8 @@ import type {
   TerminalDataEvent,
   TerminalExitEvent,
   TodoUpdatedEvent,
+  UserQuestionAnswers,
+  UserQuestionRequestEvent,
   WorkspaceChangedEvent,
   WorkspaceEntry,
   WorkspaceEntryKind
@@ -82,6 +84,10 @@ export interface HalisApi {
   onApprovalRequest(listener: (event: ApprovalRequestEvent) => void): () => void
   /** Answer a pending approval; 'allowed-once' or 'rejected', one shot. */
   respondApproval(requestId: string, decision: ApprovalDecision): void
+  /** An ask_user call is waiting for the user's answer. */
+  onUserQuestion(listener: (event: UserQuestionRequestEvent) => void): () => void
+  /** Answer a pending question; the chosen labels, or null to skip. */
+  respondUserQuestion(requestId: string, answers: UserQuestionAnswers): void
   /** Fired when the agent creates or modifies a workspace file. */
   onWorkspaceChanged(listener: (event: WorkspaceChangedEvent) => void): () => void
 

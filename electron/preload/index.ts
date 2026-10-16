@@ -11,6 +11,8 @@ import type {
   TerminalDataEvent,
   TerminalExitEvent,
   TodoUpdatedEvent,
+  UserQuestionAnswers,
+  UserQuestionRequestEvent,
   WorkspaceChangedEvent
 } from '../shared/types'
 import type { HalisApi } from '../shared/api'
@@ -143,6 +145,17 @@ const api: HalisApi = {
   },
   respondApproval: (requestId, decision: ApprovalDecision) => {
     ipcRenderer.send(IpcChannel.ApprovalRespond, requestId, decision)
+  },
+  onUserQuestion: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: UserQuestionRequestEvent): void =>
+      listener(payload)
+    ipcRenderer.on(IpcChannel.UserQuestionRequest, handler)
+    return () => {
+      ipcRenderer.off(IpcChannel.UserQuestionRequest, handler)
+    }
+  },
+  respondUserQuestion: (requestId, answers: UserQuestionAnswers) => {
+    ipcRenderer.send(IpcChannel.UserQuestionRespond, requestId, answers)
   },
   getAgentSettings: () => ipcRenderer.invoke(IpcChannel.SettingsGet),
   setAgentSettings: (patch) => ipcRenderer.invoke(IpcChannel.SettingsSet, patch),

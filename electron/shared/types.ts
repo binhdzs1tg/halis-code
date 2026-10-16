@@ -206,6 +206,28 @@ export interface ApprovalRequestEvent {
   command?: string
 }
 
+/* ---------- agent questions ---------- */
+
+/** One selectable answer of an ask_user call. */
+export interface UserQuestionOption {
+  label: string
+  /** One-line hint shown under the label. */
+  description?: string
+}
+
+/** Pushed to the renderer while an ask_user tool call waits on the user. */
+export interface UserQuestionRequestEvent {
+  requestId: string
+  runId: string
+  callId: string
+  question: string
+  options: UserQuestionOption[]
+  multiple: boolean
+}
+
+/** The user's answer: chosen labels plus any custom text; null when skipped. */
+export type UserQuestionAnswers = string[] | null
+
 /** Non-chat information the runtime pushes into the conversation. */
 export interface ChatNoticeEvent {
   runId: string

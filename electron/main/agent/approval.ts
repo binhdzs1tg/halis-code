@@ -7,7 +7,13 @@
  */
 import { BrowserWindow } from 'electron'
 import { IpcChannel } from '../../shared/ipc-channels'
-import type { ApprovalDecision, ApprovalRequestEvent } from '../../shared/types'
+import type {
+  ApprovalDecision,
+  ApprovalRequestEvent,
+  UserQuestionAnswers,
+  UserQuestionOption,
+  UserQuestionRequestEvent
+} from '../../shared/types'
 import { shellSettings } from '../settings'
 import { assessCommand, denialText } from './risky'
 
@@ -21,11 +27,20 @@ interface PendingRequest {
   timer: NodeJS.Timeout
 }
 
+interface PendingQuestion {
+  request: UserQuestionRequestEvent
+  resolve: (answers: UserQuestionAnswers) => void
+  timer: NodeJS.Timeout
+}
+
 /** Generous ceiling; the renderer usually answers in seconds. */
 const ANSWER_TIMEOUT_MS = 5 * 60_000
+/** Questions may need real thought; allow a little longer than approvals. */
+const QUESTION_TIMEOUT_MS = 10 * 60_000
 
 let counter = 0
 const pending = new Map<string, PendingRequest>()
+const pendingQuestions = new Map<string, PendingQuestion>()
 let activeWindow: BrowserWindow | null = null
 
 /** The run loop reports the window it streams into; approvals go there. */
@@ -42,6 +57,11 @@ export function dropApprovalsForWindow(win: BrowserWindow | null): void {
     entry.resolve('rejected')
   }
   pending.clear()
+  for (const entry of [...pendingQuestions.values()]) {
+    clearTimeout(entry.timer)
+    entry.resolve(null)
+  }
+  pendingQuestions.clear()
 }
 
 /** Withdraw the approvals of one aborted run; the tool never runs. */
@@ -51,6 +71,12 @@ export function dropApprovalsForRun(runId: string): void {
     clearTimeout(entry.timer)
     pending.delete(id)
     entry.resolve('rejected')
+  }
+  for (const [id, entry] of [...pendingQuestions]) {
+    if (entry.request.runId !== runId) continue
+    clearTimeout(entry.timer)
+    pendingQuestions.delete(id)
+    entry.resolve(null)
   }
 }
 
@@ -104,4 +130,53 @@ export function resolveApproval(requestId: unknown, decision: unknown): void {
   pending.delete(requestId)
   clearTimeout(entry.timer)
   entry.resolve(decision)
+}
+
+/* ---------- ask_user questions, the harness's ask-user pattern ---------- */
+
+/**
+ * Put one question to the user and wait. Resolves null when there is no live
+ * window, when the user skips or times out, or when the run is cancelled —
+ * a skipped question is data the model can act on, never an error.
+ */
+export function askUserQuestion(
+  runId: string,
+  callId: string,
+  question: string,
+  options: UserQuestionOption[],
+  multiple: boolean
+): Promise<UserQuestionAnswers> {
+  const win = activeWindow
+  if (!win || win.isDestroyed()) {
+    return Promise.resolve(null)
+  }
+  const requestId = `question-${Date.now()}-${(counter += 1)}`
+  const request: UserQuestionRequestEvent = { requestId, runId, callId, question, options, multiple }
+  return new Promise<UserQuestionAnswers>((resolve) => {
+    const timer = setTimeout(() => {
+      pendingQuestions.delete(requestId)
+      resolve(null)
+    }, QUESTION_TIMEOUT_MS)
+    pendingQuestions.set(requestId, { request, resolve, timer })
+    if (!win.isDestroyed()) {
+      win.webContents.send(IpcChannel.UserQuestionRequest, request)
+    }
+  })
+}
+
+/** Settle one pending question; unknown or already-settled ids are ignored. */
+export function resolveUserQuestion(requestId: unknown, answers: unknown): void {
+  if (typeof requestId !== 'string') return
+  if (answers !== null && !isAnswerList(answers)) return
+  const entry = pendingQuestions.get(requestId)
+  if (!entry) return
+  pendingQuestions.delete(requestId)
+  clearTimeout(entry.timer)
+  entry.resolve(answers === null ? null : (answers as string[]))
+}
+
+/** Shape check for the answers coming back from the renderer. */
+function isAnswerList(value: unknown): value is string[] {
+  if (!Array.isArray(value) || value.length > 12) return false
+  return value.every((item) => typeof item === 'string' && item.length > 0 && item.length <= 500)
 }

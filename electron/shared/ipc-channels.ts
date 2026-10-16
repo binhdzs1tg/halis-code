@@ -27,6 +27,8 @@ export const IpcChannel = {
   ChatCompact: 'chat:compact',
   ApprovalRequest: 'approval:request',
   ApprovalRespond: 'approval:respond',
+  UserQuestionRequest: 'chat:question',
+  UserQuestionRespond: 'chat:question-respond',
   SettingsGet: 'settings:get',
   SettingsSet: 'settings:set',
   ConversationExport: 'conversation:export',

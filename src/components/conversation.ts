@@ -2,7 +2,14 @@ import { el, svg, clear } from '../app/dom'
 import { icons } from '../app/icons'
 import { store } from '../app/store'
 import { mountShimmer } from '../app/shimmer'
-import type { ApprovalDecision, ApprovalRequestEvent, ChatMessage, TodoItem, ToolTrace } from '../../electron/shared/types'
+import type {
+  ApprovalDecision,
+  ApprovalRequestEvent,
+  ChatMessage,
+  TodoItem,
+  ToolTrace,
+  UserQuestionRequestEvent
+} from '../../electron/shared/types'
 import type { ModelSelection } from '../../electron/shared/models'
 import { agentService, AgentError } from '../core/agent/agent-service'
 import * as catalog from '../core/models/catalog'
@@ -183,6 +190,12 @@ export function mountConversation(): HTMLElement {
         clearApprovalCard()
         return true
       }
+      // Then a pending question, for the same reason.
+      if (pendingQuestion) {
+        agentService.respondQuestion(pendingQuestion.requestId, null)
+        clearQuestionCard()
+        return true
+      }
       return false
     },
     // Lazy so the binding can live below with the other command flows.
@@ -274,6 +287,120 @@ export function mountConversation(): HTMLElement {
       } else if (event.key === 'Escape') {
         event.preventDefault()
         decide('rejected')
+      }
+    }
+    document.addEventListener('keydown', onKey)
+  }
+
+  /* ---------- agent questions (ask_user tool) ---------- */
+
+  let pendingQuestion: UserQuestionRequestEvent | null = null
+  const questionHost = el('div', 'dock question-host')
+  questionHost.hidden = true
+  seat.appendChild(questionHost)
+
+  const clearQuestionCard = (): void => {
+    pendingQuestion = null
+    questionHost.hidden = true
+    clear(questionHost)
+    composer.setLocked(false)
+  }
+
+  const paintQuestionCard = (): void => {
+    clear(questionHost)
+    questionHost.hidden = !pendingQuestion
+    if (!pendingQuestion) return
+    const request = pendingQuestion
+    const dockCard = el('div', 'dock-card')
+    const card = el('div', 'question-card')
+    const head = el('div', 'question-head')
+    head.append(el('span', 'question-dot'), el('span', 'question-title', 'The agent is asking'))
+    card.appendChild(head)
+    card.appendChild(el('div', 'question-text', request.question))
+
+    const selected = new Set<string>()
+    const optionsBox = el('div', 'question-options')
+    for (const option of request.options) {
+      const button = el('button', 'btn ghost question-option') as HTMLButtonElement
+      button.type = 'button'
+      button.appendChild(el('span', 'question-option-label', option.label))
+      if (option.description) {
+        button.appendChild(el('span', 'question-option-hint', option.description))
+      }
+      button.addEventListener('click', () => {
+        const picked = selected.has(option.label)
+        if (!request.multiple) {
+          selected.clear()
+          for (const child of [...optionsBox.children]) {
+            child.classList.remove('picked')
+          }
+        }
+        if (picked) {
+          selected.delete(option.label)
+          button.classList.remove('picked')
+        } else {
+          selected.add(option.label)
+          button.classList.add('picked')
+        }
+      })
+      optionsBox.appendChild(button)
+    }
+    card.appendChild(optionsBox)
+
+    const custom = el('input', 'question-custom-input') as HTMLInputElement
+    custom.type = 'text'
+    custom.placeholder = 'Or type your own answer'
+    card.appendChild(custom)
+
+    const row = el('div', 'question-actions')
+    const skip = el('button', 'btn ghost question-skip') as HTMLButtonElement
+    skip.type = 'button'
+    skip.textContent = 'Skip'
+    const submit = el('button', 'btn question-submit') as HTMLButtonElement
+    submit.type = 'button'
+    submit.textContent = 'Answer'
+
+    const settle = (answers: string[] | null): void => {
+      if (pendingQuestion?.requestId !== request.requestId) return
+      agentService.respondQuestion(request.requestId, answers)
+      clearQuestionCard()
+    }
+    const submitAnswers = (): void => {
+      const answers = [...selected]
+      const own = custom.value.trim()
+      if (own.length > 0 && !answers.includes(own)) {
+        answers.push(own)
+      }
+      // Submitting nothing chosen is a skip, not a blank answer.
+      settle(answers.length > 0 ? answers : null)
+    }
+    skip.addEventListener('click', () => settle(null))
+    submit.addEventListener('click', submitAnswers)
+    custom.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' && !event.isComposing) {
+        event.preventDefault()
+        submitAnswers()
+      }
+    })
+    row.append(skip, submit)
+    card.appendChild(row)
+
+    dockCard.appendChild(card)
+    questionHost.appendChild(dockCard)
+    // The composer stays locked until the question is settled — one Enter
+    // must not both answer and send.
+    composer.setLocked(true)
+    const onKey = (event: KeyboardEvent): void => {
+      if (pendingQuestion?.requestId !== request.requestId) {
+        document.removeEventListener('keydown', onKey)
+        return
+      }
+      if (event.key === 'Enter' && !event.isComposing && document.activeElement !== custom) {
+        event.preventDefault()
+        submitAnswers()
+      } else if (event.key === 'Escape') {
+        event.preventDefault()
+        settle(null)
       }
     }
     document.addEventListener('keydown', onKey)
@@ -668,6 +795,10 @@ export function mountConversation(): HTMLElement {
           onApproval: (event) => {
             pendingApproval = event
             paintApprovalCard()
+          },
+          onQuestion: (event) => {
+            pendingQuestion = event
+            paintQuestionCard()
           }
         }
       )
@@ -676,6 +807,8 @@ export function mountConversation(): HTMLElement {
       if (liveTodos.length > 0) assistant.todos = [...liveTodos]
       node.replaceWith(renderMessage(assistant))
       void persist()
+      // A settled run clears any question card a cancelled tool left behind.
+      if (pendingQuestion) clearQuestionCard()
 
       // A settled run pulls the next queued message, unless the run was
       // stopped by hand — then the queue waits for an explicit go.

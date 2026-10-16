@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
-import type { ToolCall, ToolSpec, TodoItem, FileDiff } from '../../shared/types'
+import type { ToolCall, ToolSpec, TodoItem, FileDiff, UserQuestionOption } from '../../shared/types'
 import {
   getWorkspaceRoot,
   listDir,
@@ -33,6 +33,8 @@ export interface ToolOutcome {
 export interface ToolHooks {
   /** Resolve to 'allowed-once' or 'rejected' for a flagged command line. */
   requestApproval(command: string, callId: string): Promise<'allowed-once' | 'rejected'>
+  /** Resolve to the user's answers, or null when the question goes unanswered. */
+  requestUserQuestion(question: string, options: UserQuestionOption[], multiple: boolean, callId: string): Promise<string[] | null>
 }
 
 /** Tool results are fed back into the model, so keep them within a sane budget. */
@@ -119,6 +121,35 @@ export function toolSpecs(): ToolSpec[] {
     WEB_FETCH_TOOL_SPEC,
     WEB_SEARCH_TOOL_SPEC,
     PATCH_TOOL_SPEC,
+    {
+      name: 'ask_user',
+      description:
+        'Ask the user one question with 2-8 concrete options (and an optional ' +
+        'free-text answer). Use it only when the next step truly needs their ' +
+        'call — ambiguity about intent, a destructive trade-off, or missing ' +
+        'information no tool can find. For everything else, decide and report. ' +
+        'A skipped question means proceed with your best judgment and say so.',
+      parameters: {
+        type: 'object',
+        properties: {
+          question: { type: 'string', description: 'The question, phrased so options make sense' },
+          options: {
+            type: 'array',
+            description: 'Two to eight answer options, most likely first',
+            items: {
+              type: 'object',
+              properties: {
+                label: { type: 'string', description: 'Short answer text' },
+                description: { type: 'string', description: 'One-line hint for when to pick this' }
+              },
+              required: ['label']
+            }
+          },
+          multiple: { type: 'boolean', description: 'Allow choosing several options (default false)' }
+        },
+        required: ['question', 'options']
+      }
+    },
     {
       name: 'run_command',
       description:
@@ -255,6 +286,8 @@ export async function runTool(
         return clamp(await webSearchTool(call.input, signal))
       case 'patch':
         return await runPatchTool(call.input)
+      case 'ask_user':
+        return await askUserTool(call.input, call.id, hooks)
       case 'run_command':
         return await runCommandTool(call, signal, hooks)
       case SKILL_TOOL_NAME:
@@ -269,6 +302,67 @@ export async function runTool(
 }
 
 /* ---------- individual tools ---------- */
+
+/** Bounds on the ask_user surface, tightened from the harness's ask-user tool. */
+const MAX_OPTIONS = 8
+const MIN_OPTIONS = 2
+const MAX_QUESTION_CHARS = 500
+
+/**
+ * Validate the question, hand it to the run loop's hook, and shape the
+ * answer back into model-usable text. No hook (tests, headless) reads as
+ * "nobody to ask" — the same fail-closed stance as the approval gate.
+ */
+async function askUserTool(
+  input: Record<string, unknown>,
+  callId: string,
+  hooks?: ToolHooks
+): Promise<ToolOutcome> {
+  const question = requireString(input.question, 'question').slice(0, MAX_QUESTION_CHARS)
+  const rawOptions = input.options
+  if (!Array.isArray(rawOptions) || rawOptions.length < MIN_OPTIONS) {
+    throw new Error(`Parameter "options" must be an array of at least ${MIN_OPTIONS} options.`)
+  }
+  if (rawOptions.length > MAX_OPTIONS) {
+    throw new Error(`Too many options (${rawOptions.length}); keep it at ${MAX_OPTIONS} or fewer.`)
+  }
+  const options: UserQuestionOption[] = []
+  const seen = new Set<string>()
+  for (const item of rawOptions) {
+    if (typeof item !== 'object' || item === null) {
+      throw new Error('Each option must be an object with a label.')
+    }
+    const candidate = item as { label?: unknown; description?: unknown }
+    if (typeof candidate.label !== 'string' || candidate.label.trim().length === 0) {
+      throw new Error('Invalid option: "label" must be a non-empty string.')
+    }
+    const label = candidate.label.trim().slice(0, 100)
+    if (seen.has(label)) {
+      throw new Error(`Invalid options: duplicate label ${JSON.stringify(label)}.`)
+    }
+    seen.add(label)
+    options.push({
+      label,
+      ...(typeof candidate.description === 'string' && candidate.description.trim().length > 0
+        ? { description: candidate.description.trim().slice(0, 200) }
+        : {})
+    })
+  }
+  const multiple = input.multiple === true
+
+  if (!hooks) {
+    return { ok: false, output: 'There is no user to ask in this session. Proceed with your best judgment and note that you did.' }
+  }
+  const answers = await hooks.requestUserQuestion(question, options, multiple, callId)
+  if (answers === null || answers.length === 0) {
+    return {
+      ok: false,
+      output: 'The user skipped the question. Proceed with your best judgment and say which choice you made.'
+    }
+  }
+  const list = answers.map((answer) => `"${answer}"`).join(', ')
+  return { ok: true, output: `The user answered: ${list}.` }
+}
 
 async function listDirTool(input: Record<string, unknown>): Promise<ToolOutcome> {
   const target = optString(input.path) ?? ''

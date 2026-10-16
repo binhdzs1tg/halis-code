@@ -25,7 +25,7 @@ import { RepeatGuard } from './guard'
 import { loadWorkspaceInstructions } from './instructions'
 import { skillCatalogBlock } from './skills'
 import { buildFileRefBlock } from './file-refs'
-import { askApproval, setApprovalWindow, dropApprovalsForRun } from './approval'
+import { askApproval, setApprovalWindow, dropApprovalsForRun, askUserQuestion } from './approval'
 
 const MAX_HISTORY_MESSAGES = 40
 /** Rounds of tool calls before the model is asked to wrap up. */
@@ -256,7 +256,9 @@ async function execute(
     const guard = new RepeatGuard()
     const specs = toolSpecs()
     const hooks: ToolHooks = {
-      requestApproval: (command, callId) => askApproval(runId, callId, command)
+      requestApproval: (command, callId) => askApproval(runId, callId, command),
+      requestUserQuestion: (question, options, multiple, callId) =>
+        askUserQuestion(runId, callId, question, options, multiple)
     }
 
     for (let step = 0; ; step += 1) {

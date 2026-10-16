@@ -7,7 +7,9 @@ import type {
   ChatToolEvent,
   CompactRequest,
   CompactResult,
-  TodoUpdatedEvent
+  TodoUpdatedEvent,
+  UserQuestionAnswers,
+  UserQuestionRequestEvent
 } from '../../../electron/shared/types'
 
 export type AgentErrorCode = ChatErrorCode | 'busy' | 'bridge'
@@ -36,6 +38,8 @@ export interface AgentStreamHandlers {
   onNotice?(event: ChatNoticeEvent): void
   /** A flagged command is waiting for the user's say-so. */
   onApproval?(event: ApprovalRequestEvent): void
+  /** An ask_user call is waiting for the user's answer. */
+  onQuestion?(event: UserQuestionRequestEvent): void
 }
 
 /**
@@ -89,6 +93,10 @@ export class AgentService {
         if (event.runId !== runId) return
         handlers?.onApproval?.(event)
       })
+      const offQuestion = window.halis.onUserQuestion((event) => {
+        if (event.runId !== runId) return
+        handlers?.onQuestion?.(event)
+      })
       const offDone = window.halis.onChatDone((event) => {
         if (event.runId !== runId) return
         cleanup()
@@ -106,6 +114,7 @@ export class AgentService {
         offTodo()
         offNotice()
         offApproval()
+        offQuestion()
         offDone()
         offError()
       }
@@ -121,6 +130,11 @@ export class AgentService {
   /** Answer a pending approval exactly once. */
   respondApproval(requestId: string, decision: ApprovalDecision): void {
     window.halis.respondApproval(requestId, decision)
+  }
+
+  /** Answer a pending question once: the chosen labels, or null to skip. */
+  respondQuestion(requestId: string, answers: UserQuestionAnswers): void {
+    window.halis.respondUserQuestion(requestId, answers)
   }
 
   /** Fold the given conversation into a checkpoint right now. */

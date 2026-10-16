@@ -16,7 +16,7 @@ import * as keyStore from './keys/store'
 import * as terminal from './terminal'
 import * as sessions from './sessions'
 import { cancelRun, startRun, compactNow } from './agent/run'
-import { resolveApproval } from './agent/approval'
+import { resolveApproval, resolveUserQuestion } from './agent/approval'
 import { shellSettings, updateShellSettings } from './settings'
 import fs from 'node:fs'
 
@@ -215,6 +215,9 @@ export function registerIpcHandlers(): void {
 
   on(IpcChannel.ApprovalRespond, (_event, requestId: unknown, decision: unknown) => {
     resolveApproval(requestId, decision)
+  })
+  on(IpcChannel.UserQuestionRespond, (_event, requestId: unknown, answers: unknown) => {
+    resolveUserQuestion(requestId, answers)
   })
 
   handle(IpcChannel.SettingsGet, () => {

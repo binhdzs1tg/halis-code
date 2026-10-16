@@ -54,6 +54,8 @@ export function installBridgeStub(): void {
     onChatNotice: listener,
     onApprovalRequest: listener,
     respondApproval: noop,
+    onUserQuestion: listener,
+    respondUserQuestion: noop,
     onWorkspaceChanged: listener,
 
     getAgentSettings: unavailable,
