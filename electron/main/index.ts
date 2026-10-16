@@ -53,7 +53,9 @@ if (!gotLock) {
     })
 
     const [win] = BrowserWindow.getAllWindows()
-    win?.webContents.once('did-finish-load', () => markRunning())
+    // Not `once`: a reload after a failed first load must move the crash
+    // phase out of `startup` too.
+    win?.webContents.on('did-finish-load', () => markRunning())
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
