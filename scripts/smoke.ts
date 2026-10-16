@@ -23,9 +23,10 @@ function check(name: string, cond: boolean): void {
 const before = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].join('\n')
 const after = ['a', 'b', 'X', 'd', 'e', 'f', 'g'].join('\n')
 const hunks = computeHunks(before, after)
+const firstHunk = hunks[0]
 check('one hunk for a single change', hunks.length === 1)
-check('hunk has context lines', hunks[0].lines.some((l) => l.kind === 'ctx'))
-check('hunk counts one add one del', hunks[0].added === 1 && hunks[0].removed === 1)
+check('hunk has context lines', firstHunk?.lines.some((l) => l.kind === 'ctx') === true)
+check('hunk counts one add one del', firstHunk?.added === 1 && firstHunk?.removed === 1)
 
 const created = fileDiff('new.ts', null, 'hello\nworld')
 check('create diff is pure adds', created?.op === 'create' && created.added === 2)
@@ -170,7 +171,8 @@ const tailPatch = [
   '*** End Patch'
 ].join('\n')
 const tailSource = ['first', 'middle', 'last'].join('\n')
-const tailApplied = applyUpdate('log.txt', parsePatch(tailPatch)[0]?.type === 'update' ? parsePatch(tailPatch)[0].chunks : [], tailSource)
+const tailHunk = parsePatch(tailPatch)[0]
+const tailApplied = applyUpdate('log.txt', tailHunk?.type === 'update' ? tailHunk.chunks : [], tailSource)
 check('end of file anchors the last lines', tailApplied === 'first\nmiddle\nlast (edited)\n')
 
 const movePatch = [
