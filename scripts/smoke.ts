@@ -3,6 +3,8 @@ import { computeHunks, fileDiff } from '../electron/main/agent/diff'
 import { RepeatGuard } from '../electron/main/agent/guard'
 import { extractFileRefs } from '../electron/main/agent/file-refs'
 import { assessCommand } from '../electron/main/agent/risky'
+import { expandBraces, matchGlob } from '../electron/main/agent/glob'
+import { compileLineRegex, matchesInclude, validateInclude } from '../electron/main/agent/grep'
 
 let failures = 0
 function check(name: string, cond: boolean): void {
@@ -59,6 +61,40 @@ check('plain path is not a ref', !refs.includes('src/plain.ts'))
 check('line suffix stripped', extractFileRefs('see @src/a.ts:12')[0] === 'src/a.ts')
 check('email is not a ref', extractFileRefs('mail me at a@b.com').length === 0)
 check('parent escape refused', extractFileRefs('@../secrets').length === 0)
+
+/* ---------- glob matching ---------- */
+check('**/*.ts matches a root-level file', matchGlob('**/*.ts', 'main.ts'))
+check('**/*.ts matches a nested file', matchGlob('**/*.ts', 'src/app/main.ts'))
+check('**/*.ts rejects other extensions', !matchGlob('**/*.ts', 'src/app/main.js'))
+check('single star stays in one segment', !matchGlob('src/*.ts', 'src/app/main.ts'))
+check('single star matches within one segment', matchGlob('src/*.ts', 'src/main.ts'))
+check('bare ** matches any path', matchGlob('**', 'deep/nested/file.txt'))
+check('trailing slash reads as everything below', matchGlob('src/', 'src/lib/util.ts'))
+check('question mark matches one char', matchGlob('a?c.ts', 'abc.ts') && !matchGlob('a?c.ts', 'abbc.ts'))
+check('braces expand to alternatives', matchGlob('src/{lib,cmd}/*.go', 'src/cmd/run.go'))
+check('nested braces expand once', expandBraces('a/{b,{c,d}}/x').length === 3)
+check('regex specials in names are literal', matchGlob('a+b.ts', 'a+b.ts') && !matchGlob('a+b.ts', 'aab.ts'))
+
+/* ---------- grep helpers ---------- */
+check('include without slash matches the basename', matchesInclude('*.ts', 'deep/nested/main.ts'))
+check('include with slash matches the whole path', matchesInclude('src/**/*.ts', 'src/lib/main.ts'))
+check('include with slash stays anchored', !matchesInclude('src/**/*.ts', 'test/src/main.ts'))
+check('literal mode escapes metacharacters', compileLineRegex('a.c*', { literal: true, caseSensitive: true }).test('a.c*zz') && !compileLineRegex('a.c*', { literal: true, caseSensitive: true }).test('abcz'))
+check('case-insensitive mode lowers the bar', compileLineRegex('ERROR', { literal: true, caseSensitive: false }).test('error here'))
+let badPatternRejected = false
+try {
+  compileLineRegex('([unclosed', { literal: false, caseSensitive: true })
+} catch {
+  badPatternRejected = true
+}
+check('invalid regex throws a readable error', badPatternRejected)
+let negatedIncludeRejected = false
+try {
+  validateInclude('!**/*.log')
+} catch {
+  negatedIncludeRejected = true
+}
+check('negated include is refused', negatedIncludeRejected)
 
 /* ---------- risky command assessment ---------- */
 check('rm -rf flagged', assessCommand('rm -rf node_modules') !== null)

@@ -1371,8 +1371,10 @@ function toolArgSummary(trace: ToolTrace): string {
   const input = trace.input
   const pick =
     (typeof input.path === 'string' && input.path) ||
+    (typeof input.url === 'string' && input.url) ||
     (typeof input.command === 'string' && input.command) ||
     (typeof input.query === 'string' && `"${input.query}"`) ||
+    (typeof input.pattern === 'string' && `"${input.pattern}"`) ||
     ''
   if (pick.length > 64) return `${pick.slice(0, 61)}…`
   return pick

@@ -12,6 +12,8 @@ import {
 import { fileDiff } from './diff'
 import { denialText } from './approval'
 import { SKILL_TOOL_NAME, SKILL_TOOL_SPEC, runSkillTool } from './skills'
+import { GLOB_TOOL_SPEC, globTool } from './glob'
+import { GREP_TOOL_SPEC, grepTool } from './grep'
 
 /** What a single tool invocation produced. `changedPath` marks mutations the UI should refresh. */
 export interface ToolOutcome {
@@ -107,6 +109,8 @@ export function toolSpecs(): ToolSpec[] {
         required: ['query']
       }
     },
+    GLOB_TOOL_SPEC,
+    GREP_TOOL_SPEC,
     {
       name: 'run_command',
       description:
@@ -233,6 +237,10 @@ export async function runTool(
         return clamp(await editFileTool(call.input))
       case 'search':
         return clamp(await searchTool(call.input))
+      case 'glob':
+        return clamp(globTool(call.input))
+      case 'grep':
+        return clamp(grepTool(call.input))
       case 'run_command':
         return await runCommandTool(call, signal, hooks)
       case SKILL_TOOL_NAME:
