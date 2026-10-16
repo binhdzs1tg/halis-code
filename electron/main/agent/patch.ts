@@ -10,6 +10,7 @@ import path from 'node:path'
 import { resolveInWorkspace, getWorkspaceRoot } from '../workspace'
 import { fileDiff } from './diff'
 import { applyUpdate, parsePatch, type PatchHunk } from './patch-format'
+import { assertEditable, recordWrite } from './observation'
 import type { FileDiff } from '../../shared/types'
 import type { ToolOutcome } from './tools'
 
@@ -86,6 +87,9 @@ export async function runPatchTool(input: Record<string, unknown>): Promise<Tool
     if (!exists) {
       throw new Error(`Cannot ${hunk.type === 'delete' ? 'delete' : 'update'} "${hunk.path}" — it does not exist.`)
     }
+    // The observation gate applies to patches too: an unread file refuses
+    // to be updated, deleted or moved.
+    assertEditable(absolute, hunk.path)
     const before = fs.readFileSync(absolute, 'utf8')
     if (hunk.type === 'delete') {
       planned.push({ hunk, before, after: '', finalPath: hunk.path })
@@ -111,6 +115,7 @@ export async function runPatchTool(input: Record<string, unknown>): Promise<Tool
     if (hunk.type === 'add') {
       fs.mkdirSync(path.dirname(target), { recursive: true })
       fs.writeFileSync(target, after, 'utf8')
+      recordWrite(target)
       notes.push(`Added ${finalPath} (${lineCount(after)} lines)`)
       changedPaths.push(finalPath)
     } else if (hunk.type === 'delete') {
@@ -124,10 +129,12 @@ export async function runPatchTool(input: Record<string, unknown>): Promise<Tool
       }
       notes.push(`Deleted ${hunk.path}`)
       changedPaths.push(hunk.path)
+      recordWrite(target)
     } else {
       if (hunk.movePath) {
         fs.mkdirSync(path.dirname(target), { recursive: true })
         fs.writeFileSync(target, after, 'utf8')
+        recordWrite(target)
         const trashed = await shell.trashItem(resolveInWorkspace(hunk.path)).then(
           () => true,
           () => false
@@ -140,8 +147,10 @@ export async function runPatchTool(input: Record<string, unknown>): Promise<Tool
         }
         notes.push(`Moved ${hunk.path} to ${hunk.movePath} and applied the hunks`)
         changedPaths.push(hunk.path, finalPath)
+        recordWrite(resolveInWorkspace(hunk.path))
       } else {
         fs.writeFileSync(target, after, 'utf8')
+        recordWrite(target)
         notes.push(`Updated ${finalPath}`)
         changedPaths.push(finalPath)
       }

@@ -20,6 +20,7 @@ import { PATCH_TOOL_SPEC, runPatchTool } from './patch'
 import { applyEditText } from './edit-text'
 import { repairToolInput } from './tool-input-repair'
 import { readSpill, saveSpill, truncateLongLines } from './spill'
+import { assertEditable, observeRead, recordWrite } from './observation'
 
 /** What a single tool invocation produced. `changedPath` marks mutations the UI should refresh. */
 export interface ToolOutcome {
@@ -411,7 +412,7 @@ async function readFileTool(input: Record<string, unknown>): Promise<ToolOutcome
   // pointer names a file inside the app's tool-output store, and only that.
   const content = path.isAbsolute(relPath)
     ? readSpill(relPath) ?? rejectAbsolute()
-    : readWorkspaceFile(relPath)
+    : readWorkspaceFile(relPath, true)
   const lines = content.split('\n')
   if (offset > lines.length) {
     return {
@@ -428,9 +429,11 @@ async function readFileTool(input: Record<string, unknown>): Promise<ToolOutcome
   return { ok: true, output }
 }
 
-function readWorkspaceFile(relPath: string): string {
-  requireWorkspace()
-  return readFileContent(relPath)
+function readWorkspaceFile(relPath: string, observed: boolean): string {
+  const target = requireWorkspace().resolve(relPath)
+  const content = readFileContent(relPath)
+  if (observed) observeRead(target)
+  return content
 }
 
 function rejectAbsolute(): string {
@@ -444,10 +447,12 @@ async function writeFileTool(input: Record<string, unknown>): Promise<ToolOutcom
   const relPath = requireString(input.path, 'path')
   const content = requireString(input.content, 'content')
   const target = requireWorkspace().resolve(relPath)
+  assertEditable(target, relPath)
 
   const before = readBefore(target)
   fs.mkdirSync(path.dirname(target), { recursive: true })
   fs.writeFileSync(target, content, 'utf8')
+  recordWrite(target)
   const lineCount = content.split('\n').length
   return {
     ok: true,
@@ -478,10 +483,12 @@ async function editFileTool(input: Record<string, unknown>): Promise<ToolOutcome
   const newText = typeof input.new_text === 'string' ? input.new_text : requireString(input.new_text, 'new_text')
   const replaceAll = input.replace_all === true
   const target = requireWorkspace().resolve(relPath)
+  assertEditable(target, relPath)
 
   const content = fs.readFileSync(target, 'utf8')
   const result = applyEditText(content, oldText, newText, replaceAll)
   fs.writeFileSync(target, result.content, 'utf8')
+  recordWrite(target)
   let output = `Edited ${relPath}`
   if (result.count > 1) {
     output += ` (${result.count} replacements)`

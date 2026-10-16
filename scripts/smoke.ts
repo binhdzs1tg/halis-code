@@ -13,6 +13,8 @@ import { applyUpdate, normalizeForMatch, parsePatch } from '../electron/main/age
 import { applyEditText } from '../electron/main/agent/edit-text'
 import { repairToolInput } from '../electron/main/agent/tool-input-repair'
 import { isSpillPath, readSpill, saveSpill, setSpillBaseForTests, truncateLongLines } from '../electron/main/agent/spill'
+import { assertEditable, observeRead, recordWrite, resetObservations } from '../electron/main/agent/observation'
+import { setWorkspaceRoot } from '../electron/main/workspace'
 
 let failures = 0
 function check(name: string, cond: boolean): void {
@@ -350,6 +352,52 @@ check(
   folded.includes('[... line truncated]') && !folded.includes('x'.repeat(2_100)) && folded.split('\n').length === 3
 )
 check('short text passes through untouched', truncateLongLines('one\ntwo') === 'one\ntwo')
+
+/* ---------- read-before-edit gate ---------- */
+const obsDir = fs.mkdtempSync(join(os.tmpdir(), 'halis-obs-test-'))
+setWorkspaceRoot(obsDir)
+resetObservations()
+const obsFile = join(obsDir, 'a.ts')
+fs.writeFileSync(obsFile, 'one\ntwo\n', 'utf8')
+let unreadRejected = ''
+try {
+  assertEditable(obsFile, 'a.ts')
+} catch (err) {
+  unreadRejected = err instanceof Error ? err.message : ''
+}
+check('unread file refuses edits', unreadRejected.includes('read the file first'))
+observeRead(obsFile)
+let editable = true
+try {
+  assertEditable(obsFile, 'a.ts')
+} catch {
+  editable = false
+}
+check('observed file is editable', editable)
+fs.appendFileSync(obsFile, 'three\n')
+let staleRejected = ''
+try {
+  assertEditable(obsFile, 'a.ts')
+} catch (err) {
+  staleRejected = err instanceof Error ? err.message : ''
+}
+check('on-disk change fails the edit', staleRejected.includes('changed on disk'))
+recordWrite(obsFile)
+let stillEditable = true
+try {
+  assertEditable(obsFile, 'a.ts')
+} catch {
+  stillEditable = false
+}
+check('a recorded write refreshes the basis', stillEditable)
+const createdFile = join(obsDir, 'new.ts')
+let createAllowed = true
+try {
+  assertEditable(createdFile, 'new.ts')
+} catch {
+  createAllowed = false
+}
+check('a missing file is a create and sails through', createAllowed)
 
 /* ---------- risky command assessment ---------- */
 check('rm -rf flagged', assessCommand('rm -rf node_modules') !== null)

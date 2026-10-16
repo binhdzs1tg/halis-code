@@ -6,6 +6,7 @@
  */
 import fs from 'node:fs'
 import { resolveInWorkspace } from '../workspace'
+import { observeRead } from './observation'
 
 /**
  * `@path` or `@"quoted path"`, optionally with a `:line` suffix that is
@@ -54,6 +55,9 @@ function readRef(raw: string): FileReference {
       return { raw, path: raw, content: null, note: 'not a regular file' }
     }
     let text = fs.readFileSync(absolute, 'utf8')
+    // A referenced file the model has now seen counts as read for the
+    // edit gate — the attachment showed the same bytes.
+    observeRead(absolute)
     if (text.includes('\u0000')) {
       return { raw, path: raw, content: null, note: 'binary file' }
     }
