@@ -553,14 +553,43 @@ async function runCommandTool(
     function onAbort(): void {
       finish(false, 'cancelled')
     }
+    /** Kill the shell, its tree and, after a grace period, anything that
+     *  ignored the first signal — strays keep ports and files busy. */
+    function killTree(): void {
+      if (process.platform === 'win32') {
+        if (child.pid !== undefined) {
+          // taskkill walks the child tree; a bare kill would not.
+          spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true })
+        }
+        return
+      }
+      if (child.pid === undefined) {
+        child.kill()
+        return
+      }
+      try {
+        process.kill(-child.pid, 'SIGTERM')
+      } catch {
+        child.kill()
+        return
+      }
+      const pid = child.pid
+      const escalation = setTimeout(() => {
+        try {
+          process.kill(-pid, 'SIGKILL')
+        } catch {
+          child.kill()
+        }
+      }, 2_000)
+      escalation.unref()
+      child.once('close', () => clearTimeout(escalation))
+    }
     function finish(ok: boolean, note?: string): void {
       if (settled) return
       settled = true
       clearTimeout(timer)
       signal.removeEventListener('abort', onAbort)
-      if (!child.killed) {
-        child.kill()
-      }
+      killTree()
       let output = `$ ${command}\n`
       if (truncated) output += '… (earlier output dropped)\n'
       output += combined.trim()
