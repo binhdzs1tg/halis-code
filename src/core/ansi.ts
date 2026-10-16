@@ -237,6 +237,14 @@ export class AnsiWriter {
         else i = st + 2
         continue
       }
+      // A chunk ending right at ESC: hold it like the CSI/OSC cases hold
+      // their open sequences, or the next chunk's continuation leaks as
+      // visible text ("[31mRED") instead of color.
+      if (next === undefined) {
+        flush()
+        this.pending = ch
+        return
+      }
       // any other escape: consume both characters
       flush()
       i += 2

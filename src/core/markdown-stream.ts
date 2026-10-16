@@ -117,10 +117,13 @@ export class StreamingMarkdown {
       this.frozen = settleCount
     }
 
+    // splitBlocks drops the blank lines between blocks; rejoin the tail with
+    // one so the live render keeps paragraph boundaries the settled render
+    // (and the frozen blocks) already show.
     const tailText = blocks
       .slice(settleCount)
       .map((block) => block.text)
-      .join('')
+      .join('\n')
       .replace(/\n$/, '')
     this.tailHost.innerHTML = renderMarkdown(tailText)
   }
