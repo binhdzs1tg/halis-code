@@ -2,10 +2,10 @@
  * Regenerate the bundled models.dev snapshot.
  *
  * Fetches the public catalog from https://models.dev/api.json, validates it
- * has enough providers to be real, and writes it as the snapshot the main
- * process ships as its offline floor. Run with `npm run sync-models`.
+ * has enough real providers to be genuine, and writes it as the snapshot the
+ * main process ships as its offline floor. Run with `npm run sync-models`.
  */
-import { writeFile } from 'node:fs/promises'
+import { rename, writeFile } from 'node:fs/promises'
 
 const SOURCE_URL = 'https://models.dev/api.json'
 const TARGET = 'electron/main/models-dev/snapshot.json'
@@ -21,13 +21,25 @@ if (!response.ok) {
 }
 
 const catalog = await response.json()
-const providers = Object.keys(catalog ?? {})
+if (!catalog || typeof catalog !== 'object' || Array.isArray(catalog)) {
+  console.error('catalog is not a JSON object, keeping the current snapshot')
+  process.exit(1)
+}
+// Count providers the app would actually keep: a string or array of the
+// right size passes a key count while yielding zero usable providers.
+const providers = Object.values(catalog).filter(
+  (provider) => provider && typeof provider === 'object' && provider.id && provider.models
+)
 if (providers.length < MIN_PROVIDERS) {
-  console.error(`catalog looks truncated (${providers.length} providers), keeping the current snapshot`)
+  console.error(`catalog looks truncated (${providers.length} usable providers), keeping the current snapshot`)
   process.exit(1)
 }
 
 const payload = `${JSON.stringify(catalog)}\n`
-await writeFile(TARGET, payload)
-const models = Object.values(catalog).reduce((total, provider) => total + Object.keys(provider.models ?? {}).length, 0)
+// Write through a temp file: a crash or full disk mid-write must not leave
+// a half-written snapshot as the committed offline floor.
+const temp = `${TARGET}.tmp`
+await writeFile(temp, payload)
+await rename(temp, TARGET)
+const models = providers.reduce((total, provider) => total + Object.keys(provider.models ?? {}).length, 0)
 console.log(`snapshot updated: ${providers.length} providers, ${models} models -> ${TARGET}`)
