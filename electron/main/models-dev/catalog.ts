@@ -91,7 +91,9 @@ export async function list(): Promise<ModelCatalog> {
  */
 export async function refresh(force = false): Promise<ModelCatalog> {
   await list()
-  if (!force && loaded && loaded.source === 'network' && Date.now() - lastRefresh < REFRESH_TTL_MS) {
+  // The TTL keys on the last confirmed-fresh moment, whatever the payload's
+  // origin was — otherwise a warm cache pays a round trip on every restart.
+  if (!force && loaded && Date.now() - lastRefresh < REFRESH_TTL_MS) {
     return loaded
   }
   if (!refreshing) {
@@ -136,8 +138,10 @@ async function fetchLatest(): Promise<void> {
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
   })
   if (response.status === 304 && loaded) {
+    // Unchanged upstream: only the freshness stamp moves, on disk too, so
+    // the TTL survives a restart instead of re-fetching every launch.
     lastRefresh = Date.now()
-    await writeCache(loaded.source, Date.now())
+    await writeCache(Date.now())
     return
   }
   if (!response.ok) {
@@ -153,7 +157,7 @@ async function fetchLatest(): Promise<void> {
   // cannot be built must never reach the disk cache.
   const next = build(catalog, updatedAt, 'network')
   etag = response.headers.get('etag')
-  await writeCache('network', updatedAt, catalog)
+  await writeCache(updatedAt, catalog)
   loaded = next
   lastRefresh = updatedAt
   broadcast()
@@ -190,13 +194,15 @@ async function readCache(): Promise<{ catalog: ModelCatalog; updatedAt: number; 
 }
 
 /** Persist the raw upstream catalog, or just refresh metadata on a 304. */
-async function writeCache(source: ModelCatalog['source'], updatedAt: number, catalog?: RawCatalog): Promise<void> {
+async function writeCache(updatedAt: number, catalog?: RawCatalog): Promise<void> {
   try {
     const dir = app.getPath('userData')
     await mkdir(dir, { recursive: true })
-    if (!catalog && loaded && source === 'network') {
+    if (!catalog && loaded) {
       // A 304 leaves the payload untouched; only the freshness stamp moves.
+      // No cache file (snapshot-loaded) means there is nothing to stamp.
       const file = path.join(dir, CACHE_FILE)
+      if (!existsSync(file)) return
       const raw = JSON.parse(await readFile(file, 'utf8')) as CacheFile
       await writeFile(path.join(dir, CACHE_FILE), JSON.stringify({ ...raw, updatedAt }))
       return
@@ -213,7 +219,16 @@ function readBundledSnapshot(): RawCatalog | null {
   try {
     const file = path.join(__dirname, 'models-dev', 'snapshot.json')
     if (!existsSync(file)) return null
-    return JSON.parse(readFileSync(file, 'utf8')) as RawCatalog
+    const parsed = JSON.parse(readFileSync(file, 'utf8')) as RawCatalog
+    // Same floor the disk cache applies, plus a real object shape: a string
+    // or array would pass a key count while yielding zero usable providers.
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+    const usable = Object.values(parsed).filter((item) => Boolean(item?.id && item?.models)).length
+    if (usable < MIN_PROVIDERS) {
+      console.warn('[models-dev] bundled snapshot looks truncated:', usable, 'usable providers')
+      return null
+    }
+    return parsed
   } catch (err) {
     console.warn('[models-dev] bundled snapshot unreadable:', err instanceof Error ? err.message : err)
     return null
