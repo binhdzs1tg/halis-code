@@ -7,6 +7,7 @@ import { expandBraces, matchGlob } from '../electron/main/agent/glob'
 import { compileLineRegex, matchesInclude, validateInclude } from '../electron/main/agent/grep'
 import { htmlToMarkdown, htmlToText, decodeEntities } from '../electron/main/agent/html-to-markdown'
 import { applyUpdate, normalizeForMatch, parsePatch } from '../electron/main/agent/patch-format'
+import { applyEditText } from '../electron/main/agent/edit-text'
 
 let failures = 0
 function check(name: string, cond: boolean): void {
@@ -199,6 +200,39 @@ check('bad add lines throw', badPatchRejected)
 
 check('normalize folds typographic punctuation',
   normalizeForMatch('\u201Cquoted\u201D \u2014 dash\u00a0space') === '"quoted" - dash space')
+
+/* ---------- edit matching ---------- */
+const editSource = 'function greet() {\n  console.log("Hello")\n}\n'
+const single = applyEditText(editSource, 'console.log("Hello")', 'console.log("Goodbye")', false)
+check('exact single edit lands', single.content.includes('console.log("Goodbye")') && single.count === 1)
+
+const repeated = 'todo = 1\ntodo = 2\ntodo = 3\n'
+const all = applyEditText(repeated, 'todo =', 'done =', true)
+check('replace_all swaps every occurrence', all.count === 3 && !all.content.includes('todo ='))
+
+const smartQuotesSource = 'function greet() {\n  console.log(\u201CHello\u201D)\n}\n'
+const forgiving = applyEditText(smartQuotesSource, 'console.log("Hello")', 'console.log("Hi")', false)
+check('forgiving tier rescues smart quotes', forgiving.content.includes('console.log("Hi")') && forgiving.note !== undefined)
+
+const trailingSpace = 'line one   \nline two\n'
+const forgivingSpace = applyEditText(trailingSpace, 'line one', 'first line', false)
+check('forgiving tier rescues trailing whitespace', forgivingSpace.content.startsWith('first line'))
+
+let identicalRejected = false
+try {
+  applyEditText(editSource, 'same', 'same', false)
+} catch {
+  identicalRejected = true
+}
+check('identical old and new rejected', identicalRejected)
+
+let ambiguousRejected = false
+try {
+  applyEditText(repeated, 'todo =', 'x', false)
+} catch (err) {
+  ambiguousRejected = err instanceof Error && err.message.includes('replace_all')
+}
+check('ambiguous match points at replace_all', ambiguousRejected)
 
 /* ---------- risky command assessment ---------- */
 check('rm -rf flagged', assessCommand('rm -rf node_modules') !== null)

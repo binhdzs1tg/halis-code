@@ -17,6 +17,7 @@ import { GREP_TOOL_SPEC, grepTool } from './grep'
 import { WEB_FETCH_TOOL_SPEC, webFetchTool } from './web-fetch'
 import { WEB_SEARCH_TOOL_SPEC, webSearchTool } from './web-search'
 import { PATCH_TOOL_SPEC, runPatchTool } from './patch'
+import { applyEditText } from './edit-text'
 
 /** What a single tool invocation produced. `changedPath` marks mutations the UI should refresh. */
 export interface ToolOutcome {
@@ -39,6 +40,8 @@ export interface ToolHooks {
 
 /** Tool results are fed back into the model, so keep them within a sane budget. */
 const MAX_OUTPUT = 24_000
+/** Characters preserved from the tail when the budget overflows. */
+const CLAMP_TAIL = 2_048
 const MAX_READ_LINES = 1_200
 const MAX_COMMAND_OUTPUT = 24_000
 const DEFAULT_COMMAND_TIMEOUT = 60_000
@@ -88,15 +91,19 @@ export function toolSpecs(): ToolSpec[] {
     {
       name: 'edit_file',
       description:
-        'Replace one occurrence of old_text with new_text in a file. old_text must match the ' +
-        'file exactly (including whitespace) and appear exactly once — include surrounding lines ' +
-        'if it is ambiguous. An empty new_text deletes the passage.',
+        'Replace text in a file: old_text must match exactly (including ' +
+        'whitespace) and appear exactly once — include surrounding lines if it ' +
+        'is ambiguous. An empty new_text deletes the passage. Pass ' +
+        'replace_all=true to swap every occurrence of a repeated snippet. ' +
+        'When the exact text is not found, a forgiving match that ignores ' +
+        'trailing whitespace and typographic quotes is tried once.',
       parameters: {
         type: 'object',
         properties: {
           path: { type: 'string', description: 'File path relative to the workspace root' },
           old_text: { type: 'string', description: 'Exact text to replace' },
-          new_text: { type: 'string', description: 'Replacement text' }
+          new_text: { type: 'string', description: 'Replacement text' },
+          replace_all: { type: 'boolean', description: 'Replace every occurrence instead of requiring a unique match (default false)' }
         },
         required: ['path', 'old_text', 'new_text']
       }
@@ -432,24 +439,26 @@ function asDiffPatch(diff: FileDiff | null): { diff: FileDiff[] } | Record<strin
 async function editFileTool(input: Record<string, unknown>): Promise<ToolOutcome> {
   const relPath = requireString(input.path, 'path')
   const oldText = requireString(input.old_text, 'old_text')
-  const newText = input.new_text === undefined ? '' : requireString(input.new_text, 'new_text')
+  // An empty string is a deletion; only a missing value is a bad call.
+  const newText = typeof input.new_text === 'string' ? input.new_text : requireString(input.new_text, 'new_text')
+  const replaceAll = input.replace_all === true
   const target = requireWorkspace().resolve(relPath)
 
   const content = fs.readFileSync(target, 'utf8')
-  const first = content.indexOf(oldText)
-  if (first === -1) {
-    return { ok: false, output: 'old_text was not found in the file. Re-read it and match the text exactly.' }
+  const result = applyEditText(content, oldText, newText, replaceAll)
+  fs.writeFileSync(target, result.content, 'utf8')
+  let output = `Edited ${relPath}`
+  if (result.count > 1) {
+    output += ` (${result.count} replacements)`
   }
-  if (content.indexOf(oldText, first + 1) !== -1) {
-    return { ok: false, output: 'old_text appears more than once. Add surrounding lines to make it unique.' }
+  if (result.note) {
+    output += `. ${result.note}`
   }
-  const updated = content.slice(0, first) + newText + content.slice(first + oldText.length)
-  fs.writeFileSync(target, updated, 'utf8')
   return {
     ok: true,
-    output: `Edited ${relPath}.`,
+    output,
     changedPath: relPath,
-    ...asDiffPatch(fileDiff(relPath, content, updated))
+    ...asDiffPatch(fileDiff(relPath, content, result.content))
   }
 }
 
@@ -589,8 +598,28 @@ function optInt(value: unknown): number | null {
 
 function clamp(outcome: ToolOutcome): ToolOutcome {
   if (outcome.output.length <= MAX_OUTPUT) return outcome
+  // Keep both ends — the tail carries outcomes and completion notes the
+  // model needs, the way the harness's retainer keeps head and tail.
+  const head = cutSafe(outcome.output, 0, MAX_OUTPUT - CLAMP_TAIL)
+  const tail = cutSafe(outcome.output, outcome.output.length - CLAMP_TAIL, outcome.output.length)
+  const omitted = outcome.output.length - head.length - tail.length
   return {
     ...outcome,
-    output: `${outcome.output.slice(0, MAX_OUTPUT)}\n… (output truncated at ${MAX_OUTPUT} characters)`
+    output: `${head}\n… (${omitted} middle characters omitted) …\n${tail}`
   }
+}
+
+/** Cut without splitting a surrogate pair in half. */
+function cutSafe(text: string, start: number, end: number): string {
+  let from = start
+  let to = end
+  if (to < text.length) {
+    const code = text.charCodeAt(to - 1)
+    if (code >= 0xd800 && code <= 0xdbff) to -= 1
+  }
+  if (from > 0) {
+    const code = text.charCodeAt(from)
+    if (code >= 0xdc00 && code <= 0xdfff) from += 1
+  }
+  return text.slice(from, to)
 }
