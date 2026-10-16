@@ -307,7 +307,14 @@ async function execute(
 
       if (result.toolCalls.length === 0 || wrapUp) break
 
-      messages.push({ role: 'assistant', content: result.text, toolCalls: result.toolCalls })
+      // Thinking blocks ride along: Anthropic requires them on the replayed
+      // assistant turn whenever extended thinking produced a tool call.
+      messages.push({
+        role: 'assistant',
+        content: result.text,
+        toolCalls: result.toolCalls,
+        ...(result.thinkingBlocks?.length ? { thinkingBlocks: result.thinkingBlocks } : {})
+      })
       const results = []
       for (const call of result.toolCalls) {
         const startedAt = Date.now()

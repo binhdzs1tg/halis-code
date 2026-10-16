@@ -23,6 +23,16 @@ export interface ProviderMessage {
   toolCalls?: ProviderToolCall[]
   /** Tool results carried by the user turn that follows them. */
   toolResults?: ProviderToolResult[]
+  /** Anthropic thinking blocks from this assistant turn, replayed verbatim. */
+  thinkingBlocks?: ProviderThinkingBlock[]
+}
+
+/** One thinking (or redacted_thinking) block, kept for the tool loop. */
+export interface ProviderThinkingBlock {
+  thinking: string
+  signature: string
+  /** Opaque payload when the model emitted a redacted_thinking block instead. */
+  redactedData?: string
 }
 
 export interface ProviderStreamResult {
@@ -30,6 +40,8 @@ export interface ProviderStreamResult {
   text: string
   /** Tool calls requested by the model, empty for plain answers. */
   toolCalls: ProviderToolCall[]
+  /** Thinking blocks to replay when this turn continues with tool results. */
+  thinkingBlocks?: ProviderThinkingBlock[]
 }
 
 export interface ProviderStreamRequest {
@@ -319,8 +331,8 @@ function applyReasoning(body: Record<string, unknown>, request: ProviderStreamRe
 interface AnthropicStreamEvent {
   type?: string
   index?: number
-  content_block?: { type?: string; id?: string; name?: string }
-  delta?: { type?: string; text?: string; partial_json?: string }
+  content_block?: { type?: string; id?: string; name?: string; data?: string }
+  delta?: { type?: string; text?: string; partial_json?: string; thinking?: string; signature?: string }
   error?: { message?: string }
 }
 
@@ -378,6 +390,8 @@ async function streamAnthropic(request: ProviderStreamRequest): Promise<Provider
 
   let text = ''
   const toolBlocks = new Map<number, { id: string; name: string; json: string; seeded: boolean }>()
+  type ThinkingSlot = { kind: 'thinking'; thinking: string; signature: string } | { kind: 'redacted'; data: string }
+  const thinkingSlots = new Map<number, ThinkingSlot>()
   for await (const event of readSse(response)) {
     let payload: AnthropicStreamEvent
     try {
@@ -403,10 +417,27 @@ async function streamAnthropic(request: ProviderStreamRequest): Promise<Provider
         seeded: initial !== ''
       })
     }
+    if (event.event === 'content_block_start' && payload.content_block?.type === 'thinking') {
+      thinkingSlots.set(payload.index ?? 0, { kind: 'thinking', thinking: '', signature: '' })
+    }
+    if (event.event === 'content_block_start' && payload.content_block?.type === 'redacted_thinking') {
+      thinkingSlots.set(payload.index ?? 0, {
+        kind: 'redacted',
+        data: payload.content_block.data ?? ''
+      })
+    }
     if (event.event === 'content_block_delta') {
       if (payload.delta?.type === 'text_delta' && payload.delta.text) {
         text += payload.delta.text
         request.onDelta(payload.delta.text)
+      }
+      if (payload.delta?.type === 'thinking_delta' && payload.delta.thinking) {
+        const slot = thinkingSlots.get(payload.index ?? 0)
+        if (slot && slot.kind === 'thinking') slot.thinking += payload.delta.thinking
+      }
+      if (payload.delta?.type === 'signature_delta' && payload.delta.signature) {
+        const slot = thinkingSlots.get(payload.index ?? 0)
+        if (slot && slot.kind === 'thinking') slot.signature += payload.delta.signature
       }
       if (payload.delta?.type === 'input_json_delta' && payload.delta.partial_json) {
         const block = toolBlocks.get(payload.index ?? 0)
@@ -431,7 +462,14 @@ async function streamAnthropic(request: ProviderStreamRequest): Promise<Provider
       input: parseInput(block.json, `call-${index}`)
     }))
     .filter((call) => call.name.length > 0)
-  return { text, toolCalls }
+  const thinkingBlocks: ProviderThinkingBlock[] = [...thinkingSlots.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([, slot]) =>
+      slot.kind === 'redacted'
+        ? { thinking: '', signature: '', redactedData: slot.data }
+        : { thinking: slot.thinking, signature: slot.signature }
+    )
+  return { text, toolCalls, ...(thinkingBlocks.length > 0 ? { thinkingBlocks } : {}) }
 }
 
 /** Flatten the harness message shape into Anthropic content blocks. */
@@ -451,6 +489,15 @@ function toAnthropicMessages(request: ProviderStreamRequest): unknown[] {
   for (const message of request.messages) {
     if (message.role === 'assistant') {
       const blocks: Array<Record<string, unknown>> = []
+      // Thinking blocks lead the turn: Anthropic requires them ahead of
+      // text and tool_use whenever extended thinking is on.
+      for (const block of message.thinkingBlocks ?? []) {
+        if (block.redactedData !== undefined) {
+          blocks.push({ type: 'redacted_thinking', data: block.redactedData })
+        } else if (block.thinking || block.signature) {
+          blocks.push({ type: 'thinking', thinking: block.thinking, signature: block.signature })
+        }
+      }
       if (message.content) blocks.push({ type: 'text', text: message.content })
       for (const call of message.toolCalls ?? []) {
         blocks.push({ type: 'tool_use', id: call.id, name: call.name, input: call.input })
@@ -495,7 +542,7 @@ function requireEndpoint(provider: ProviderEntry, model: ModelEntry): Endpoint {
 async function failResponse(response: Response, provider: ProviderEntry): Promise<never> {
   let detail = ''
   try {
-    const text = await response.text()
+    const text = await readErrorBody(response)
     try {
       const parsed = JSON.parse(text) as { error?: { message?: string } | string }
       if (typeof parsed.error === 'string') {
@@ -511,6 +558,39 @@ async function failResponse(response: Response, provider: ProviderEntry): Promis
   }
   const summary = httpSummary(response.status, provider)
   throw new ProviderError('http', detail ? `${summary}: ${detail}` : summary, response.status)
+}
+
+/** Error bodies are hostile input: cap the read so a broken or lying
+ *  endpoint cannot stream gigabytes into the main process. */
+const MAX_ERROR_BODY_BYTES = 64 * 1024
+
+async function readErrorBody(response: Response): Promise<string> {
+  const reader = response.body?.getReader()
+  if (!reader) return ''
+  try {
+    const chunks: Uint8Array[] = []
+    let total = 0
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (value) {
+        chunks.push(value)
+        total += value.length
+        if (total >= MAX_ERROR_BODY_BYTES) break
+      }
+    }
+    const bytes = new Uint8Array(Math.min(total, MAX_ERROR_BODY_BYTES))
+    let offset = 0
+    for (const chunk of chunks) {
+      if (offset >= bytes.length) break
+      const slice = chunk.subarray(0, Math.min(chunk.length, bytes.length - offset))
+      bytes.set(slice, offset)
+      offset += slice.length
+    }
+    return new TextDecoder('utf-8', { fatal: false }).decode(bytes)
+  } finally {
+    void reader.cancel().catch(() => undefined)
+  }
 }
 
 function httpSummary(status: number, provider: ProviderEntry): string {
