@@ -298,6 +298,8 @@ function installKeymap(): void {
   window.addEventListener('keydown', (event) => {
     const mod = event.ctrlKey || event.metaKey
     if (!mod) return
+    // OS key repeat would fire the toggle per tick and flip panels wildly.
+    if (event.repeat) return
 
     if (event.key === '`') {
       event.preventDefault()
