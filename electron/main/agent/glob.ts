@@ -123,17 +123,20 @@ export interface GlobResult {
 /**
  * Every file under the scope that matches, newest first. The mtime sort
  * comes from the harness's `--sort=modified`: the file the user touched
- * last is the one the model most likely wants.
+ * last is the one the model most likely wants. The whole tree is walked
+ * (bounded by MAX_VISITED) so the limit keeps the newest N, not the first
+ * N in walk order.
  */
 export function globFiles(pattern: string, scope: string, limit: number): GlobResult {
   const root = resolveInWorkspace(scope)
+  // A trailing separator would glue into 'src//a.ts' downstream; drop it once, here.
+  const normalizedScope = scope.replace(/\/+$/, '')
   const regexes = expandBraces(pattern).map((candidate) => globToRegExp(candidate))
   const hits: { rel: string; mtime: number }[] = []
-  let truncated = false
   let visited = 0
 
   const walk = (dir: string, rel: string): void => {
-    if (truncated || visited > MAX_VISITED) return
+    if (visited > MAX_VISITED) return
     let entries: fs.Dirent[]
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true })
@@ -141,7 +144,7 @@ export function globFiles(pattern: string, scope: string, limit: number): GlobRe
       return
     }
     for (const entry of entries) {
-      if (truncated) return
+      if (visited > MAX_VISITED) return
       if (entry.name.startsWith('.') || SKIP_DIRS.has(entry.name)) continue
       const childRel = rel ? `${rel}/${entry.name}` : entry.name
       const childAbs = path.join(dir, entry.name)
@@ -151,11 +154,13 @@ export function globFiles(pattern: string, scope: string, limit: number): GlobRe
       }
       if (!entry.isFile()) continue
       visited += 1
-      if (!regexes.some((regex) => regex.test(childRel))) continue
-      if (hits.length >= limit) {
-        truncated = true
-        return
-      }
+      // The pattern is relative to the search folder: with a scope, the
+      // scope-relative remainder matches too ('*.ts' finds src/a.ts).
+      const remainder =
+        normalizedScope && childRel.startsWith(`${normalizedScope}/`)
+          ? childRel.slice(normalizedScope.length + 1)
+          : childRel
+      if (!regexes.some((regex) => regex.test(childRel) || regex.test(remainder))) continue
       let mtime = 0
       try {
         mtime = fs.statSync(childAbs).mtimeMs
@@ -165,10 +170,11 @@ export function globFiles(pattern: string, scope: string, limit: number): GlobRe
       hits.push({ rel: childRel, mtime })
     }
   }
-  walk(root, scope)
+  walk(root, normalizedScope)
 
   hits.sort((a, b) => b.mtime - a.mtime || a.rel.localeCompare(b.rel))
-  return { paths: hits.map((hit) => hit.rel), truncated }
+  const truncated = hits.length > limit
+  return { paths: hits.slice(0, limit).map((hit) => hit.rel), truncated }
 }
 
 /* ---------- tool ---------- */

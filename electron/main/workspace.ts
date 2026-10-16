@@ -171,7 +171,8 @@ export function searchWorkspace(
   query: string,
   options: { scope?: string; caseSensitive?: boolean } = {}
 ): SearchResponse {
-  const scope = options.scope ?? ''
+  // A trailing separator would glue into 'src//a.ts' paths downstream.
+  const scope = (options.scope ?? '').replace(/\/+$/, '')
   const caseSensitive = options.caseSensitive ?? false
   const root = resolveInWorkspace(scope)
   const needle = caseSensitive ? query : query.toLowerCase()
