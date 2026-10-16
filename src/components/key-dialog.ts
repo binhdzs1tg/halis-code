@@ -28,20 +28,24 @@ export function openKeyDialog(onSaved?: () => void, onCancelled?: () => void): v
   document.body.appendChild(overlay)
 
   let saved = false
-  const close = (): void => {
-    overlay.remove()
-    if (saved) onSaved?.()
-    else onCancelled?.()
-  }
-  overlay.addEventListener('mousedown', (event) => {
-    if (event.target === overlay) close()
-  })
-  dialog.addEventListener('keydown', (event) => {
+  // Bound on the document: focus can sit on the body (nothing focused yet),
+  // and a keydown there never reaches the dialog.
+  const onKeydown = (event: KeyboardEvent): void => {
     if (event.key === 'Escape') {
       event.preventDefault()
       close()
     }
+  }
+  document.addEventListener('keydown', onKeydown)
+  overlay.addEventListener('mousedown', (event) => {
+    if (event.target === overlay) close()
   })
+  const close = (): void => {
+    document.removeEventListener('keydown', onKeydown)
+    overlay.remove()
+    if (saved) onSaved?.()
+    else onCancelled?.()
+  }
 
   if (!found) {
     dialog.appendChild(el('div', 'dialog-title', 'API key'))

@@ -60,6 +60,7 @@ export function openModelDialog(): void {
   document.body.appendChild(overlay)
 
   const close = (): void => {
+    document.removeEventListener('keydown', onKeydown)
     overlay.remove()
   }
 
@@ -326,7 +327,9 @@ export function openModelDialog(): void {
     render()
   })
 
-  dialog.addEventListener('keydown', (event) => {
+  // Bound on the document: the variant step hides the search input, and a
+  // picker with focus on the body never sends key events through the dialog.
+  const onKeydown = (event: KeyboardEvent): void => {
     if (event.key === 'Escape') {
       event.preventDefault()
       if (variantBase) {
@@ -379,7 +382,8 @@ export function openModelDialog(): void {
       default:
         break
     }
-  })
+  }
+  document.addEventListener('keydown', onKeydown)
 
   overlay.addEventListener('mousedown', (event) => {
     if (event.target === overlay) close()
