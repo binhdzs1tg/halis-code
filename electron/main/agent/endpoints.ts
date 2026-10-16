@@ -66,17 +66,23 @@ export const AZURE_API_VERSION = '2025-04-01-preview'
 
 /**
  * Expand the `${ENV_VAR}` placeholders some providers document inside their
- * `api` URL. Every template names its own variable, so the requirement is
- * read straight from the URL — the same treatment Codex gives
- * `env_http_headers` and the DeepSeek Harness gives `baseURLEnv`.
+ * `api` URL. Each placeholder reads its own variable, so a URL with several
+ * of them does not get one variable's value everywhere — and replacement
+ * goes through a function so `$` sequences in the value stay literal.
  */
 function interpolate(raw: string): { url: string } | { kind: 'missing-env'; variable: string } {
-  const match = /\$\{([A-Z0-9_]+)\}/.exec(raw)
-  const name = match?.[1]
-  if (!name) return { url: raw }
-  const value = process.env[name]
-  if (!value || !value.trim()) return { kind: 'missing-env', variable: name }
-  return { url: raw.replace(/\$\{[A-Z0-9_]+\}/g, value.trim()) }
+  const placeholder = /\$\{([A-Z0-9_]+)\}/g
+  let missing: string | null = null
+  for (const match of raw.matchAll(placeholder)) {
+    const name = match[1] ?? ''
+    const value = process.env[name]
+    if (!value || !value.trim()) {
+      missing = name
+      break
+    }
+  }
+  if (missing !== null) return { kind: 'missing-env', variable: missing }
+  return { url: raw.replace(placeholder, (_whole, name: string) => (process.env[name] ?? '').trim()) }
 }
 
 /**
