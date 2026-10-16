@@ -286,7 +286,7 @@ export async function runTool(
       case 'glob':
         return clamp(globTool(call.input))
       case 'grep':
-        return clamp(grepTool(call.input))
+        return clamp(await grepTool(call.input))
       case 'web_fetch':
         return clamp(await webFetchTool(call.input, signal))
       case 'web_search':

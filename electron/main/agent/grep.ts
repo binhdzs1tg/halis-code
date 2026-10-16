@@ -2,10 +2,13 @@
  * Grep tool, ported from opencode's and the harness's grep: regular
  * expression or literal search over file contents with an include filter.
  * Upstreams delegate to ripgrep; this port reuses the app's walker and plain
- * RegExp so no binary ships with the app.
+ * RegExp so no binary ships with the app. The scan itself runs in a worker
+ * thread: the model can send any pattern, and a catastrophic-backtracking
+ * regex must be terminable instead of freezing the main process.
  */
 import fs from 'node:fs'
 import path from 'node:path'
+import { Worker } from 'node:worker_threads'
 import { BINARY_EXTENSIONS, resolveInWorkspace, SKIP_DIRS } from '../workspace'
 import { matchGlob } from './glob'
 import type { ToolOutcome } from './tools'
@@ -14,6 +17,8 @@ const DEFAULT_LIMIT = 100
 const MAX_LIMIT = 500
 const MAX_FILE_SIZE = 512 * 1024
 const MAX_LINE_PREVIEW = 240
+/** A file that takes longer than this to scan abandons the search, partial results intact. */
+const SCAN_IDLE_TIMEOUT_MS = 5_000
 
 /* ---------- pattern helpers (pure; unit-tested in smoke.ts) ---------- */
 
@@ -81,11 +86,13 @@ export interface GrepResult {
   truncated: boolean
 }
 
-export function grepWorkspace(
+export async function grepWorkspace(
   pattern: string,
   options: { scope?: string; include?: string; literal?: boolean; caseSensitive?: boolean; limit?: number } = {}
-): GrepResult {
-  const scope = options.scope ?? ''
+): Promise<GrepResult> {
+  // A trailing separator would glue into 'src//a.ts' paths and break the
+  // include filter; normalize once, here.
+  const scope = (options.scope ?? '').replace(/\/+$/, '')
   const root = resolveInWorkspace(scope)
   const regex = compileLineRegex(pattern, {
     literal: options.literal ?? false,
@@ -93,8 +100,6 @@ export function grepWorkspace(
   })
   const include = options.include?.trim() || null
   const limit = Math.max(1, options.limit ?? DEFAULT_LIMIT)
-  const hits: GrepHit[] = []
-  let truncated = false
 
   // A file target scans just that file, like pointing rg at one path.
   let rootStat: fs.Stats
@@ -104,15 +109,15 @@ export function grepWorkspace(
     throw new Error(`"${scope}" does not exist in the workspace.`)
   }
   if (rootStat.isFile()) {
-    const relFromRoot = scope
-    if (!include || matchesInclude(include, path.basename(relFromRoot))) {
-      truncated = !scanFile(root, relFromRoot, regex, hits, limit)
+    if (include && !matchesInclude(include, path.basename(scope))) {
+      return { hits: [], truncated: false }
     }
-    return { hits, truncated }
+    const outcome = await scanWithWorker([{ abs: root, rel: scope }], regex, limit)
+    return { hits: outcome.hits, truncated: outcome.truncated || outcome.stopped }
   }
 
+  const targets: Array<{ abs: string; rel: string }> = []
   const walk = (dir: string, rel: string): void => {
-    if (truncated) return
     let entries: fs.Dirent[]
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true })
@@ -120,7 +125,6 @@ export function grepWorkspace(
       return
     }
     for (const entry of entries) {
-      if (truncated) return
       if (entry.name.startsWith('.') || SKIP_DIRS.has(entry.name)) continue
       const childRel = rel ? `${rel}/${entry.name}` : entry.name
       const childAbs = path.join(dir, entry.name)
@@ -133,7 +137,6 @@ export function grepWorkspace(
       // resolves them — "src/**" means the scope's src, not the workspace's.
       const includeRel = scope ? childRel.slice(scope.length + 1) : childRel
       if (include && !matchesInclude(include, includeRel)) continue
-
       let stat: fs.Stats
       try {
         stat = fs.statSync(childAbs)
@@ -141,38 +144,96 @@ export function grepWorkspace(
         continue
       }
       if (stat.size > MAX_FILE_SIZE) continue
-      if (!scanFile(childAbs, childRel, regex, hits, limit)) {
-        truncated = true
-        return
-      }
+      targets.push({ abs: childAbs, rel: childRel })
     }
   }
   walk(root, scope)
-  return { hits, truncated }
+  const outcome = await scanWithWorker(targets, regex, limit)
+  return { hits: outcome.hits, truncated: outcome.truncated || outcome.stopped }
 }
 
-/**
- * Scan one file; returns false when the hit budget filled up. Binary in
- * disguise (NUL byte) reads as no matches — same test the search tool uses.
- */
-function scanFile(abs: string, rel: string, regex: RegExp, hits: GrepHit[], limit: number): boolean {
-  let text: string
-  try {
-    text = fs.readFileSync(abs, 'utf8')
-  } catch {
-    return true
-  }
-  if (text.includes('\u0000')) return true
-  const lines = text.split('\n')
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i]
-    if (line === undefined || !regex.test(line)) continue
-    if (hits.length >= limit) {
-      return false
+/** The scan runs out-of-process: the pattern is model input, and a
+ *  catastrophic-backtracking regex must be terminable, not a freeze. The
+ *  worker reports per file, so a timeout keeps the hits gathered so far. */
+const WORKER_SOURCE = `
+const { parentPort } = require('node:worker_threads')
+const { readFileSync } = require('node:fs')
+parentPort.on('message', (job) => {
+  const regex = new RegExp(job.pattern, job.flags)
+  for (const target of job.targets) {
+    const hits = []
+    try {
+      const text = readFileSync(target.abs, 'utf8')
+      if (!text.includes('\\u0000')) {
+        const lines = text.split('\\n')
+        for (let i = 0; i < lines.length; i += 1) {
+          const line = lines[i]
+          if (line !== undefined && regex.test(line)) {
+            hits.push({ path: target.rel, line: i + 1, text: line.trim().slice(0, ${MAX_LINE_PREVIEW}) })
+          }
+        }
+      }
+    } catch {
+      // unreadable file: no hits
     }
-    hits.push({ path: rel, line: i + 1, text: line.trim().slice(0, MAX_LINE_PREVIEW) })
+    parentPort.postMessage({ hits })
   }
-  return true
+  parentPort.postMessage({ done: true })
+})
+`
+
+interface WorkerScanOutcome {
+  hits: GrepHit[]
+  truncated: boolean
+  stopped: boolean
+}
+
+async function scanWithWorker(
+  targets: Array<{ abs: string; rel: string }>,
+  regex: RegExp,
+  limit: number
+): Promise<WorkerScanOutcome> {
+  if (targets.length === 0) return { hits: [], truncated: false, stopped: false }
+  return await new Promise<WorkerScanOutcome>((resolve) => {
+    const worker = new Worker(WORKER_SOURCE, { eval: true })
+    const hits: GrepHit[] = []
+    let truncated = false
+    let settled = false
+    const settle = (stopped: boolean): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(idle)
+      void worker.terminate()
+      resolve({ hits, truncated, stopped })
+    }
+    let idle = setTimeout(() => settle(true), SCAN_IDLE_TIMEOUT_MS)
+    const resetIdle = (): void => {
+      clearTimeout(idle)
+      idle = setTimeout(() => settle(true), SCAN_IDLE_TIMEOUT_MS)
+    }
+    worker.on('message', (message: { hits?: GrepHit[]; done?: boolean }) => {
+      resetIdle()
+      if (message.done) {
+        settle(false)
+        return
+      }
+      for (const hit of message.hits ?? []) {
+        if (hits.length >= limit) {
+          truncated = true
+          settle(false)
+          return
+        }
+        hits.push(hit)
+      }
+    })
+    worker.on('error', () => settle(true))
+    worker.on('messageerror', () => settle(true))
+    void worker.postMessage({
+      pattern: regex.source,
+      flags: regex.flags,
+      targets: targets.map((target) => ({ abs: target.abs, rel: target.rel }))
+    })
+  })
 }
 
 /* ---------- tool ---------- */
@@ -199,7 +260,7 @@ export const GREP_TOOL_SPEC = {
   }
 } as const
 
-export function grepTool(input: Record<string, unknown>): ToolOutcome {
+export async function grepTool(input: Record<string, unknown>): Promise<ToolOutcome> {
   const pattern = requirePattern(input.pattern)
   const scope = typeof input.path === 'string' && input.path.length > 0 ? input.path : ''
   const include = typeof input.include === 'string' && input.include.trim().length > 0 ? input.include : null
@@ -209,7 +270,7 @@ export function grepTool(input: Record<string, unknown>): ToolOutcome {
   if (scope && BINARY_EXTENSIONS.has(path.extname(scope).toLowerCase())) {
     throw new Error(`"${scope}" is a binary file; grep searches text only.`)
   }
-  const { hits, truncated } = grepWorkspace(pattern, {
+  const { hits, truncated } = await grepWorkspace(pattern, {
     scope,
     ...(include ? { include } : {}),
     literal: input.literal === true,
