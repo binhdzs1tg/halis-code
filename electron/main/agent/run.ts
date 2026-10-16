@@ -1,4 +1,5 @@
 import { BrowserWindow } from 'electron'
+import os from 'node:os'
 import { IpcChannel } from '../../shared/ipc-channels'
 import type {
   AgentTurnRequest,
@@ -26,6 +27,8 @@ import { loadWorkspaceInstructions } from './instructions'
 import { skillCatalogBlock } from './skills'
 import { buildFileRefBlock } from './file-refs'
 import { askApproval, dropApprovalsForRun, askUserQuestion } from './approval'
+import { getGitInfo } from './git-info'
+import { getWorkspaceRoot } from '../workspace'
 
 const MAX_HISTORY_MESSAGES = 40
 /** Rounds of tool calls before the model is asked to wrap up. */
@@ -66,6 +69,9 @@ function buildSystemPrompt(): string {
 const TIME_REFRESH_MS = 10 * 60_000
 let lastTimeSample = 0
 
+/** The workspace the environment context was last injected for. */
+let lastEnvironmentRoot: string | null | undefined
+
 function sampleTimeContext(): string | null {
   const now = Date.now()
   const elapsed = lastTimeSample === 0 ? null : now - lastTimeSample
@@ -77,6 +83,29 @@ function sampleTimeContext(): string | null {
       ? 'first sample of this session'
       : `elapsed since the previous sample: ${formatSpan(elapsed)}`
   return `<system-reminder>Time sampled while preparing this turn: ${clock} (local). ${elapsedNote}.</system-reminder>`
+}
+
+/**
+ * Environment context, codex-style: the folder, platform and git state the
+ * model is actually working against. Injected once per workspace — a new
+ * folder is a new world, the same folder keeps its earlier snapshot.
+ */
+async function environmentContext(): Promise<string | null> {
+  const root = getWorkspaceRoot()
+  if (root === lastEnvironmentRoot) return null
+  lastEnvironmentRoot = root
+  const lines = ['<environment_context>']
+  lines.push(`Working directory: ${root ?? 'no folder open'}`)
+  lines.push(`Platform: ${process.platform} ${os.release()} (${os.arch()})`)
+  if (root) {
+    const git = await getGitInfo(root)
+    if (git) {
+      lines.push(`Git branch: ${git.branch}`)
+      lines.push(`Git commit: ${git.commit}`)
+    }
+  }
+  lines.push('</environment_context>')
+  return lines.join('\n')
 }
 
 function formatSpan(ms: number): string {
@@ -223,15 +252,18 @@ async function execute(
     const { provider, entry, variant, key } = target
 
     let messages = buildMessages(turn)
-    const timeNote = sampleTimeContext()
-    if (timeNote) {
+    const turnNotes = [await environmentContext(), sampleTimeContext()].filter(
+      (note): note is string => note !== null
+    )
+    if (turnNotes.length > 0) {
       // Attach to the prompt's user message when there is one — two user
       // messages in a row make Anthropic reject the whole request.
+      const note = turnNotes.join('\n\n')
       const last = messages[messages.length - 1]
       if (last && last.role === 'user') {
-        last.content = `${last.content}\n\n${timeNote}`
+        last.content = `${last.content}\n\n${note}`
       } else {
-        messages.push({ role: 'user', content: timeNote })
+        messages.push({ role: 'user', content: note })
       }
     }
 

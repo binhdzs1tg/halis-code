@@ -2,6 +2,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import { join } from 'node:path'
+import { spawnSync } from 'node:child_process'
 import { computeHunks, fileDiff } from '../electron/main/agent/diff'
 import { RepeatGuard } from '../electron/main/agent/guard'
 import { extractFileRefs } from '../electron/main/agent/file-refs'
@@ -15,6 +16,7 @@ import { repairToolInput } from '../electron/main/agent/tool-input-repair'
 import { isSpillPath, readSpill, saveSpill, setSpillBaseForTests, truncateLongLines } from '../electron/main/agent/spill'
 import { assertEditable, observeRead, recordWrite, resetObservations } from '../electron/main/agent/observation'
 import { setWorkspaceRoot } from '../electron/main/workspace'
+import { clearGitInfoCache, getGitInfo } from '../electron/main/agent/git-info'
 
 let failures = 0
 function check(name: string, cond: boolean): void {
@@ -24,6 +26,17 @@ function check(name: string, cond: boolean): void {
   } else {
     console.log(`ok   ${name}`)
   }
+}
+
+function runSync(cmd: string, args: string[], cwd: string): void {
+  const result = spawnSync(cmd, args, { cwd, encoding: 'utf8' })
+  if (result.status !== 0) {
+    throw new Error(`${cmd} ${args.join(' ')} failed: ${result.stderr}`)
+  }
+}
+
+function isGitDir(dir: string): boolean {
+  return fs.existsSync(join(dir, '.git'))
 }
 
 /* ---------- diff ---------- */
@@ -399,6 +412,23 @@ try {
 }
 check('a missing file is a create and sails through', createAllowed)
 
+/* ---------- git info ---------- */
+async function gitChecks(): Promise<void> {
+  const gitDir = fs.mkdtempSync(join(os.tmpdir(), 'halis-git-test-'))
+  fs.writeFileSync(join(gitDir, 'a.txt'), 'hello\n', 'utf8')
+  runSync('git', ['init', '--quiet'], gitDir)
+  runSync('git', ['add', '.'], gitDir)
+  runSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '--quiet', '-m', 'init'], gitDir)
+  clearGitInfoCache()
+  const gitInfo = await getGitInfo(gitDir)
+  check(
+    'git info captures branch and commit',
+    gitInfo !== null && gitInfo.branch.length > 0 && gitInfo.branch !== 'HEAD' && /^[0-9a-f]{7,}$/.test(gitInfo.commit)
+  )
+  clearGitInfoCache()
+  check('non-repositories report no git info', (await getGitInfo(os.tmpdir())) === null || isGitDir(os.tmpdir()))
+}
+
 /* ---------- risky command assessment ---------- */
 check('rm -rf flagged', assessCommand('rm -rf node_modules') !== null)
 check('rm with leading flag flagged', assessCommand('rm -v -rf build_dir') !== null)
@@ -435,8 +465,10 @@ check('decoded pipe to shell flagged', assessCommand('echo cm0gLXJmIC8= | base64
 check('xargs sh flagged', assessCommand('find . -name "*.part" | xargs sh -c') !== null)
 check('truncate -s 0 flagged', assessCommand('truncate -s 0 important.conf') !== null)
 
-if (failures > 0) {
-  console.error(`\n${failures} failure(s)`)
-  process.exit(1)
-}
-console.log('\nall smoke tests passed')
+void gitChecks().then(() => {
+  if (failures > 0) {
+    console.error(`\n${failures} failure(s)`)
+    process.exit(1)
+  }
+  console.log('\nall smoke tests passed')
+})
