@@ -1,6 +1,6 @@
 /**
- * Model catalog types, ported from opencode's models.dev integration
- * (https://models.opencode.ai/api.json).
+ * Model catalog types for the models.dev integration
+ * (https://models.dev/api.json).
  *
  * The `Source*` shapes mirror the upstream snapshot one to one so new fields
  * keep flowing through without code changes; `ProviderEntry` / `ModelEntry`
@@ -97,7 +97,7 @@ export interface ModelCostTier {
   cacheWrite: number
 }
 
-/** USD per million tokens, zero-defaulted like opencode does. */
+/** USD per million tokens, zero-defaulted. */
 export interface ModelCost {
   input: number
   output: number
@@ -184,22 +184,27 @@ export function providerNeedsKey(provider: Pick<ProviderEntry, 'id' | 'env'>): b
 }
 
 /**
- * The opencode free tier serves its `-free` models (family `muse-free`)
- * unauthenticated, so they run without a key even though the provider
- * normally gatekeeps. Everything else follows the provider rule.
+ * The wire protocol a model speaks. Providers shipping an Anthropic SDK
+ * package expect Anthropic content blocks on `/messages`; everything else
+ * takes OpenAI-style chat completions — the same protocol split the
+ * DeepSeek Harness draws with its `openai-completions` / `anthropic-messages`
+ * adapters, derived from catalog data instead of a hand-listed table.
  */
-export function modelNeedsKey(
-  provider: Pick<ProviderEntry, 'id' | 'env'>,
-  model: Pick<ModelEntry, 'id' | 'family'>
-): boolean {
-  return providerNeedsKey(provider) && !(provider.id === 'opencode' && model.family === 'muse-free')
+export type ModelProtocol = 'openai-completions' | 'anthropic-messages'
+
+export function modelProtocol(
+  provider: Pick<ProviderEntry, 'id' | 'npm'>,
+  model: Pick<ModelEntry, 'npm'>
+): ModelProtocol {
+  return (model.npm || provider.npm) === '@ai-sdk/anthropic' ? 'anthropic-messages' : 'openai-completions'
 }
 
 /**
- * Out-of-the-box pick: strong, free, and served without an API key.
- * Applies whenever the user has not chosen a model yet.
+ * Out-of-the-box pick from the models.dev catalog: a strong model with a
+ * free tier, so a single key unlocks the first chat. Applies whenever the
+ * user has not chosen a model yet.
  */
 export const DEFAULT_MODEL: ModelSelection = {
-  providerID: 'opencode',
-  modelID: 'muse-spark-1.3-contributor-free'
+  providerID: 'zai',
+  modelID: 'glm-4.7-flash'
 }

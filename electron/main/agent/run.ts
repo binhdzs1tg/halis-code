@@ -15,7 +15,7 @@ import type {
   TodoItem,
   TodoUpdatedEvent
 } from '../../shared/types'
-import { modelNeedsKey, type ModelEntry, type ModelSelection, type ModelVariant, type ProviderEntry } from '../../shared/models'
+import { providerNeedsKey, type ModelEntry, type ModelSelection, type ModelVariant, type ProviderEntry } from '../../shared/models'
 import * as modelsCatalog from '../models-dev/catalog'
 import * as keyStore from '../keys/store'
 import { ProviderError, streamChat, type ProviderMessage } from './providers'
@@ -403,8 +403,8 @@ async function resolveModelTarget(
     }
   }
   const variant = entry.variants.find((item) => item.id === selection.variant) ?? null
-  // Local servers and the free tier take unauthenticated traffic; everyone else needs a key.
-  if (!modelNeedsKey(provider, entry)) {
+  // Local servers take unauthenticated traffic; everyone else needs a key.
+  if (!providerNeedsKey(provider)) {
     return { provider, entry, variant, key: { value: '' } }
   }
   const key = await keyStore.resolve(provider)

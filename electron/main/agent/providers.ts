@@ -1,6 +1,8 @@
 import type { ModelEntry, ModelVariant, ProviderEntry } from '../../shared/models'
+import { modelProtocol } from '../../shared/models'
+import { AZURE_API_VERSION, isUnsupported, resolveEndpoint, type Endpoint, type EndpointResolution } from './endpoints'
+
 import type { ToolSpec } from '../../shared/types'
-import { isUnsupported, resolveEndpoint, type Endpoint } from './endpoints'
 
 export interface ProviderToolCall {
   id: string
@@ -59,6 +61,26 @@ export class ProviderError extends Error {
 /** Anthropic requires the thinking budget to stay below max_tokens. */
 const ANTHROPIC_MIN_BUDGET = 1024
 
+/**
+ * Per-provider wire quirks, one table instead of scattered conditionals —
+ * the DeepSeek Harness `compat` profile pattern. Fields stay optional;
+ * everything falls back to the generic OpenAI-compatible behavior.
+ */
+interface ProviderCompat {
+  /** Field name carrying the output cap on chat completions. */
+  maxTokensField?: 'max_tokens' | 'max_completion_tokens'
+  /** Body shape a reasoning toggle maps to. */
+  thinkingFormat?: 'zai' | 'openrouter'
+}
+
+const PROVIDER_COMPAT: Record<string, ProviderCompat> = {
+  openai: { maxTokensField: 'max_completion_tokens' },
+  zai: { thinkingFormat: 'zai' },
+  openrouter: { thinkingFormat: 'openrouter' }
+}
+
+const compat = (providerId: string): ProviderCompat => PROVIDER_COMPAT[providerId] ?? {}
+
 export async function streamChat(request: ProviderStreamRequest): Promise<ProviderStreamResult> {
   if (isUnsupported(request.provider.id)) {
     throw new ProviderError(
@@ -67,7 +89,7 @@ export async function streamChat(request: ProviderStreamRequest): Promise<Provid
     )
   }
   try {
-    if (request.provider.id === 'anthropic') {
+    if (modelProtocol(request.provider, request.model) === 'anthropic-messages') {
       return await streamAnthropic(request)
     }
     return await streamOpenAiCompatible(request)
@@ -179,12 +201,9 @@ async function streamOpenAiCompatible(request: ProviderStreamRequest): Promise<P
     }))
     body.tool_choice = 'auto'
   }
-  // OpenAI's newer models reject the legacy max_tokens parameter.
-  if (request.provider.id === 'openai') {
-    body.max_completion_tokens = request.model.limit.output
-  } else {
-    body.max_tokens = request.model.limit.output
-  }
+  // The output cap field is a per-provider quirk: OpenAI's newer models
+  // reject the legacy max_tokens parameter.
+  body[compat(request.provider.id).maxTokensField ?? 'max_tokens'] = request.model.limit.output
   applyReasoning(body, request)
 
   const headers: Record<string, string> = { 'content-type': 'application/json' }
@@ -269,16 +288,10 @@ function openAiUrl(request: ProviderStreamRequest, endpoint: Endpoint): string {
   if (request.provider.id !== 'azure') {
     return `${endpoint.base}/chat/completions`
   }
-  const resource = process.env.AZURE_RESOURCE_NAME
-  if (!resource) {
-    throw new ProviderError(
-      'unsupported-provider',
-      'Azure needs the AZURE_RESOURCE_NAME env var to build its per-deployment endpoint.'
-    )
-  }
-  return `https://${resource}.openai.azure.com/openai/deployments/${encodeURIComponent(
+  // Azure routes through a per-deployment path on the resource root.
+  return `${endpoint.base}/deployments/${encodeURIComponent(
     request.model.id
-  )}/chat/completions?api-version=2025-04-01-preview`
+  )}/chat/completions?api-version=${AZURE_API_VERSION}`
 }
 
 /** Map catalog reasoning variants onto the OpenAI-compatible body shape. */
@@ -290,10 +303,13 @@ function applyReasoning(body: Record<string, unknown>, request: ProviderStreamRe
     return
   }
   if (variant.thinking) {
-    if (request.provider.id === 'zai') {
-      body.thinking = { type: 'enabled' }
-    } else if (request.provider.id === 'openrouter') {
-      body.reasoning = { enabled: true }
+    switch (compat(request.provider.id).thinkingFormat) {
+      case 'zai':
+        body.thinking = { type: 'enabled' }
+        break
+      case 'openrouter':
+        body.reasoning = { enabled: true }
+        break
     }
   }
 }
@@ -342,6 +358,11 @@ async function streamAnthropic(request: ProviderStreamRequest): Promise<Provider
   }
   if (request.apiKey) {
     headers['x-api-key'] = request.apiKey
+    // Anthropic-compatible gateways (MiniMax, Tinker, ...) authenticate with
+    // a Bearer token instead of x-api-key; both carry the same key.
+    if (request.provider.id !== 'anthropic') {
+      headers.authorization = `Bearer ${request.apiKey}`
+    }
   }
   Object.assign(headers, request.model.modeHeaders ?? {})
 
@@ -460,11 +481,15 @@ function defaultBudget(model: ModelEntry): number {
 /* ---------- shared plumbing ---------- */
 
 function requireEndpoint(provider: ProviderEntry, model: ModelEntry): Endpoint {
-  const endpoint = resolveEndpoint(provider, model)
-  if (!endpoint) {
-    throw new ProviderError('no-endpoint', `No API endpoint is known for ${provider.name}.`)
+  const resolution: EndpointResolution = resolveEndpoint(provider, model)
+  if (resolution.kind === 'ok') return resolution.endpoint
+  if (resolution.kind === 'missing-env') {
+    throw new ProviderError(
+      'no-endpoint',
+      `${provider.name} needs the ${resolution.variable} environment variable to build its endpoint.`
+    )
   }
-  return endpoint
+  throw new ProviderError('no-endpoint', `No API endpoint is known for ${provider.name}.`)
 }
 
 async function failResponse(response: Response, provider: ProviderEntry): Promise<never> {

@@ -19,7 +19,7 @@ import { StreamingMarkdown } from '../core/markdown-stream'
 import { stripAnsi } from '../core/ansi'
 import { openModelDialog } from './model-picker'
 import { openKeyDialog } from './key-dialog'
-import { modelNeedsKey } from '../../electron/shared/models'
+import { providerNeedsKey } from '../../electron/shared/models'
 
 let counter = 0
 
@@ -663,10 +663,10 @@ export function mountConversation(): HTMLElement {
       }
       selection = picked
 
-      // A provider gatekeeping its models gets its key dialog right here, the
-      // way opencode asks for credentials the first time a model needs them.
+      // A provider gatekeeping its models gets its key dialog right here,
+      // asking for credentials the first time a model needs them.
       const found = catalog.findModel(selection)
-      if (found && modelNeedsKey(found.provider, found.model)) {
+      if (found && providerNeedsKey(found.provider)) {
         await refreshKeyStatuses()
         if (!keyStatusOf(found.provider.id)) {
           running = false

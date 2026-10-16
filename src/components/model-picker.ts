@@ -1,7 +1,7 @@
 import { el, svg } from '../app/dom'
 import { icons } from '../app/icons'
 import { store } from '../app/store'
-import { modelNeedsKey, type ModelEntry, type ModelSelection, type ModelVariant, type ProviderEntry } from '../../electron/shared/models'
+import { providerNeedsKey, type ModelEntry, type ModelSelection, type ModelVariant, type ProviderEntry } from '../../electron/shared/models'
 import * as catalog from '../core/models/catalog'
 import { keyStatusOf, refreshKeyStatuses } from '../core/keys'
 import { openKeyDialog } from './key-dialog'
@@ -29,9 +29,9 @@ type Row = ModelRow | VariantRow | HeaderRow
 const FOOTER_HINTS = '↑↓ navigate · enter select · ctrl+f favorite · esc close'
 
 /**
- * Full-screen overlay dialog to pick a chat model, ported from opencode's
- * model dialog: fuzzy search, provider-grouped rows, favorites and recents,
- * a "Free" badge, and a variant step for reasoning effort levels.
+ * Full-screen overlay dialog to pick a chat model, in the style of the
+ * classic TUI model dialogs: fuzzy search, provider-grouped rows, favorites
+ * and recents, a "Free" badge, and a variant step for reasoning effort levels.
  */
 export function openModelDialog(): void {
   if (document.querySelector('.model-overlay')) return
@@ -67,10 +67,10 @@ export function openModelDialog(): void {
     catalog.rememberSelection(selection)
     store.update({ selectedModel: selection })
     close()
-    // Like opencode: a model whose provider has no key on file asks for one
-    // the moment it is picked.
+    // A model whose provider has no key on file asks for one the moment
+    // it is picked.
     const found = catalog.findModel(selection)
-    if (found && modelNeedsKey(found.provider, found.model)) {
+    if (found && providerNeedsKey(found.provider)) {
       void refreshKeyStatuses().then(() => {
         if (!keyStatusOf(found.provider.id) && !document.querySelector('.key-overlay')) {
           openKeyDialog()
@@ -237,7 +237,7 @@ export function openModelDialog(): void {
     if (catalog.isFree(model)) {
       node.appendChild(el('span', 'row-free', 'Free'))
     }
-    if (modelNeedsKey(row.provider, row.model) && !keyStatusOf(row.provider.id)) {
+    if (providerNeedsKey(row.provider) && !keyStatusOf(row.provider.id)) {
       const missingKey = el('span', 'row-key')
       missingKey.title = `${row.provider.name} needs an API key`
       missingKey.appendChild(svg(icons.key, 12))

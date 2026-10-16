@@ -4,9 +4,9 @@ import * as catalog from '../core/models/catalog'
 import { keyStatusOf, refreshKeyStatuses } from '../core/keys'
 
 /**
- * The provider key dialog, opencode-style: picking a model whose provider
- * has no key yet (or hitting a rejected key) pops this over the chat. Keys
- * never travel back to the renderer — only the status does.
+ * The provider key dialog: picking a model whose provider has no key yet
+ * (or hitting a rejected key) pops this over the chat. Keys never travel
+ * back to the renderer — only the status does.
  *
  * `onSaved` fires once after a key lands, so a deferred send can continue;
  * `onCancelled` fires when the dialog closes without one.

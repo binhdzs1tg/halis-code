@@ -15,10 +15,16 @@ approvals, skills — scaled down to a single-user desktop app.
   `edit_file`, `search`, `glob`, `grep`, `web_fetch`, `web_search`,
   `patch`, `ask_user`, `run_command`, `todo_write`, `skill`), live tool
   cards, plan todos and a message queue while a run is in flight. The tool
-  set borrows from opencode and DeepSeek Harness: glob finds files by
+  set borrows from DeepSeek Harness and Codex: glob finds files by
   pattern, grep regexes across them, patch applies multi-file Codex-style
   edits, the web tools reach outside the workspace, and ask_user puts a
   question card in the chat when a decision truly needs the human.
+- **Model catalog from models.dev**: 230+ providers and 8,000+ models ship
+  in a bundled snapshot, refreshed in the background with ETag-cached
+  revalidation. Wire protocols resolve from catalog data the way the
+  DeepSeek Harness routes them — Anthropic-SDK providers speak messages,
+  everyone else chat completions — and per-provider quirks (token cap
+  field, thinking body shape) live in one compat table.
 - **Context compaction** at 80% of the model's window with a 16% verbatim
   tail, tool-pair-safe cut points, a shrink check and an 8-section
   checkpoint summary — the same recipe as `compaction-basic`. Oversized old
@@ -69,15 +75,16 @@ npm run dev        # build + launch Electron
 ```
 
 Other scripts: `npm run typecheck`, `npm run build`, `npm run watch`,
+`npm run sync-models` (refresh the bundled models.dev snapshot),
 `npm run smoke` (algorithm smoke tests).
 
 Pick a model from the models.dev catalog through the composer's model
-pill. Halis boots with **Muse Spark 1.3 Free** (OpenCode) as the default —
-strong, free, and served without an API key, so the first chat works out
-of the box. The first time you pick a model whose provider does need a
-key, Halis pops a dialog asking for it — the key stays in the local vault
-and never leaves the machine. Local servers like LM Studio run without
-any key at all. Open a folder, and start talking.
+pill. Halis boots with **GLM 4.7 Flash** (Z.ai, free tier) as the default —
+strong and free, so a single key unlocks the first chat. The first time
+you pick a model whose provider needs a key, Halis pops a dialog asking
+for it — the key stays in the local vault and never leaves the machine.
+Local servers like LM Studio run without any key at all. Open a folder,
+and start talking.
 
 ## Layout
 

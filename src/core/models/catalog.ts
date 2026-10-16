@@ -5,8 +5,8 @@ const PREFS_KEY = 'halis.model-prefs'
 const RECENT_LIMIT = 10
 
 /**
- * Renderer-side mirror of opencode's model preference file:
- * recents (max 10), favorites, and the reasoning variant picked per model.
+ * Renderer-side model preferences: recents (max 10), favorites, and the
+ * reasoning variant picked per model.
  */
 export interface ModelPrefs {
   recent: ModelSelection[]
@@ -66,7 +66,7 @@ export function providers(): ProviderEntry[] {
   return [...(catalog?.providers ?? [])].sort((a, b) => a.name.localeCompare(b.name))
 }
 
-/** Free-first, newest-first ordering within a provider, like opencode's picker. */
+/** Free-first, newest-first ordering within a provider, like models.dev's picker. */
 export function sortModels(models: ModelEntry[]): ModelEntry[] {
   return [...models].sort((a, b) => {
     const free = Number(isFree(b)) - Number(isFree(a))
@@ -150,8 +150,8 @@ export function variantFor(selection: ModelSelection): string | undefined {
 }
 
 /**
- * Fallback chain like opencode's: last used model, else the built-in free
- * default, else the top of the sorted catalog.
+ * Fallback chain: last used model, else the built-in free default, else the
+ * top of the sorted catalog.
  */
 export function defaultSelection(): ModelSelection | null {
   const prefs = loadPrefs()
@@ -176,7 +176,7 @@ export function defaultSelection(): ModelSelection | null {
   return null
 }
 
-/** Label pieces for the composer, mirroring opencode's `model · provider`. */
+/** Label pieces for the composer: `model · provider`. */
 export function selectionLabel(selection: ModelSelection): string {
   const found = findModel(selection)
   return found ? found.model.name : selection.modelID
