@@ -175,6 +175,21 @@ const tailHunk = parsePatch(tailPatch)[0]
 const tailApplied = applyUpdate('log.txt', tailHunk?.type === 'update' ? tailHunk.chunks : [], tailSource)
 check('end of file anchors the last lines', tailApplied === 'first\nmiddle\nlast (edited)\n')
 
+const anchorPatch = [
+  '*** Begin Patch',
+  '*** Update File: f.txt',
+  '@@ two',
+  '+INSERTED',
+  '*** End Patch'
+].join('\n')
+const anchorHunk = parsePatch(anchorPatch)[0]
+const anchorApplied = applyUpdate('f.txt', anchorHunk?.type === 'update' ? anchorHunk.chunks : [], 'one\ntwo\nthree\nfour')
+check('context anchors a pure insertion', anchorApplied === 'one\ntwo\nINSERTED\nthree\nfour\n')
+
+const crlfSource = 'function a() {\r\n  console.log(\"Hello\")\r\n}\r\n'
+const crlfEdit = applyEditText(crlfSource, 'console.log("Hello")', 'console.log("Bye")', false)
+check('edit keeps crlf endings', crlfEdit.content === 'function a() {\r\n  console.log("Bye")\r\n}\r\n')
+
 const movePatch = [
   '*** Begin Patch',
   '*** Update File: a.ts',
@@ -219,6 +234,19 @@ check('forgiving tier rescues smart quotes', forgiving.content.includes('console
 const trailingSpace = 'line one   \nline two\n'
 const forgivingSpace = applyEditText(trailingSpace, 'line one', 'first line', false)
 check('forgiving tier rescues trailing whitespace', forgivingSpace.content.startsWith('first line'))
+
+const twinSource = 'function a() {\n console.log("hi")\n}\nfunction b() {\n console.log("hi")\n}\n'
+let forgivingAmbiguityRejected = false
+try {
+  applyEditText(twinSource, 'console.log(“hi”)', 'console.log("bye")', false)
+} catch {
+  forgivingAmbiguityRejected = true
+}
+check('forgiving tier refuses ambiguous windows', forgivingAmbiguityRejected)
+
+const crlfTwin = 'a\r\nB\r\nc\r\n'
+const crlfForgiving = applyEditText(crlfTwin, ' B', 'C', false)
+check('forgiving tier keeps crlf endings', crlfForgiving.content === 'a\r\nC\r\nc\r\n')
 
 let identicalRejected = false
 try {

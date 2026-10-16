@@ -288,8 +288,11 @@ function computeReplacements(
       lineIndex = context + 1
     }
     if (chunk.oldLines.length === 0) {
-      // Pure insertion: append at the end of the file.
-      replacements.push([lines.length, 0, chunk.newLines])
+      // Pure insertion: right after the located context when one was
+      // given, otherwise append at the end of the file.
+      const at = chunk.changeContext !== undefined ? lineIndex : lines.length
+      const anchor = chunk.changeContext !== undefined ? lines[lineIndex - 1] : lines[lines.length - 1]
+      replacements.push([at, 0, withLocalEndings(chunk.newLines, anchor)])
       continue
     }
     let oldLines = chunk.oldLines
@@ -310,10 +313,18 @@ function computeReplacements(
     if (found === -1) {
       throw new Error(`Failed to find expected lines in ${path}:\n${chunk.oldLines.join('\n')}`)
     }
-    replacements.push([found, oldLines.length, newLines])
+    replacements.push([found, oldLines.length, withLocalEndings(newLines, lines[found])])
     lineIndex = found + oldLines.length
   }
   return replacements.sort((left, right) => left[0] - right[0])
+}
+
+/** Patch hunks are LF; the file may be CRLF. Re-encode inserted lines with
+ *  the endings of the text they replace or follow so a patch never mixes
+ *  line endings inside one file. */
+function withLocalEndings(insert: string[], anchor: string | undefined): string[] {
+  if (anchor === undefined || !anchor.endsWith('\r')) return insert
+  return insert.map((line) => (line.endsWith('\r') ? line : `${line}\r`))
 }
 
 function seek(lines: string[], pattern: string[], start: number, eof: boolean): number {

@@ -77,7 +77,10 @@ export async function runPatchTool(input: Record<string, unknown>): Promise<Tool
       if (exists) {
         throw new Error(`Cannot add "${hunk.path}" — the file already exists.`)
       }
-      planned.push({ hunk, before: null, after: hunk.contents, finalPath: hunk.path })
+      // Text files end with a newline; an empty Add File stays empty.
+      const contents =
+        hunk.contents.length > 0 && !hunk.contents.endsWith('\n') ? `${hunk.contents}\n` : hunk.contents
+      planned.push({ hunk, before: null, after: contents, finalPath: hunk.path })
       continue
     }
     if (!exists) {

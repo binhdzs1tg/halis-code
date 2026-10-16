@@ -45,7 +45,8 @@ export function applyEditText(content: string, oldText: string, newText: string,
 
   // Forgiving tier: compare line windows with whitespace trimmed and
   // typographic punctuation folded — the rescue for patches written in
-  // rich editors.
+  // rich editors. Like the exact tier, an ambiguous window is refused
+  // rather than silently edited at the first match.
   const contentLines = content.split('\n')
   const oldLines = oldText.split('\n')
   const newLines = newText.split('\n')
@@ -53,25 +54,42 @@ export function applyEditText(content: string, oldText: string, newText: string,
   if (windowCount === 0 || windowCount > contentLines.length) {
     throw notFound()
   }
-  for (let start = 0; start <= contentLines.length - windowCount; start += 1) {
-    let matches = true
+  const windowMatches = (start: number): boolean => {
     for (let i = 0; i < windowCount; i += 1) {
       const left = contentLines[start + i] ?? ''
       const right = oldLines[i] ?? ''
       if (normalizeForMatch(left.trim()) !== normalizeForMatch(right.trim())) {
-        matches = false
-        break
+        return false
       }
     }
-    if (!matches) continue
-    contentLines.splice(start, windowCount, ...newLines)
-    return {
-      content: contentLines.join('\n'),
-      note: 'Matched after normalizing whitespace and punctuation; re-read the file before further edits.',
-      count: 1
-    }
+    return true
   }
-  throw notFound()
+  let matchCount = 0
+  let start = -1
+  for (let offset = 0; offset <= contentLines.length - windowCount; offset += 1) {
+    if (!windowMatches(offset)) continue
+    matchCount += 1
+    if (start === -1) start = offset
+  }
+  if (matchCount === 0) throw notFound()
+  if (matchCount > 1) {
+    throw new Error(
+      `old_text matches ${matchCount} places after normalizing whitespace and punctuation. ` +
+        'Add surrounding lines to make it unique.'
+    )
+  }
+  // The replacement text arrives with \n; the matched window may carry the
+  // file's \r — keep the endings the file already uses.
+  const first = contentLines[start] ?? ''
+  const replacement = first.endsWith('\r')
+    ? newLines.map((line) => (line.endsWith('\r') ? line : `${line}\r`))
+    : newLines
+  contentLines.splice(start, windowCount, ...replacement)
+  return {
+    content: contentLines.join('\n'),
+    note: 'Matched after normalizing whitespace and punctuation; re-read the file before further edits.',
+    count: 1
+  }
 }
 
 function notFound(): Error {
