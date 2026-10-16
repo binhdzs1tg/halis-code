@@ -12,8 +12,13 @@ approvals, skills — scaled down to a single-user desktop app.
 ## Highlights
 
 - **Streaming agent** with tool use (`list_dir`, `read_file`, `write_file`,
-  `edit_file`, `search`, `run_command`, `todo_write`, `skill`), live tool
-  cards, plan todos and a message queue while a run is in flight.
+  `edit_file`, `search`, `glob`, `grep`, `web_fetch`, `web_search`,
+  `patch`, `ask_user`, `run_command`, `todo_write`, `skill`), live tool
+  cards, plan todos and a message queue while a run is in flight. The tool
+  set borrows from opencode and DeepSeek Harness: glob finds files by
+  pattern, grep regexes across them, patch applies multi-file Codex-style
+  edits, the web tools reach outside the workspace, and ask_user puts a
+  question card in the chat when a decision truly needs the human.
 - **Context compaction** at 80% of the model's window with a 16% verbatim
   tail, tool-pair-safe cut points, a shrink check and an 8-section
   checkpoint summary — the same recipe as `compaction-basic`. Oversized old

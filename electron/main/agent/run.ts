@@ -37,10 +37,14 @@ const SYSTEM_PROMPT = [
   'Be concise and practical; prefer working code over prose.',
   'Use Markdown and tag fenced code blocks with their language.',
   'When tools are available, work with the open folder instead of guessing:',
-  'list_dir and read_file to explore, search to locate code, edit_file or write_file',
-  'to change files, run_command to build, test or inspect. Read a file before editing',
-  'it and keep changes small and focused. For multi-step work, keep a plan with',
-  'todo_write and update it as you go. If no folder is open, ask the user to open one.'
+  'list_dir, read_file and glob to explore, search or grep to locate code,',
+  'edit_file or write_file for single changes, patch when several files change',
+  'at once, run_command to build, test or inspect. Read a file before editing',
+  'it and keep changes small and focused. For multi-step work, keep a plan',
+  'with todo_write and update it as you go. Fetch web pages with web_fetch and',
+  'search the web with web_search when the task needs outside facts. Ask the',
+  'user with ask_user only when the next step truly needs their call. If no',
+  'folder is open, ask the user to open one.'
 ].join('\n')
 
 /**
