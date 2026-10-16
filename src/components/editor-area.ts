@@ -270,23 +270,40 @@ function reconcile(area: HTMLElement, touched: TouchedFile): void {
   const state = store.get()
 
   if (touched.change === 'rename' && touched.from) {
-    if (state.openFiles.includes(touched.from)) {
-      const openFiles = state.openFiles.map((item) => (item === touched.from ? touched.path : item))
-      if (unsaved.has(touched.from)) {
-        unsaved.set(touched.path, unsaved.get(touched.from) as string)
-        unsaved.delete(touched.from)
+    // A folder rename moves every open file underneath it; remap all of
+    // them plus their unsaved buffers, or a stale tab recreates the old
+    // tree on its next save.
+    const prefix = `${touched.from}/`
+    const remap = (item: string): string => {
+      if (item === touched.from) return touched.path
+      return item.startsWith(prefix) ? `${touched.path}/${item.slice(prefix.length)}` : item
+    }
+    if (state.openFiles.some((item) => item === touched.from || item.startsWith(prefix))) {
+      const openFiles = state.openFiles.map(remap)
+      for (const [key, value] of [...unsaved]) {
+        const mapped = remap(key)
+        if (mapped !== key) {
+          unsaved.delete(key)
+          unsaved.set(mapped, value)
+        }
       }
       store.update({
         openFiles,
-        openFile: state.openFile === touched.from ? touched.path : state.openFile
+        openFile: state.openFile ? remap(state.openFile) : state.openFile
       })
       return
     }
   }
 
-  if (touched.change === 'delete' && state.openFiles.includes(touched.path)) {
-    closeTab(touched.path, true)
-    return
+  if (touched.change === 'delete') {
+    // Same for a folder delete: every tab under the deleted path closes,
+    // unsaved buffer included.
+    const prefix = `${touched.path}/`
+    const doomed = state.openFiles.filter((item) => item === touched.path || item.startsWith(prefix))
+    for (const path of doomed) {
+      closeTab(path, true)
+    }
+    if (doomed.length > 0) return
   }
 
   // A rewritten file that is on screen and clean: reload it in place.
