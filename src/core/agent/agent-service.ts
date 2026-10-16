@@ -51,22 +51,26 @@ export interface AgentStreamHandlers {
  */
 export class AgentService {
   private activeRunId: string | null = null
+  /** Set synchronously before the sendChat await closes the race window. */
+  private starting = false
 
   get running(): boolean {
-    return this.activeRunId !== null
+    return this.activeRunId !== null || this.starting
   }
 
   async run(request: AgentTurnRequest, handlers?: AgentStreamHandlers): Promise<string> {
-    if (this.activeRunId) {
+    if (this.activeRunId || this.starting) {
       throw new AgentError('busy', 'The agent is already answering — stop it first', '')
     }
-
+    this.starting = true
     let runId: string
     try {
       const started = await window.halis.sendChat(request)
       runId = started.runId
     } catch (err) {
       throw new AgentError('bridge', err instanceof Error ? err.message : String(err), '')
+    } finally {
+      this.starting = false
     }
     this.activeRunId = runId
 

@@ -807,18 +807,7 @@ export function mountConversation(): HTMLElement {
       if (liveTodos.length > 0) assistant.todos = [...liveTodos]
       node.replaceWith(renderMessage(assistant))
       void persist()
-      // A settled run clears any question card a cancelled tool left behind.
-      if (pendingQuestion) clearQuestionCard()
-
-      // A settled run pulls the next queued message, unless the run was
-      // stopped by hand — then the queue waits for an explicit go.
-      if (!stoppedManually && queue.length > 0) {
-        const next = queue.shift()
-        paintQueue()
-        if (next) {
-          window.setTimeout(() => void send(next), 30)
-        }
-      }
+      drainQueue(sessionId)
     } catch (err) {
       // Drop the placeholder by identity — a compaction notice may have
       // landed after it, and popping the last message would strand an empty
@@ -850,16 +839,38 @@ export function mountConversation(): HTMLElement {
         appendSystemNote(agentErr ? agentErr.message : `Something went wrong: ${err instanceof Error ? err.message : String(err)}`)
         store.update({ agentStatus: 'error' })
       }
+      // A failed run still pulls the next queued message — the queue is
+      // work the user asked to send, not a retry of the failed one.
+      if (agentErr?.code !== 'aborted') drainQueue(sessionId)
     } finally {
       if (frame) cancelAnimationFrame(frame)
       running = false
       composer.setRunning(false)
       hideRunningRow()
       clearApprovalCard()
+      // Every settled run — success, error or cancel — clears any ask_user
+      // card a tool left behind; the run that owned it is gone.
+      clearQuestionCard()
       if (store.get().agentStatus !== 'error') {
         store.update({ agentStatus: 'idle' })
       }
       scrollToBottom(scroll)
+    }
+  }
+
+  /** Pull the next queued message after a settled run. The session-id
+   *  guard keeps a scheduled send from landing in a chat the user just
+   *  switched away from during the handoff window. */
+  const drainQueue = (atSettle: string | null): void => {
+    if (stoppedManually) return
+    if (queue.length === 0) return
+    const next = queue.shift()
+    paintQueue()
+    if (next) {
+      window.setTimeout(() => {
+        if (sessionId !== atSettle) return
+        void send(next)
+      }, 30)
     }
   }
 
