@@ -12,6 +12,7 @@ import { applyLoginShellEnvironment } from './login-shell-env'
 import { shutdown as shutdownTerminals } from './terminal'
 import { configureSpillStore } from './agent/spill'
 import { configureJobStore } from './agent/jobs'
+import { stopAllMcpServers, syncMcpServers } from './agent/mcp'
 
 const gotLock = app.requestSingleInstanceLock()
 installCrashHandlers()
@@ -35,6 +36,9 @@ if (!gotLock) {
   configureSpillStore(app.getPath('userData'))
   // Background command jobs keep their output files here.
   configureJobStore(app.getPath('userData'))
+  // MCP servers from ~/.halis/mcp.json come up now so their tools are
+  // listed before the first chat turn pays for the handshake.
+  void syncMcpServers()
 
   // Terminal and agent spawns read `process.env` per command, so merging the
   // login shell env late is harmless — everything started afterwards benefits.
@@ -80,6 +84,7 @@ if (!gotLock) {
     // Orphaned shells outlive the window otherwise; the quit dialog promised
     // quitting would interrupt them.
     shutdownTerminals()
+    stopAllMcpServers()
     destroyTray()
   })
 }

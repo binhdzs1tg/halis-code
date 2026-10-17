@@ -10,8 +10,8 @@ Instructions for coding agents (and humans) working on Halis Code.
 - `npm run smoke` — algorithm smoke tests (diff, guard, file refs, risk
   heuristics, glob matching, grep, html conversion, patch parsing, edit
   matching, tool input repair, spill, the read-before-edit gate, git info,
-  background jobs). Run it after touching anything under
-  `electron/main/agent/`.
+  background jobs, subagents, the mcp client). Run it after touching
+  anything under `electron/main/agent/`.
 
 ## Conventions
 
@@ -41,3 +41,7 @@ Instructions for coding agents (and humans) working on Halis Code.
 - Destructive shell commands ask the user for a one-shot approval. Do not
   add command allowlists; extend `electron/main/agent/risky.ts` if a class
   of commands deserves scrutiny.
+- MCP servers are declared in `~/.halis/mcp.json` (stdio `command`/`args`/
+  `env` per server) and surface as `mcp__<server>__<tool>`. Only the
+  user-level file is read — a workspace copy would let the agent grant
+  itself commands.

@@ -33,6 +33,18 @@ import {
   startBackgroundJob,
   tailChars
 } from '../electron/main/agent/jobs'
+import {
+  callMcpTool,
+  flattenMcpContent,
+  mcpConnectionCount,
+  mcpToolName,
+  mcpToolSpecs,
+  parseMcpConfig,
+  sanitizeMcpName,
+  setMcpConfigFileForTests,
+  stopAllMcpServers,
+  syncMcpServers
+} from '../electron/main/agent/mcp'
 import type { JobNoticeEvent } from '../electron/shared/types'
 
 let failures = 0
@@ -527,6 +539,74 @@ function subagentChecks(): void {
   check('task result is framed', envelope.startsWith('<task-result>') && envelope.endsWith('</task-result>'))
 }
 
+/* ---------- mcp ---------- */
+/** A stand-in MCP server: node -e script speaking newline-delimited JSON-RPC. */
+const FAKE_SERVER = [
+  "process.stdin.setEncoding('utf8')",
+  "let buf = ''",
+  "process.stdin.on('data', (c) => {",
+  "  buf += c",
+  "  let i",
+  "  while ((i = buf.indexOf('\\n')) !== -1) {",
+  "    const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1)",
+  "    if (line) handle(JSON.parse(line))",
+  "  }",
+  "})",
+  "function reply(id, result) { process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id, result }) + '\\n') }",
+  "function handle(msg) {",
+  "  if (msg.method === 'initialize') reply(msg.id, { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fake', version: '1.0.0' } })",
+  "  else if (msg.method === 'tools/list') reply(msg.id, { tools: [{ name: 'echo', description: 'echo the text back', inputSchema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } }] })",
+  "  else if (msg.method === 'tools/call') reply(msg.id, { content: [{ type: 'text', text: 'echo: ' + msg.params.arguments.text }] })",
+  "}"
+].join('\n')
+
+async function mcpChecks(): Promise<void> {
+  const missing = parseMcpConfig({})
+  check('mcp config wants an mcpServers object', missing.errors.length === 1 && Object.keys(missing.servers).length === 0)
+  const bad = parseMcpConfig({ mcpServers: { a: {}, b: { command: 'x', args: [1] }, c: { command: 'y', disabled: true } } })
+  check('mcp entries need a command', bad.errors.some((e) => e.startsWith('a:')))
+  check('mcp args must be strings', bad.errors.some((e) => e.startsWith('b:')))
+  check('disabled mcp servers are skipped', !('c' in bad.servers))
+  const good = parseMcpConfig({ mcpServers: { srv: { command: 'npx', args: ['-y', 'x'], env: { K: 'v' }, toolTimeoutMs: 999_999 } } })
+  check('valid mcp entry parses', good.errors.length === 0 && good.servers.srv?.command === 'npx')
+  check('mcp tool timeout is capped', good.servers.srv?.toolTimeoutMs === 300_000)
+
+  check('mcp names are sanitized', sanitizeMcpName('my server!') === 'my_server_')
+  check('mcp tool names carry the prefix', mcpToolName('github', 'create issue') === 'mcp__github__create_issue')
+  const flat = flattenMcpContent({
+    content: [
+      { type: 'text', text: 'a' },
+      { type: 'image', data: 'xx', mimeType: 'image/png' },
+      { type: 'text', text: 'b' }
+    ]
+  })
+  check('text blocks are joined', flat.text.includes('a') && flat.text.includes('b') && !flat.isError)
+  check('binary blocks are counted', flat.text.includes('[1 binary block omitted]'))
+  const errFlat = flattenMcpContent({ content: [{ type: 'text', text: 'boom' }], isError: true })
+  check('mcp isError survives flattening', errFlat.isError && errFlat.text === 'boom')
+  const structured = flattenMcpContent({ content: [], structuredContent: { rows: 2 } })
+  check('structured content rides along', structured.text.includes('"rows"'))
+
+  // Live handshake against the fake stdio server, config file and all.
+  const configDir = fs.mkdtempSync(join(os.tmpdir(), 'halis-mcp-test-'))
+  const file = join(configDir, 'mcp.json')
+  fs.writeFileSync(file, JSON.stringify({ mcpServers: { fake: { command: process.execPath, args: ['-e', FAKE_SERVER] } } }))
+  setMcpConfigFileForTests(file)
+  await syncMcpServers()
+  const specs = mcpToolSpecs()
+  const echo = specs.find((spec) => spec.name === 'mcp__fake__echo')
+  check('fake mcp server offers its tool', echo !== undefined)
+  check('mcp spec names its server', (echo?.description ?? '').includes('[fake]'))
+  const called = await callMcpTool('mcp__fake__echo', { text: 'hi there' })
+  check('mcp tool round-trips', called.ok && called.output.includes('echo: hi there'))
+  const unknown = await callMcpTool('mcp__fake__nope', {})
+  check('missing mcp tools report clearly', !unknown.ok && unknown.output.includes('not available'))
+  check('one mcp connection is up', mcpConnectionCount() === 1)
+  stopAllMcpServers()
+  check('mcp connections stop cleanly', mcpConnectionCount() === 0)
+  setMcpConfigFileForTests(null)
+}
+
 /* ---------- background jobs ---------- */
 async function jobChecks(): Promise<void> {
   const jobDir = fs.mkdtempSync(join(os.tmpdir(), 'halis-jobs-test-'))
@@ -577,6 +657,7 @@ void gitChecks()
   .then(() => {
     subagentChecks()
   })
+  .then(() => mcpChecks())
   .then(() => jobChecks())
   .then(() => {
     if (failures > 0) {

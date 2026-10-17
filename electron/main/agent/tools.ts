@@ -22,6 +22,7 @@ import { applyEditText } from './edit-text'
 import { repairToolInput } from './tool-input-repair'
 import { readSpill, saveSpill, truncateLongLines } from './spill'
 import { assertEditable, observeRead, recordWrite } from './observation'
+import { callMcpTool, mcpSchemaFor, MCP_TOOL_PREFIX } from './mcp'
 import {
   activateJob,
   allocateJob,
@@ -336,7 +337,7 @@ export async function runTool(
   try {
     // Weak models emit numeric strings, stringified JSON and null
     // placeholders; coerce against the schema before the switch sees them.
-    const input = repairToolInput(call.input, parametersFor(call.name))
+    const input = repairToolInput(call.input, parametersFor(call.name) ?? mcpSchemaFor(call.name))
     // Every clamped result may spill its full text to disk first.
     const cl = (pending: Promise<ToolOutcome> | ToolOutcome): Promise<ToolOutcome> =>
       Promise.resolve(pending).then((outcome) => clamp(outcome, call))
@@ -372,6 +373,10 @@ export async function runTool(
       case SKILL_TOOL_NAME:
         return cl(runSkillTool(input))
       default:
+        // Everything the model sees beyond this list is an MCP tool.
+        if (call.name.startsWith(MCP_TOOL_PREFIX)) {
+          return cl(await callMcpTool(call.name, input))
+        }
         return { ok: false, output: `Unknown tool "${call.name}".` }
     }
   } catch (err) {

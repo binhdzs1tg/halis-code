@@ -30,6 +30,7 @@ import { askApproval, dropApprovalsForRun, askUserQuestion } from './approval'
 import { getGitInfo } from './git-info'
 import { setJobSink } from './jobs'
 import { runTaskTool, TASK_TOOL_NAME } from './subagent'
+import { mcpToolSpecs, syncMcpServers } from './mcp'
 import { getWorkspaceRoot } from '../workspace'
 
 const MAX_HISTORY_MESSAGES = 40
@@ -307,7 +308,10 @@ async function execute(
 
     const system = buildSystemPrompt()
     const guard = new RepeatGuard()
-    const specs = toolSpecs()
+    // MCP servers are diffed against ~/.halis/mcp.json here: unchanged ones
+    // keep running, a new config pays its startup cost before the first token.
+    await syncMcpServers()
+    const specs = [...toolSpecs(), ...mcpToolSpecs()]
     const hooks: ToolHooks = {
       requestApproval: (command, callId) => askApproval(runId, callId, command, win),
       requestUserQuestion: (question, options, multiple, callId) =>
