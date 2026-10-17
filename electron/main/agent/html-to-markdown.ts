@@ -66,6 +66,10 @@ const STRIPPED_TAGS = new Set([
   'script', 'style', 'noscript', 'template', 'iframe', 'object', 'embed', 'svg'
 ])
 
+/** Raw-text elements: their content cannot nest (spec), so a skip ends at
+ *  the first close tag of the name instead of counting open tags. */
+const RAW_TEXT_TAGS = new Set(['script', 'style'])
+
 /** Guard rails against degenerate markup; beyond these the page wins. */
 const MAX_TOKENS = 200_000
 const MAX_DEPTH = 512
@@ -250,7 +254,13 @@ function render(html: string, mode: Mode): string {
   const inCode = (): boolean => stack.some((frame) => frame.tag === 'code' || frame.tag === 'kbd' || frame.tag === 'samp')
 
   const flushInline = (): string => {
-    const text = inline.join('').replace(/\s+/g, ' ').trim()
+    const text = inline
+      .join('')
+      // Whitespace collapses first, then hard-break markers (a page cannot
+      // put a NUL in the buffer — it is stripped at token intake).
+      .replace(/\s+/g, ' ')
+      .replace(/\u0000/g, '\n')
+      .trim()
     inline.length = 0
     return text
   }
@@ -355,7 +365,9 @@ function render(html: string, mode: Mode): string {
   const closeCell = (header: boolean): void => {
     const frame = table
     if (!frame || frame.row === null) return
-    const text = flushInline().replace(/\s+/g, ' ').trim()
+    // A <br> inside a cell becomes a space — a newline would break the
+    // pipe row it lands in.
+    const text = flushInline().replace(/\n/g, ' ').replace(/\s+/g, ' ').trim()
     frame.row.push(text)
     frame.rowHeader.push(header)
     const pad = frame.colspanPad.shift() ?? 0
@@ -366,7 +378,14 @@ function render(html: string, mode: Mode): string {
 
   for (const token of tokenize(html)) {
     if (skipTag) {
-      if (token.kind === 'tag' && token.name === skipTag) {
+      if (RAW_TEXT_TAGS.has(skipTag)) {
+        // script/style bodies are raw text: a literal "<script>" inside the
+        // JS must not raise the depth and swallow real page content, so the
+        // first close of the name ends the skip.
+        if (token.kind === 'tag' && token.closing && token.name === skipTag) {
+          skipTag = null
+        }
+      } else if (token.kind === 'tag' && token.name === skipTag) {
         if (token.closing) {
           skipDepth -= 1
           if (skipDepth === 0) skipTag = null
@@ -388,19 +407,7 @@ function render(html: string, mode: Mode): string {
         continue
       }
       if (token.kind === 'tag' && token.closing && token.name === 'pre') {
-        // Fence sizing: never collide with a backtick run in the content.
-        const runs = preText.match(/`+/g) ?? []
-        const longest = runs.reduce((max, run) => Math.max(max, run.length), 0)
-        const fence = '`'.repeat(Math.max(3, longest + 1))
-        const body = preText.replace(/^\n/, '').replace(/\n$/, '')
-        if (mode === 'markdown') {
-          emitBlock(`${fence}${preLanguage}\n${body}\n${fence}`)
-        } else {
-          emitBlock(body)
-        }
-        preFrame = null
-        preText = ''
-        preLanguage = ''
+        flushPre()
         continue
       }
       continue
@@ -429,7 +436,9 @@ function render(html: string, mode: Mode): string {
     }
 
     if (name === 'br') {
-      inline.push('\n')
+      // Marker rides through flushInline's whitespace collapse; page text
+      // cannot contain NUL, so this is unambiguous.
+      inline.push('\u0000')
       continue
     }
     if (name === 'hr') {
@@ -463,12 +472,32 @@ function render(html: string, mode: Mode): string {
   if (currentList()) {
     while (lists.length > 0) closeList()
   }
+  // A page truncated inside <pre> (bounded fetches) or markup that never
+  // closes it must not silently drop everything it held.
+  if (preFrame) flushPre()
   emitBlock(flushInline())
 
   const joined = blocks.join('\n\n')
   return joined.replace(/\n{3,}/g, '\n\n').trim()
 
   /* ---- tag open/close, hoisted for the loop's readability ---- */
+
+  function flushPre(): void {
+    if (!preFrame) return
+    // Fence sizing: never collide with a backtick run in the content.
+    const runs = preText.match(/`+/g) ?? []
+    const longest = runs.reduce((max, run) => Math.max(max, run.length), 0)
+    const fence = '`'.repeat(Math.max(3, longest + 1))
+    const body = preText.replace(/^\n/, '').replace(/\n$/, '')
+    if (mode === 'markdown') {
+      emitBlock(`${fence}${preLanguage}\n${body}\n${fence}`)
+    } else {
+      emitBlock(body)
+    }
+    preFrame = null
+    preText = ''
+    preLanguage = ''
+  }
 
   function openTag(name: string, token: TagToken): void {
     if (stack.length > MAX_DEPTH) return
@@ -571,7 +600,7 @@ function render(html: string, mode: Mode): string {
     if (name === 'a') {
       const href = frame.attrs['href'] ?? ''
       wrapMarked(frame, (content) => {
-        const text = content.replace(/\s+/g, ' ').trim()
+        const text = content.replace(/\u0000/g, ' ').replace(/\s+/g, ' ').trim()
         if (mode !== 'markdown' || !href || !/^https?:/i.test(href)) return text
         return text.length > 0 ? `[${text}](${href})` : ''
       })

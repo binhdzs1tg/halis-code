@@ -133,9 +133,10 @@ export function globFiles(pattern: string, scope: string, limit: number): GlobRe
   const regexes = expandBraces(pattern).map((candidate) => globToRegExp(candidate))
   const hits: { rel: string; mtime: number }[] = []
   let visited = 0
+  let capped = false
 
   const walk = (dir: string, rel: string): void => {
-    if (visited > MAX_VISITED) return
+    if (capped) return
     let entries: fs.Dirent[]
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true })
@@ -143,16 +144,27 @@ export function globFiles(pattern: string, scope: string, limit: number): GlobRe
       return
     }
     for (const entry of entries) {
-      if (visited > MAX_VISITED) return
+      if (capped) return
       if (entry.name.startsWith('.') || SKIP_DIRS.has(entry.name)) continue
       const childRel = rel ? `${rel}/${entry.name}` : entry.name
       const childAbs = path.join(dir, entry.name)
       if (entry.isDirectory()) {
+        // Directories count too: a tree of millions of empty dirs must not
+        // recurse forever just because no file ever matches.
+        visited += 1
+        if (visited > MAX_VISITED) {
+          capped = true
+          return
+        }
         walk(childAbs, childRel)
         continue
       }
       if (!entry.isFile()) continue
       visited += 1
+      if (visited > MAX_VISITED) {
+        capped = true
+        return
+      }
       // The pattern is relative to the search folder: with a scope, the
       // scope-relative remainder matches too ('*.ts' finds src/a.ts).
       const remainder =
@@ -172,7 +184,9 @@ export function globFiles(pattern: string, scope: string, limit: number): GlobRe
   walk(root, normalizedScope)
 
   hits.sort((a, b) => b.mtime - a.mtime || a.rel.localeCompare(b.rel))
-  const truncated = hits.length > limit
+  // A tripped walk guard means the result list is incomplete — say so
+  // instead of silently returning a subset.
+  const truncated = hits.length > limit || capped
   return { paths: hits.slice(0, limit).map((hit) => hit.rel), truncated }
 }
 

@@ -107,7 +107,16 @@ export async function grepWorkspace(
     throw new Error(`"${scope}" does not exist in the workspace.`)
   }
   if (rootStat.isFile()) {
-    if (include && !matchesInclude(include, path.basename(scope))) {
+    // Same size discipline as the walk: a worker reading a multi-GB file
+    // into one string is a memory bomb, not a search.
+    if (rootStat.size > MAX_FILE_SIZE) {
+      return { hits: [], truncated: false }
+    }
+    if (
+      include &&
+      !matchesInclude(include, scope) &&
+      !matchesInclude(include, path.basename(scope))
+    ) {
       return { hits: [], truncated: false }
     }
     const outcome = await scanWithWorker([{ abs: root, rel: scope }], regex, limit)
