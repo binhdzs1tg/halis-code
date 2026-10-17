@@ -15,6 +15,20 @@ export interface EditResult {
 }
 
 /**
+ * Keep the file's line endings when the replacement text carries the other
+ * kind — an exact match inside a CRLF file must not write lone \n lines into
+ * it (mixed endings, git churn). The match context decides, falling back to
+ * the file when old_text has no newline of its own.
+ */
+function withLocalEndings(content: string, oldText: string, newText: string): string {
+  if (!newText.includes('\n')) return newText
+  const sample = oldText.includes('\n') ? oldText : content
+  if (sample.includes('\r\n')) return newText.replace(/\r?\n/g, '\r\n')
+  if (!sample.includes('\r')) return newText.replace(/\r?\n/g, '\n')
+  return newText
+}
+
+/**
  * Replace oldText with newText. Without replaceAll the old text must match
  * exactly once (or once after normalization); with it, every exact
  * occurrence goes. Errors carry the remediation the model needs.
@@ -25,12 +39,12 @@ export function applyEditText(content: string, oldText: string, newText: string,
   }
   const exactCount = countOccurrences(content, oldText)
   if (exactCount > 0 && replaceAll) {
-    return { content: content.split(oldText).join(newText), count: exactCount }
+    return { content: content.split(oldText).join(withLocalEndings(content, oldText, newText)), count: exactCount }
   }
   if (exactCount === 1) {
     const index = content.indexOf(oldText)
     return {
-      content: content.slice(0, index) + newText + content.slice(index + oldText.length),
+      content: content.slice(0, index) + withLocalEndings(content, oldText, newText) + content.slice(index + oldText.length),
       count: 1
     }
   }
@@ -47,9 +61,18 @@ export function applyEditText(content: string, oldText: string, newText: string,
   // typographic punctuation folded — the rescue for patches written in
   // rich editors. Like the exact tier, an ambiguous window is refused
   // rather than silently edited at the first match.
+  //
+  // A trailing "\n" yields a phantom '' element that stands for the final
+  // newline, not a content line. Pop it on all three sides or a window can
+  // "match" the last real line plus the phantom — eating the file's final
+  // newline and, on CRLF files, re-encoding it into a stray \r line.
+  const hadFinalNewline = content.endsWith('\n')
   const contentLines = content.split('\n')
+  if (hadFinalNewline) contentLines.pop()
   const oldLines = oldText.split('\n')
-  const newLines = newText.split('\n')
+  if (oldLines.length > 1 && oldText.endsWith('\n')) oldLines.pop()
+  const newLines = newText === '' ? [] : newText.split('\n')
+  if (newLines.length > 1 && newText.endsWith('\n')) newLines.pop()
   const windowCount = oldLines.length
   if (windowCount === 0 || windowCount > contentLines.length) {
     throw notFound()
@@ -85,8 +108,11 @@ export function applyEditText(content: string, oldText: string, newText: string,
     ? newLines.map((line) => (line.endsWith('\r') ? line : `${line}\r`))
     : newLines
   contentLines.splice(start, windowCount, ...replacement)
+  let result = contentLines.join('\n')
+  // The popped phantom was the final newline; put it back exactly once.
+  if (hadFinalNewline) result += '\n'
   return {
-    content: contentLines.join('\n'),
+    content: result,
     note: 'Matched after normalizing whitespace and punctuation; re-read the file before further edits.',
     count: 1
   }

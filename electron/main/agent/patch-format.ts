@@ -92,7 +92,14 @@ export function parsePatch(patchText: string): PatchHunk[] {
       if (!path) throw new Error('Update File header needs a path.')
       let next = index + 1
       let movePath: string | undefined
-      while (lines[next]?.trimEnd() === '*** End of File') next += 1
+      // Markers before the body still anchor the hunk to the file's tail —
+      // dropping them would let an ambiguous hunk apply at the first
+      // occurrence instead of the end the model asked for.
+      let pendingEndOfFile = false
+      while (lines[next]?.trimEnd() === '*** End of File') {
+        pendingEndOfFile = true
+        next += 1
+      }
       const move = lines[next]?.trimEnd()
       if (move === '*** Move to:' || move?.startsWith('*** Move to: ')) {
         movePath = (move ?? '').slice('*** Move to: '.length).trim()
@@ -101,7 +108,7 @@ export function parsePatch(patchText: string): PatchHunk[] {
         }
         next += 1
       }
-      const parsed = parseUpdate(lines, next, end, path, index)
+      const parsed = parseUpdate(lines, next, end, path, index, pendingEndOfFile)
       hunks.push({ type: 'update', path, ...(movePath ? { movePath } : {}), chunks: parsed.chunks })
       index = parsed.next
       continue
@@ -149,7 +156,8 @@ function parseUpdate(
   start: number,
   end: number,
   path: string,
-  hunkStart: number
+  hunkStart: number,
+  pendingEndOfFile = false
 ): { chunks: UpdateFileChunk[]; next: number } {
   const chunks: UpdateFileChunk[] = []
   let index = start
@@ -239,6 +247,11 @@ function parseUpdate(
   if (last && last.oldLines.length === 0 && last.newLines.length === 0) {
     throw new Error(`Invalid hunk at line ${hunkStart + 1}: Update hunk does not contain any lines.`)
   }
+  // A marker that sat before the body anchors the hunk it precedes.
+  if (pendingEndOfFile) {
+    const first = chunks[0]
+    if (first) first.endOfFile = true
+  }
   return { chunks, next: index }
 }
 
@@ -268,6 +281,8 @@ export function applyUpdate(path: string, chunks: UpdateFileChunk[], original: s
   for (const [start, remove, insert] of replacements.reverse()) {
     lines.splice(start, remove, ...insert)
   }
+  // Patches always normalize to a trailing newline — the smoke suite
+  // asserts this convention.
   if (lines[lines.length - 1] !== '') lines.push('')
   return joinBom(lines.join('\n'), source.bom)
 }
@@ -351,7 +366,15 @@ function matches(
   offset: number,
   compare: (left: string, right: string) => boolean
 ): boolean {
-  return pattern.every((line, index) => compare(lines[offset + index] ?? '', line))
+  // A pattern line past the end of the file is a miss, never a match —
+  // comparing against a synthesized '' let hunks whose trailing context is
+  // a blank line apply past EOF and insert a line the model never asked
+  // for.
+  return pattern.every((line, index) => {
+    const actual = lines[offset + index]
+    if (actual === undefined) return false
+    return compare(actual, line)
+  })
 }
 
 const exact = (left: string, right: string): boolean => left === right

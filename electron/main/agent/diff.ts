@@ -18,6 +18,9 @@ export interface Hunk {
 
 /** Split into compared lines, dropping only the trailing newline remainder. */
 function splitLines(text: string): string[] {
+  // Empty text means zero lines — split('') would yield [''] and make the
+  // empty-file guards dead (an empty diff would show a bogus del/add pair).
+  if (text === '') return []
   const lines = text.split('\n')
   if (lines.length > 1 && lines[lines.length - 1] === '') {
     lines.pop()

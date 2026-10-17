@@ -29,7 +29,10 @@ export interface SkillDefinition extends SkillSummary {
  * malformed is skipped with a console warning, never fatal.
  */
 function parseSkillFile(filePath: string, raw: string): SkillDefinition | null {
-  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(raw)
+  // Windows editors love to write a BOM; it must not break the frontmatter
+  // anchor or every SKILL.md saved with one gets skipped.
+  const text = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw
+  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text)
   if (!match) {
     console.warn(`skills: ${filePath}: skipped — missing frontmatter`)
     return null
@@ -46,7 +49,7 @@ function parseSkillFile(filePath: string, raw: string): SkillDefinition | null {
     console.warn(`skills: ${filePath}: skipped — needs a kebab-case "name" and a "description"`)
     return null
   }
-  const content = raw.slice(match[0].length).trim()
+  const content = text.slice(match[0].length).trim()
   if (!content) {
     console.warn(`skills: ${filePath}: skipped — empty body`)
     return null

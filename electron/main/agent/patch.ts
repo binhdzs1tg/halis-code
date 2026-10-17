@@ -109,56 +109,79 @@ export async function runPatchTool(input: Record<string, unknown>): Promise<Tool
   const notes: string[] = []
   const diffs: FileDiff[] = []
   const changedPaths: string[] = []
-  for (const change of planned) {
-    const { hunk, before, after, finalPath } = change
-    const target = resolveInWorkspace(finalPath)
-    if (hunk.type === 'add') {
-      fs.mkdirSync(path.dirname(target), { recursive: true })
-      fs.writeFileSync(target, after, 'utf8')
-      recordWrite(target)
-      notes.push(`Added ${finalPath} (${lineCount(after)} lines)`)
-      changedPaths.push(finalPath)
-    } else if (hunk.type === 'delete') {
-      // Same recoverability as the explorer's delete: trash, not unlink.
-      const trashed = await shell.trashItem(resolveInWorkspace(hunk.path)).then(
-        () => true,
-        () => false
-      )
-      if (!trashed) {
-        throw new Error(`Could not move "${hunk.path}" to the trash; nothing else was rolled back.`)
-      }
-      notes.push(`Deleted ${hunk.path}`)
-      changedPaths.push(hunk.path)
-      recordWrite(target)
-    } else {
-      if (hunk.movePath) {
+  let applied = 0
+  try {
+    for (const change of planned) {
+      const { hunk, before, after, finalPath } = change
+      const target = resolveInWorkspace(finalPath)
+      if (hunk.type === 'add') {
         fs.mkdirSync(path.dirname(target), { recursive: true })
         fs.writeFileSync(target, after, 'utf8')
         recordWrite(target)
+        notes.push(`Added ${finalPath} (${lineCount(after)} lines)`)
+        changedPaths.push(finalPath)
+      } else if (hunk.type === 'delete') {
+        // Same recoverability as the explorer's delete: trash, not unlink.
         const trashed = await shell.trashItem(resolveInWorkspace(hunk.path)).then(
           () => true,
           () => false
         )
         if (!trashed) {
-          // The new file landed; only the old copy stays behind. Say so.
-          throw new Error(
-            `Moved content to ${finalPath} but could not trash the old ${hunk.path} — remove it manually.`
-          )
+          throw new Error(`Could not move "${hunk.path}" to the trash; nothing else was rolled back.`)
         }
-        notes.push(`Moved ${hunk.path} to ${hunk.movePath} and applied the hunks`)
-        changedPaths.push(hunk.path, finalPath)
-        recordWrite(resolveInWorkspace(hunk.path))
-      } else {
-        fs.writeFileSync(target, after, 'utf8')
+        notes.push(`Deleted ${hunk.path}`)
+        changedPaths.push(hunk.path)
         recordWrite(target)
-        notes.push(`Updated ${finalPath}`)
-        changedPaths.push(finalPath)
+      } else {
+        if (hunk.movePath) {
+          fs.mkdirSync(path.dirname(target), { recursive: true })
+          fs.writeFileSync(target, after, 'utf8')
+          recordWrite(target)
+          const trashed = await shell.trashItem(resolveInWorkspace(hunk.path)).then(
+            () => true,
+            () => false
+          )
+          if (!trashed) {
+            // The new file landed; only the old copy stays behind. Say so.
+            throw new Error(
+              `Moved content to ${finalPath} but could not trash the old ${hunk.path} — remove it manually.`
+            )
+          }
+          notes.push(`Moved ${hunk.path} to ${hunk.movePath} and applied the hunks`)
+          changedPaths.push(hunk.path, finalPath)
+          recordWrite(resolveInWorkspace(hunk.path))
+        } else {
+          fs.writeFileSync(target, after, 'utf8')
+          recordWrite(target)
+          notes.push(`Updated ${finalPath}`)
+          changedPaths.push(finalPath)
+        }
+      }
+      const diff = fileDiff(finalPath, before, hunk.type === 'delete' ? '' : after)
+      if (diff && (diff.added > 0 || diff.removed > 0 || hunk.type === 'add')) {
+        diffs.push(diff)
+      }
+      applied += 1
+    }
+  } catch (err) {
+    // Planning caught the patch-level mistakes; a failure mid-apply (disk
+    // error, refused trash) still leaves the workspace half patched. Put
+    // back what we captured so the failure stays whole too.
+    for (const change of planned.slice(0, applied)) {
+      try {
+        const target = resolveInWorkspace(change.finalPath)
+        if (change.hunk.type === 'add') {
+          fs.rmSync(target, { force: true })
+          recordWrite(target)
+        } else if (change.before !== null) {
+          fs.writeFileSync(target, change.before, 'utf8')
+          recordWrite(target)
+        }
+      } catch {
+        // Best effort — the original failure is what the model must see.
       }
     }
-    const diff = fileDiff(finalPath, before, hunk.type === 'delete' ? '' : after)
-    if (diff && (diff.added > 0 || diff.removed > 0 || hunk.type === 'add')) {
-      diffs.push(diff)
-    }
+    throw err
   }
 
   return {
@@ -171,5 +194,8 @@ export async function runPatchTool(input: Record<string, unknown>): Promise<Tool
 
 function lineCount(text: string): number {
   if (text.length === 0) return 0
-  return text.split('\n').length
+  const lines = text.split('\n')
+  // The phantom '' after a trailing newline is not a line.
+  if (lines[lines.length - 1] === '') lines.pop()
+  return lines.length
 }

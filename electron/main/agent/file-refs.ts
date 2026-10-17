@@ -54,12 +54,14 @@ function readRef(raw: string): FileReference {
       return { raw, path: raw, content: null, note: 'not a regular file' }
     }
     let text = fs.readFileSync(absolute, 'utf8')
+    if (text.includes('\u0000')) {
+      // A binary file was never shown to the model — it must not count as
+      // read for the edit gate, or a blind patch could corrupt it.
+      return { raw, path: raw, content: null, note: 'binary file' }
+    }
     // A referenced file the model has now seen counts as read for the
     // edit gate — the attachment showed the same bytes.
     observeRead(absolute)
-    if (text.includes('\u0000')) {
-      return { raw, path: raw, content: null, note: 'binary file' }
-    }
     if (text.length > MAX_FILE_CHARS) {
       text = `${text.slice(0, MAX_FILE_CHARS)}\n… (truncated at ${MAX_FILE_CHARS} characters — read_file for more)`
     }
