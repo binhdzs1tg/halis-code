@@ -24,6 +24,7 @@ export const IpcChannel = {
   ChatTool: 'chat:tool',
   ChatTodo: 'chat:todo',
   ChatNotice: 'chat:notice',
+  JobNotice: 'job:notice',
   ChatCompact: 'chat:compact',
   ApprovalRequest: 'approval:request',
   ApprovalRespond: 'approval:respond',

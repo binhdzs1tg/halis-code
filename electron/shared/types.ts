@@ -206,6 +206,20 @@ export interface ApprovalRequestEvent {
   command?: string
 }
 
+/* ---------- background jobs ---------- */
+
+/** Pushed when a background command settles; carries its tail for a glance. */
+export interface JobNoticeEvent {
+  jobId: string
+  command: string
+  status: 'completed' | 'failed' | 'killed'
+  exitCode: number | null
+  /** Last few characters of output, for a quick look. */
+  output: string
+  /** Full output file the model can page through with job_output. */
+  outputFilePath: string
+}
+
 /* ---------- agent questions ---------- */
 
 /** One selectable answer of an ask_user call. */

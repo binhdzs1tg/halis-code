@@ -11,6 +11,7 @@ import { installCrashHandlers, markRunning } from './crash'
 import { applyLoginShellEnvironment } from './login-shell-env'
 import { shutdown as shutdownTerminals } from './terminal'
 import { configureSpillStore } from './agent/spill'
+import { configureJobStore } from './agent/jobs'
 
 const gotLock = app.requestSingleInstanceLock()
 installCrashHandlers()
@@ -32,6 +33,8 @@ if (!gotLock) {
   initShellSettings(app.getPath('userData'))
   // Oversized tool output spills here instead of being lost to truncation.
   configureSpillStore(app.getPath('userData'))
+  // Background command jobs keep their output files here.
+  configureJobStore(app.getPath('userData'))
 
   // Terminal and agent spawns read `process.env` per command, so merging the
   // login shell env late is harmless — everything started afterwards benefits.

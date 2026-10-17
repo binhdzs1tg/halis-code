@@ -52,6 +52,7 @@ export function installBridgeStub(): void {
     onChatTool: listener,
     onChatTodo: listener,
     onChatNotice: listener,
+    onJobNotice: listener,
     onApprovalRequest: listener,
     respondApproval: noop,
     onUserQuestion: listener,

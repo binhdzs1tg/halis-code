@@ -14,6 +14,7 @@ import type {
   ChatToolEvent,
   CompactRequest,
   CompactResult,
+  JobNoticeEvent,
   ProviderKeyStatuses,
   SearchOptions,
   SearchResponse,
@@ -80,6 +81,8 @@ export interface HalisApi {
   onChatTodo(listener: (event: TodoUpdatedEvent) => void): () => void
   /** Runtime information like automatic compaction, pushed mid-conversation. */
   onChatNotice(listener: (event: ChatNoticeEvent) => void): () => void
+  /** A background command finished; the renderer resumes the agent with it. */
+  onJobNotice(listener: (event: JobNoticeEvent) => void): () => void
   /** A tool call is waiting for the user's say-so. */
   onApprovalRequest(listener: (event: ApprovalRequestEvent) => void): () => void
   /** Answer a pending approval; 'allowed-once' or 'rejected', one shot. */

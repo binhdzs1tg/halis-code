@@ -21,6 +21,16 @@ import { applyEditText } from './edit-text'
 import { repairToolInput } from './tool-input-repair'
 import { readSpill, saveSpill, truncateLongLines } from './spill'
 import { assertEditable, observeRead, recordWrite } from './observation'
+import {
+  activateJob,
+  allocateJob,
+  COMMAND_ENV,
+  jobStatus,
+  killJob,
+  releaseJob,
+  startBackgroundJob,
+  tailChars
+} from './jobs'
 
 /** What a single tool invocation produced. `changedPath` marks mutations the UI should refresh. */
 export interface ToolOutcome {
@@ -46,9 +56,11 @@ const MAX_OUTPUT = 24_000
 /** Characters preserved from the tail when the budget overflows. */
 const CLAMP_TAIL = 2_048
 const MAX_READ_LINES = 1_200
-const MAX_COMMAND_OUTPUT = 24_000
+const MAX_COMMAND_OUTPUT = 1_000_000
 const DEFAULT_COMMAND_TIMEOUT = 60_000
 const MAX_COMMAND_TIMEOUT = 300_000
+/** Background jobs may run this long when the model asks for a timeout at all. */
+const MAX_BACKGROUND_TIMEOUT = 24 * 60 * 60_000
 
 export function toolSpecs(): ToolSpec[] {
   return [
@@ -166,19 +178,52 @@ export function toolSpecs(): ToolSpec[] {
       name: 'run_command',
       description:
         'Run a shell command in the workspace root (build, test, git, …). ' +
-        'stdout and stderr are combined; long output keeps only its tail. ' +
-        'Commands that look destructive are shown to the user for approval first; ' +
-        'a denied command is a final refusal — do not retry it another way.',
+        'stdout and stderr are combined; long output keeps its head and tail ' +
+        'inline and spills the rest to a file you can read back. Commands that ' +
+        'look destructive are shown to the user for approval first; a denied ' +
+        'command is a final refusal — do not retry it another way. Pass ' +
+        'run_in_background for dev servers, watchers and long builds: it ' +
+        'returns at once, you get a completion notice later, and job_output ' +
+        'and job_kill work on the running command meanwhile.',
       parameters: {
         type: 'object',
         properties: {
           command: { type: 'string', description: 'Command line to execute' },
           timeout_ms: {
             type: 'integer',
-            description: `Timeout in milliseconds (default ${DEFAULT_COMMAND_TIMEOUT}, max ${MAX_COMMAND_TIMEOUT})`
+            description: `Timeout in milliseconds (default ${DEFAULT_COMMAND_TIMEOUT}, max ${MAX_COMMAND_TIMEOUT}); a timed-out command keeps running as a background job`
+          },
+          run_in_background: {
+            type: 'boolean',
+            description: 'Start the command in the background and return immediately (default false)'
           }
         },
         required: ['command']
+      }
+    },
+    {
+      name: 'job_output',
+      description:
+        'Read the current output and status of a background command. Works ' +
+        'while it runs and after it settles; the tail of the output is ' +
+        'included, and the full stream stays readable in the job file.',
+      parameters: {
+        type: 'object',
+        properties: {
+          job_id: { type: 'string', description: 'Job id returned by run_command' }
+        },
+        required: ['job_id']
+      }
+    },
+    {
+      name: 'job_kill',
+      description: 'Stop a background command by job id, together with its process tree.',
+      parameters: {
+        type: 'object',
+        properties: {
+          job_id: { type: 'string', description: 'Job id returned by run_command' }
+        },
+        required: ['job_id']
       }
     },
     SKILL_TOOL_SPEC,
@@ -318,6 +363,10 @@ export async function runTool(
         return await askUserTool(input, call.id, hooks)
       case 'run_command':
         return await runCommandTool({ ...call, input }, signal, hooks)
+      case 'job_output':
+        return cl(jobOutputTool(input))
+      case 'job_kill':
+        return cl(jobKillTool(input))
       case SKILL_TOOL_NAME:
         return cl(runSkillTool(input))
       default:
@@ -522,26 +571,21 @@ async function searchTool(input: Record<string, unknown>): Promise<ToolOutcome> 
   return { ok: true, output }
 }
 
-/** Model-friendly env, ported from the harness's bash-local foreman. */
-const ENV_OVERRIDES: Record<string, string> = {
-  NO_COLOR: '1',
-  TERM: 'dumb',
-  PAGER: 'cat',
-  GIT_PAGER: 'cat',
-  GIT_TERMINAL_PROMPT: '0'
-}
-
 async function runCommandTool(
   call: ToolCall,
   signal: AbortSignal,
   hooks?: ToolHooks
 ): Promise<ToolOutcome> {
   const command = requireString(call.input.command, 'command')
+  const runInBackground = call.input.run_in_background === true
   const root = requireWorkspace().root
-  const timeout = Math.min(
-    MAX_COMMAND_TIMEOUT,
-    Math.max(1_000, optInt(call.input.timeout_ms) ?? DEFAULT_COMMAND_TIMEOUT)
-  )
+  const requested = optInt(call.input.timeout_ms)
+  // Background jobs run untimed by default — a dev server is the point.
+  const timeout = runInBackground
+    ? requested === null
+      ? 0
+      : Math.min(MAX_BACKGROUND_TIMEOUT, Math.max(1_000, requested))
+    : Math.min(MAX_COMMAND_TIMEOUT, Math.max(1_000, requested ?? DEFAULT_COMMAND_TIMEOUT))
 
   if (hooks) {
     const decision = await hooks.requestApproval(command, call.id)
@@ -550,12 +594,31 @@ async function runCommandTool(
     }
   }
 
+  if (runInBackground) {
+    const { job } = startBackgroundJob(command, root, timeout)
+    return {
+      ok: true,
+      output: [
+        `$ ${command}`,
+        `Command moved to the background (job id: ${job.id}).`,
+        'You will be notified automatically when it finishes — do not poll for completion ' +
+          'and do not sleep waiting for it. Do useful work now, or end your response; the ' +
+          'completion notice will resume you.',
+        `Read interim output any time with job_output using {"job_id": "${job.id}"}; ` +
+          'stop it with job_kill.'
+      ].join('\n')
+    }
+  }
+
   return await new Promise<ToolOutcome>((resolve) => {
+    // Every command gets an output file: a foreground run dissolves its
+    // handle on completion, a promoted one keeps it for job_output.
+    const handle = allocateJob()
     const child = spawn(command, {
       shell: true,
       cwd: root,
       windowsHide: true,
-      env: { ...process.env, ...ENV_OVERRIDES },
+      env: { ...process.env, ...COMMAND_ENV },
       // Its own process group so the kill below reaches the whole tree, not
       // just the shell (a `npm test` with workers has grandchildren).
       detached: process.platform !== 'win32'
@@ -564,16 +627,19 @@ async function runCommandTool(
     let combined = ''
     let truncated = false
     let settled = false
+    const stream = fs.createWriteStream(handle.outputFile, { flags: 'w' })
+    child.once('close', () => stream.end())
 
     // Decode at the stream level: a multi-byte character split across data
     // events would otherwise reach the model as replacement characters.
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
 
-    // Keep the tail, not the head: the most recent output is what tells
-    // the model whether the command is failing or finished.
+    // Keep a generous tail for the inline answer; the file keeps everything,
+    // and the clamp/spill layer adds a pointer when even this is too much.
     const append = (chunk: string): void => {
       combined += chunk
+      stream.write(chunk)
       if (combined.length > MAX_COMMAND_OUTPUT) {
         combined = combined.slice(combined.length - MAX_COMMAND_OUTPUT)
         truncated = true
@@ -583,18 +649,27 @@ async function runCommandTool(
     child.stderr.on('data', append)
 
     const timer = setTimeout(() => {
-      finish(false, `command timed out after ${timeout} ms and was killed`)
+      // Promote instead of killing, the way the harness's bash tool does:
+      // the command keeps running as a job and reports back when done.
+      activateJob(handle, command, child)
+      finish(
+        true,
+        `timed out after ${timeout} ms; moved to background job ${handle.id}\n` +
+          'The command keeps running in the background. You will be notified when it ' +
+          'finishes; read newer output with job_output, stop it with job_kill.',
+        { keepAlive: true }
+      )
     }, timeout)
 
     child.on('error', (err) => {
       finish(false, err.message)
     })
     child.on('close', (code) => {
-      const cancelled = signal.aborted
-      const timedOut = settled // finish() already ran for the timeout
-      if (cancelled) {
+      if (settled) return // the timeout path owns the child now
+      releaseJob(handle)
+      if (signal.aborted) {
         finish(false, 'cancelled')
-      } else if (!timedOut) {
+      } else {
         finish(code === 0, code === 0 ? undefined : `exit code ${code ?? 'unknown'}`)
       }
     })
@@ -634,12 +709,15 @@ async function runCommandTool(
       escalation.unref()
       child.once('close', () => clearTimeout(escalation))
     }
-    function finish(ok: boolean, note?: string): void {
+    function finish(ok: boolean, note?: string, opts?: { keepAlive?: boolean }): void {
       if (settled) return
       settled = true
       clearTimeout(timer)
       signal.removeEventListener('abort', onAbort)
-      killTree()
+      if (opts?.keepAlive !== true) {
+        killTree()
+        stream.end()
+      }
       let output = `$ ${command}\n`
       if (truncated) output += '… (earlier output dropped)\n'
       output += combined.trim()
@@ -648,6 +726,29 @@ async function runCommandTool(
     }
     signal.addEventListener('abort', onAbort, { once: true })
   })
+}
+
+function jobOutputTool(input: Record<string, unknown>): ToolOutcome {
+  const id = requireString(input.job_id, 'job_id')
+  const job = jobStatus(id)
+  if (!job) {
+    return { ok: false, output: `No job "${id}" is running or has finished recently in this session.` }
+  }
+  const status =
+    job.status === 'running' ? 'running' : `${job.status}, exit code ${job.exitCode ?? 'unknown'}`
+  const body = tailChars(job.outputFile, 20_000).trim()
+  return {
+    ok: true,
+    output: `$ ${job.command}\n[status: ${status}]\n${body.length > 0 ? body : '(no output yet)'}`
+  }
+}
+
+function jobKillTool(input: Record<string, unknown>): ToolOutcome {
+  const id = requireString(input.job_id, 'job_id')
+  const stopped = killJob(id)
+  return stopped
+    ? { ok: true, output: `Stopped background job ${id} and its process tree.` }
+    : { ok: false, output: `No running job "${id}" to stop.` }
 }
 
 /* ---------- input helpers ---------- */

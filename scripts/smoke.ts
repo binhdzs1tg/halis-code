@@ -17,6 +17,15 @@ import { isSpillPath, readSpill, saveSpill, setSpillBaseForTests, truncateLongLi
 import { assertEditable, observeRead, recordWrite, resetObservations } from '../electron/main/agent/observation'
 import { setWorkspaceRoot } from '../electron/main/workspace'
 import { clearGitInfoCache, getGitInfo } from '../electron/main/agent/git-info'
+import {
+  configureJobStore,
+  jobStatus,
+  killJob,
+  setJobSink,
+  startBackgroundJob,
+  tailChars
+} from '../electron/main/agent/jobs'
+import type { JobNoticeEvent } from '../electron/shared/types'
 
 let failures = 0
 function check(name: string, cond: boolean): void {
@@ -465,10 +474,62 @@ check('decoded pipe to shell flagged', assessCommand('echo cm0gLXJmIC8= | base64
 check('xargs sh flagged', assessCommand('find . -name "*.part" | xargs sh -c') !== null)
 check('truncate -s 0 flagged', assessCommand('truncate -s 0 important.conf') !== null)
 
-void gitChecks().then(() => {
-  if (failures > 0) {
-    console.error(`\n${failures} failure(s)`)
+/* ---------- background jobs ---------- */
+async function jobChecks(): Promise<void> {
+  const jobDir = fs.mkdtempSync(join(os.tmpdir(), 'halis-jobs-test-'))
+  configureJobStore(jobDir)
+  const notices: JobNoticeEvent[] = []
+  setJobSink((event) => {
+    notices.push(event)
+  })
+  const { job } = startBackgroundJob('echo halis-job-ok', jobDir, 0)
+  check('background job starts running', jobStatus(job.id)?.status === 'running')
+  await waitFor(() => notices.length > 0, 5_000)
+  check(
+    'background job notifies on settle',
+    notices[0] !== undefined && notices[0].status === 'completed' && notices[0].output.includes('halis-job-ok')
+  )
+  check('settled job keeps its exit code', jobStatus(job.id)?.exitCode === 0)
+  check('job output file is readable', tailChars(job.outputFile, 200).includes('halis-job-ok'))
+  const sleeper = startBackgroundJob('sleep 30', jobDir, 0)
+  check('job_kill stops a running job', killJob(sleeper.job.id))
+  await waitFor(() => notices.length > 1, 5_000)
+  check(
+    'killed job reports as killed',
+    notices[1] !== undefined && notices[1].status === 'killed'
+  )
+  check('killJob refuses unknown ids', killJob('sh-does-not-exist') === false)
+  setJobSink(null)
+}
+
+function waitFor(condition: () => boolean, timeoutMs: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const startedAt = Date.now()
+    const tick = (): void => {
+      if (condition()) {
+        resolve()
+        return
+      }
+      if (Date.now() - startedAt > timeoutMs) {
+        reject(new Error('waitFor timed out'))
+        return
+      }
+      setTimeout(tick, 25)
+    }
+    tick()
+  })
+}
+
+void gitChecks()
+  .then(() => jobChecks())
+  .then(() => {
+    if (failures > 0) {
+      console.error(`\n${failures} failure(s)`)
+      process.exit(1)
+    }
+    console.log('\nall smoke tests passed')
+  })
+  .catch((err) => {
+    console.error(err instanceof Error ? err.message : String(err))
     process.exit(1)
-  }
-  console.log('\nall smoke tests passed')
-})
+  })

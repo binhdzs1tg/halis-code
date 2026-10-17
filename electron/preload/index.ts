@@ -8,6 +8,7 @@ import type {
   ChatErrorEvent,
   ChatNoticeEvent,
   ChatToolEvent,
+  JobNoticeEvent,
   TerminalDataEvent,
   TerminalExitEvent,
   TodoUpdatedEvent,
@@ -133,6 +134,13 @@ const api: HalisApi = {
     ipcRenderer.on(IpcChannel.ChatNotice, handler)
     return () => {
       ipcRenderer.off(IpcChannel.ChatNotice, handler)
+    }
+  },
+  onJobNotice: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: JobNoticeEvent): void => listener(payload)
+    ipcRenderer.on(IpcChannel.JobNotice, handler)
+    return () => {
+      ipcRenderer.off(IpcChannel.JobNotice, handler)
     }
   },
   onApprovalRequest: (listener) => {

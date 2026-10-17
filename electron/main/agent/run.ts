@@ -28,6 +28,7 @@ import { skillCatalogBlock } from './skills'
 import { buildFileRefBlock } from './file-refs'
 import { askApproval, dropApprovalsForRun, askUserQuestion } from './approval'
 import { getGitInfo } from './git-info'
+import { setJobSink } from './jobs'
 import { getWorkspaceRoot } from '../workspace'
 
 const MAX_HISTORY_MESSAGES = 40
@@ -244,6 +245,9 @@ async function execute(
       controller.abort()
     }
   }
+  // Background jobs outlive their run; the last run's window keeps
+  // receiving their completion notices.
+  setJobSink((event) => emit(IpcChannel.JobNotice, event))
   const fail = (code: ChatErrorCode, message: string, status?: number): void => {
     const event: ChatErrorEvent = { runId, code, message, ...(status !== undefined ? { status } : {}) }
     emit(IpcChannel.ChatError, event)

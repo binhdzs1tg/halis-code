@@ -6,6 +6,7 @@ import type {
   ApprovalDecision,
   ApprovalRequestEvent,
   ChatMessage,
+  JobNoticeEvent,
   TodoItem,
   ToolTrace,
   UserQuestionRequestEvent
@@ -219,6 +220,47 @@ export function mountConversation(): HTMLElement {
   enterHero()
 
   window.addEventListener('halis:new-session', () => void newChat())
+
+  /* ---------- background job notices ---------- */
+
+  // Notices that arrived while a run was in flight; they ride along with
+  // the next outgoing prompt so the model learns what settled meanwhile.
+  const jobNotices: string[] = []
+
+  const jobNoticePrompt = (event: JobNoticeEvent): string => {
+    const fate =
+      event.status === 'completed'
+        ? `exited ${event.exitCode ?? 0}`
+        : event.status === 'failed'
+          ? `failed with exit code ${event.exitCode ?? 'unknown'}`
+          : 'was stopped'
+    const lines = [
+      '<system-reminder>',
+      `A background command finished: ${event.command}`,
+      `It ${fate}. The latest output follows; read more with job_output using job_id "${event.jobId}".`,
+      '',
+      event.output.trim().length > 0 ? event.output.trim() : '(no output)'
+    ]
+    lines.push('</system-reminder>')
+    return lines.join('\n')
+  }
+
+  const handleJobNotice = (event: JobNoticeEvent): void => {
+    const fate =
+      event.status === 'completed' ? 'finished' : event.status === 'failed' ? 'failed' : 'was stopped'
+    appendSystemNote(`Background command ${fate}: ${event.command}`)
+    const prompt = jobNoticePrompt(event)
+    // A manual stop puts the user back in charge — the notice waits for
+    // their next message instead of restarting the agent on its own.
+    if (running || stoppedManually) {
+      jobNotices.push(prompt)
+      return
+    }
+    // The agent promised to be resumed when the job settled — this is that.
+    void send(prompt, { silent: true })
+  }
+
+  window.halis.onJobNotice(handleJobNotice)
 
   /* ---------- approvals (composer takeover) ---------- */
 
@@ -483,6 +525,7 @@ export function mountConversation(): HTMLElement {
     sessionId = null
     messages.splice(0, messages.length)
     queue.splice(0, queue.length)
+    jobNotices.splice(0, jobNotices.length)
     paintQueue()
     clear(column)
     enterHero()
@@ -625,16 +668,20 @@ export function mountConversation(): HTMLElement {
 
   /* ---------- the send flow ---------- */
 
-  const send = async (text: string): Promise<void> => {
+  const send = async (text: string, opts?: { silent?: boolean }): Promise<void> => {
     // Slash commands route to their own handlers instead of the model.
     if (text.startsWith('/')) {
       await runCommand(text)
       return
     }
     if (running) {
-      // Like a queue dock: typing while the agent runs parks the message
-      // instead of dropping it, and it is sent when the run settles.
-      queue.push(text)
+      // A silent send queuing behind a live run stays a notice — surfacing
+      // runtime plumbing as a user bubble would be worse than the wait.
+      if (opts?.silent) {
+        jobNotices.push(text)
+      } else {
+        queue.push(text)
+      }
       paintQueue()
       return
     }
@@ -688,10 +735,12 @@ export function mountConversation(): HTMLElement {
     }
 
     const userMsg = makeMessage('user', text)
-    messages.push(userMsg)
-    column.appendChild(renderMessage(userMsg))
-    syncCrumb(messages)
-    scrollToBottom(scroll, true)
+    if (!opts?.silent) {
+      messages.push(userMsg)
+      column.appendChild(renderMessage(userMsg))
+      syncCrumb(messages)
+      scrollToBottom(scroll, true)
+    }
 
     running = true
     composer.setRunning(true)
@@ -699,6 +748,13 @@ export function mountConversation(): HTMLElement {
     showRunningRow()
 
     const history = [...messages]
+    // Notices that piled up during a run travel with this prompt; the user's
+    // bubble stays clean of runtime plumbing.
+    let outgoing = text
+    if (!opts?.silent && jobNotices.length > 0) {
+      outgoing = `${text}\n\n${jobNotices.join('\n\n')}`
+      jobNotices.length = 0
+    }
     const assistant = makeMessage('assistant', '')
     const node = renderMessage(assistant)
     const bubble = node.querySelector<HTMLElement>('.bubble')
@@ -750,7 +806,7 @@ export function mountConversation(): HTMLElement {
 
     try {
       const full = await agentService.run(
-        { prompt: text, history, model: selection },
+        { prompt: outgoing, history, model: selection },
         {
           onDelta: (chunk) => {
             buffered += chunk
@@ -863,7 +919,18 @@ export function mountConversation(): HTMLElement {
    *  switched away from during the handoff window. */
   const drainQueue = (atSettle: string | null): void => {
     if (stoppedManually) return
-    if (queue.length === 0) return
+    if (queue.length === 0) {
+      // Nothing queued, but a background job notice may be waiting for
+      // the resume the agent promised it.
+      const notice = jobNotices.shift()
+      if (notice) {
+        window.setTimeout(() => {
+          if (sessionId !== atSettle) return
+          void send(notice, { silent: true })
+        }, 30)
+      }
+      return
+    }
     const next = queue.shift()
     paintQueue()
     if (next) {
