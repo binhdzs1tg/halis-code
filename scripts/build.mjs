@@ -1,5 +1,6 @@
 import { build, context } from 'esbuild'
 import { cpSync, mkdirSync, watch } from 'node:fs'
+import path from 'node:path'
 
 const watchMode = process.argv.includes('--watch')
 
@@ -69,16 +70,26 @@ const STATIC_SOURCES = [
   ['electron/main/models-dev/snapshot.json', 'dist/main/models-dev/snapshot.json']
 ]
 
-/** Neither file is an esbuild input, so watch mode must copy it itself. */
+/** Neither file is an esbuild input, so watch mode must copy it itself.
+ *  Watch the parent directory, not the file: editors save through
+ *  write-temp-then-rename, which orphans a file watcher on the old inode
+ *  and the copy then silently stops working. */
 function watchStatic() {
-  for (const [from, to] of STATIC_SOURCES) {
+  const dirs = new Map()
+  for (const [from] of STATIC_SOURCES) {
+    const dir = path.dirname(from)
+    if (!dirs.has(dir)) dirs.set(dir, [])
+    dirs.get(dir).push(path.basename(from))
+  }
+  for (const [dir, names] of dirs) {
     try {
-      watch(from, () => {
+      watch(dir, (_event, filename) => {
+        if (filename && !names.includes(filename)) return
         try {
           copyStatic()
-          console.log(`static change copied: ${from}`)
+          console.log(`static change copied in ${dir}`)
         } catch (err) {
-          console.warn(`copy failed for ${from}:`, err?.message ?? err)
+          console.warn(`copy failed for ${dir}:`, err?.message ?? err)
         }
       })
     } catch {

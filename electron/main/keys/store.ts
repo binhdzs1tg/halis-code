@@ -1,5 +1,5 @@
 import { BrowserWindow, app, safeStorage } from 'electron'
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { IpcChannel } from '../../shared/ipc-channels'
 import type { ProviderKeyStatus, ProviderKeyStatuses } from '../../shared/types'
@@ -16,6 +16,10 @@ interface StoredKey {
 type KeyFile = Record<string, StoredKey>
 
 let cache: KeyFile | null = null
+/** Set when the store could not be parsed/read and its bytes are not yet safe. */
+let blocked = false
+/** All persists queue behind each other: interleaved writes on one path can tear. */
+let persistQueue: Promise<void> = Promise.resolve()
 
 export interface ResolvedKey {
   value: string
@@ -27,27 +31,75 @@ function keysPath(): string {
   return path.join(app.getPath('userData'), KEYS_FILE)
 }
 
+function freshFile(): KeyFile {
+  // Null prototype: a renderer-supplied provider id like "__proto__" must
+  // never reach the object's prototype slot.
+  return Object.create(null) as KeyFile
+}
+
 async function load(): Promise<KeyFile> {
   if (cache) return cache
+  let raw: string
   try {
-    const raw = JSON.parse(await readFile(keysPath(), 'utf8')) as KeyFile
-    // Null prototype: a renderer-supplied provider id like "__proto__" must
-    // never reach the object's prototype slot.
-    cache = Object.create(null) as KeyFile
-    for (const [providerId, entry] of Object.entries(raw)) {
+    raw = await readFile(keysPath(), 'utf8')
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      // First run; nothing stored yet.
+      cache = freshFile()
+      return cache
+    }
+    // Unreadable for another reason (permissions, IO): start empty but
+    // refuse to persist — writing would replace every stored key with the
+    // one new entry and the originals would be gone.
+    console.warn('keys: could not read the key store; saving new keys stays blocked until it can be read', err)
+    blocked = true
+    cache = freshFile()
+    return cache
+  }
+  try {
+    const parsed = JSON.parse(raw) as KeyFile
+    cache = freshFile()
+    for (const [providerId, entry] of Object.entries(parsed)) {
       if (entry && typeof entry.value === 'string') {
         cache[providerId] = { value: entry.value, encrypted: Boolean(entry.encrypted) }
       }
     }
-  } catch {
-    cache = Object.create(null) as KeyFile
+    blocked = false
+  } catch (err) {
+    // Corrupt store (torn write after a force-quit): quarantine the bytes
+    // so the next persist cannot silently destroy them, then start empty.
+    const quarantine = `${keysPath()}.corrupt-${Date.now()}`
+    console.warn(`keys: the key store is not valid JSON — moved aside to ${quarantine}`, err)
+    cache = freshFile()
+    blocked = true
+    try {
+      await rename(keysPath(), quarantine)
+      blocked = false
+    } catch (err) {
+      // A second racing load() may have quarantined it first — that counts
+      // as success; anything else keeps persist blocked rather than overwrite.
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') blocked = false
+    }
   }
   return cache
 }
 
 async function persist(): Promise<void> {
+  if (blocked) {
+    throw new Error(
+      'The stored key file could not be read; fix or remove provider-keys.json before saving new keys.'
+    )
+  }
   const file = keysPath()
-  await writeFile(file, JSON.stringify({ ...cache }, null, 2), { mode: 0o600 })
+  const run = persistQueue.then(async () => {
+    // Atomic replace: a crash mid-write must not leave torn JSON behind —
+    // that is exactly the corruption this store has to survive.
+    const tmp = `${file}.tmp`
+    await writeFile(tmp, JSON.stringify({ ...cache }, null, 2), { mode: 0o600 })
+    await rename(tmp, file)
+  })
+  persistQueue = run.catch(() => undefined)
+  await run
   broadcast()
 }
 

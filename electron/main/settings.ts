@@ -3,7 +3,7 @@
  * a broken document falls back to the defaults instead of blocking startup,
  * and absent fields keep whatever the user already has on disk.
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AgentSettings, CommandApprovalMode } from '../shared/types'
 
@@ -83,7 +83,11 @@ export function updateShellSettings(patch: Partial<AgentSettings>): ShellSetting
   current = next
   if (settingsPath) {
     try {
-      writeFileSync(settingsPath, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 })
+      // Atomic replace: a crash mid-write must not reset the user's
+      // settings to defaults on the next launch.
+      const tmp = `${settingsPath}.tmp`
+      writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 })
+      renameSync(tmp, settingsPath)
     } catch (error) {
       console.warn('shell settings: the change applies to this session but could not be saved', error)
     }

@@ -624,7 +624,10 @@ async function jobChecks(): Promise<void> {
   )
   check('settled job keeps its exit code', jobStatus(job.id)?.exitCode === 0)
   check('job output file is readable', tailChars(job.outputFile, 200).includes('halis-job-ok'))
-  const sleeper = startBackgroundJob('sleep 30', jobDir, 0)
+  // Portable long-running command: `sleep` does not exist in Windows cmd,
+  // and a failed spawn would fail this suite there even when the code
+  // under test is fine.
+  const sleeper = startBackgroundJob(`"${process.execPath}" -e "setInterval(() => {}, 1e6)"`, jobDir, 0)
   check('job_kill stops a running job', killJob(sleeper.job.id))
   await waitFor(() => notices.length > 1, 5_000)
   check(

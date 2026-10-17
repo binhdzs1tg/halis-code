@@ -31,30 +31,47 @@ function optString(value: unknown): string | null {
   return typeof value === 'string' ? value : null
 }
 
-function readSessionFile(path: string): ChatSession | null {
+type SessionRead = { kind: 'ok'; session: ChatSession } | { kind: 'malformed' } | { kind: 'unreadable' }
+
+/**
+ * Tri-state on purpose: a file that will not parse is garbage worth
+ * sweeping, but a file that merely fails to read right now (EIO, EBUSY on
+ * Windows, a syncing folder mid-transfer) is a conversation the user
+ * expects to keep — pruning must never turn a transient read failure into
+ * a permanent deletion.
+ */
+function readSessionFile(path: string): SessionRead {
+  let raw: string
   try {
-    const raw = readFileSync(path, 'utf8')
+    raw = readFileSync(path, 'utf8')
+  } catch {
+    return { kind: 'unreadable' }
+  }
+  try {
     const value: unknown = JSON.parse(raw)
-    if (!record(value)) return null
+    if (!record(value)) return { kind: 'malformed' }
     const messages = sanitizeMessages(value.messages)
-    if (messages.length === 0) return null
+    if (messages.length === 0) return { kind: 'malformed' }
     return {
-      id: safeId(value.id),
-      title: optString(value.title)?.slice(0, 120) ?? 'Chat',
-      createdAt: typeof value.createdAt === 'number' ? value.createdAt : 0,
-      updatedAt: typeof value.updatedAt === 'number' ? value.updatedAt : 0,
-      workspaceRoot: optString(value.workspaceRoot),
-      model: isSelection(value.model)
-        ? {
-            providerID: value.model.providerID,
-            modelID: value.model.modelID,
-            ...(typeof value.model.variant === 'string' ? { variant: value.model.variant } : {})
-          }
-        : null,
-      messages
+      kind: 'ok',
+      session: {
+        id: safeId(value.id),
+        title: optString(value.title)?.slice(0, 120) ?? 'Chat',
+        createdAt: typeof value.createdAt === 'number' ? value.createdAt : 0,
+        updatedAt: typeof value.updatedAt === 'number' ? value.updatedAt : 0,
+        workspaceRoot: optString(value.workspaceRoot),
+        model: isSelection(value.model)
+          ? {
+              providerID: value.model.providerID,
+              modelID: value.model.modelID,
+              ...(typeof value.model.variant === 'string' ? { variant: value.model.variant } : {})
+            }
+          : null,
+        messages
+      }
     }
   } catch {
-    return null
+    return { kind: 'malformed' }
   }
 }
 
@@ -221,11 +238,13 @@ function pruneSessions(directory: string): void {
       continue
     }
     if (!file.endsWith('.json')) continue
-    const session = readSessionFile(join(directory, file))
-    if (session) {
-      entries.push({ file, updatedAt: session.updatedAt })
-    } else {
-      // A file we cannot read has no value; drop it so the folder stays clean.
+    const read = readSessionFile(join(directory, file))
+    if (read.kind === 'ok') {
+      entries.push({ file, updatedAt: read.session.updatedAt })
+    } else if (read.kind === 'malformed') {
+      // A file that will not parse has no value; drop it so the folder
+      // stays clean. Unreadable files are left alone — see the tri-state
+      // note on readSessionFile.
       try {
         rmSync(join(directory, file))
       } catch {
@@ -255,13 +274,13 @@ export function listSessions(): ChatSessionMeta[] {
   const metas: ChatSessionMeta[] = []
   for (const file of files) {
     if (!file.endsWith('.json')) continue
-    const session = readSessionFile(join(directory, file))
-    if (session?.id) {
+    const read = readSessionFile(join(directory, file))
+    if (read.kind === 'ok' && read.session.id) {
       metas.push({
-        id: session.id,
-        title: session.title,
-        updatedAt: session.updatedAt || session.createdAt,
-        messageCount: session.messages.length
+        id: read.session.id,
+        title: read.session.title,
+        updatedAt: read.session.updatedAt || read.session.createdAt,
+        messageCount: read.session.messages.length
       })
     }
   }
@@ -274,11 +293,11 @@ export function loadSession(id: unknown): ChatSession {
   if (!safe) {
     throw new Error('sessions:load expects a valid session id')
   }
-  const session = readSessionFile(join(sessionsDir(), `${safe}.json`))
-  if (!session || session.id !== safe) {
+  const read = readSessionFile(join(sessionsDir(), `${safe}.json`))
+  if (read.kind !== 'ok' || read.session.id !== safe) {
     throw new Error('That chat no longer exists.')
   }
-  return session
+  return read.session
 }
 
 /** Delete one session; a missing file is already the desired state. */
