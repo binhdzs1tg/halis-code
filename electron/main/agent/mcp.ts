@@ -228,6 +228,25 @@ export class McpConnection {
       throw new Error(`${this.serverName}: could not open pipes to the server`)
     }
     stdout.setEncoding('utf8')
+    // readline assembles whole lines; a server that writes megabytes
+    // without a newline would grow its buffer unbounded. Count the bytes
+    // between newlines and stop the server once a frame blows the cap.
+    let sinceNewline = 0
+    stdout.on('data', (chunk: string) => {
+      let from = 0
+      for (;;) {
+        const at = chunk.indexOf('\n', from)
+        if (at === -1) {
+          sinceNewline += chunk.length - from
+          break
+        }
+        sinceNewline = 0
+        from = at + 1
+      }
+      if (sinceNewline > MAX_LINE_CHARS) {
+        this.stop()
+      }
+    })
     const lines = readline.createInterface({ input: stdout, crlfDelay: Infinity })
     lines.on('line', (line) => this.onLine(line))
     stderr.setEncoding('utf8')
@@ -477,7 +496,7 @@ export async function syncMcpServers(): Promise<void> {
     const desired = new Map(Object.entries(parsed.servers))
     for (const [name, connection] of connections) {
       const want = desired.get(name)
-      if (!want || JSON.stringify(connection.config) !== JSON.stringify(want) || connection.isClosed) {
+      if (!want || !sameMcpConfig(connection.config, want) || connection.isClosed) {
         connection.stop()
         connections.delete(name)
       }
@@ -509,6 +528,25 @@ export async function syncMcpServers(): Promise<void> {
 }
 
 /** The configs are carried by the connections themselves; the diff reads them directly. */
+
+/** Key-order-insensitive config compare: reordering env entries in
+ *  mcp.json is a no-op semantically, and must not restart a running
+ *  server mid-call. */
+function sameMcpConfig(a: McpServerConfig, b: McpServerConfig): boolean {
+  if (a.command !== b.command) return false
+  if (a.toolTimeoutMs !== b.toolTimeoutMs) return false
+  if (a.args.length !== b.args.length) return false
+  for (let i = 0; i < a.args.length; i += 1) {
+    if (a.args[i] !== b.args[i]) return false
+  }
+  const left = Object.entries(a.env ?? {}).sort(([x], [y]) => (x < y ? -1 : 1))
+  const right = Object.entries(b.env ?? {}).sort(([x], [y]) => (x < y ? -1 : 1))
+  if (left.length !== right.length) return false
+  return left.every(([key, value], index) => {
+    const pair = right[index]
+    return pair !== undefined && pair[0] === key && pair[1] === value
+  })
+}
 
 function rebuildToolIndex(): void {
   toolIndex.clear()

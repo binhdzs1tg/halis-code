@@ -30,7 +30,7 @@ import { askApproval, dropApprovalsForRun, askUserQuestion } from './approval'
 import { getGitInfo } from './git-info'
 import { setJobSink } from './jobs'
 import { runTaskTool, TASK_TOOL_NAME } from './subagent'
-import { mcpToolSpecs, syncMcpServers } from './mcp'
+import { mcpConfigErrors, mcpToolSpecs, syncMcpServers } from './mcp'
 import { getWorkspaceRoot } from '../workspace'
 
 const MAX_HISTORY_MESSAGES = 40
@@ -195,7 +195,9 @@ async function streamWithRetry(
       return await streamChat(request)
     } catch (err) {
       if (
-        attempt >= RETRY_MAX ||
+        // attempt counts tries, RETRY_MAX counts retries — six tries make
+        // five retries, which is what the constant promises.
+        attempt > RETRY_MAX ||
         !allowRetry() ||
         !(err instanceof ProviderError) ||
         !retryable(err)
@@ -310,6 +312,18 @@ async function execute(
     // MCP servers are diffed against ~/.halis/mcp.json here: unchanged ones
     // keep running, a new config pays its startup cost before the first token.
     await syncMcpServers()
+    // Config and startup complaints were collected and dropped before this
+    // — surfacing them here is the only way a silently missing server gets
+    // explained to the user (and to the model that calls its tools).
+    const mcpProblems = mcpConfigErrors()
+    if (mcpProblems.length > 0) {
+      const mcpNotice: ChatNoticeEvent = {
+        runId,
+        kind: 'info',
+        text: `MCP servers have problems:\n- ${mcpProblems.join('\n- ')}`
+      }
+      emit(IpcChannel.ChatNotice, mcpNotice)
+    }
     const specs = [...toolSpecs(), ...mcpToolSpecs()]
     const hooks: ToolHooks = {
       requestApproval: (command, callId) => askApproval(runId, callId, command, win),
@@ -433,13 +447,23 @@ async function execute(
 
         // A delegated task runs its own nested agent loop with the same
         // model and hooks; everything else goes through the shared runner.
+        // The blocklist is enforced here at dispatch, not only in the spec
+        // list — a hallucinated ask_user must never pop a real dialog on
+        // the user's screen from inside a subagent.
         const outcome =
           call.name === TASK_TOOL_NAME
             ? await runTaskTool(call.input, {
                 target: { provider, entry, variant, key },
                 specs,
                 signal: controller.signal,
-                runStep: (sub) => runTool(sub, controller.signal, hooks)
+                runStep: (sub) =>
+                  sub.name === 'ask_user'
+                    ? Promise.resolve({
+                        ok: false,
+                        output:
+                          'The subagent cannot ask the user questions. Decide with what you have and note what you would have asked in your report.'
+                      })
+                    : runTool(sub, controller.signal, hooks)
               })
             : await runTool(call, controller.signal, hooks)
         // The repeat guard counts failed calls too: a model hammering a
@@ -584,7 +608,8 @@ export async function compactNow(raw: unknown): Promise<CompactResult> {
     apiKey: target.key.value,
     system: buildSystemPrompt(),
     messages,
-    signal: new AbortController().signal,
+    // Bounded so /compact can never hang the invoking IPC call forever.
+    signal: AbortSignal.timeout(300_000),
     force: true
   })
   if (!compacted) {

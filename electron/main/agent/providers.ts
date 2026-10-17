@@ -75,6 +75,43 @@ export class ProviderError extends Error {
 /** Anthropic requires the thinking budget to stay below max_tokens. */
 const ANTHROPIC_MIN_BUDGET = 1024
 
+/** A provider that accepts the connection and then stalls must not park
+ *  the run forever. Every stream carries an idle deadline, re-armed as
+ *  data arrives; tripping it fails the attempt as a retryable network
+ *  error, so the backoff layer decides what happens next. */
+const STREAM_IDLE_MS = 120_000
+
+function withIdleGuard(signal: AbortSignal): {
+  signal: AbortSignal
+  arm: () => void
+  dispose: () => void
+} {
+  const controller = new AbortController()
+  if (signal.aborted) {
+    // Cancelled while the request was being prepared: fail immediately,
+    // never start the real network call after Stop.
+    controller.abort(signal.reason)
+    return { signal: controller.signal, arm: () => undefined, dispose: () => undefined }
+  }
+  const onOuter = (): void => controller.abort(signal.reason)
+  signal.addEventListener('abort', onOuter, { once: true })
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const arm = (): void => {
+    if (timer !== null) clearTimeout(timer)
+    timer = setTimeout(() => {
+      controller.abort(
+        new ProviderError('network', `provider sent nothing for ${Math.round(STREAM_IDLE_MS / 1000)}s — connection stalled`)
+      )
+    }, STREAM_IDLE_MS)
+  }
+  const dispose = (): void => {
+    signal.removeEventListener('abort', onOuter)
+    if (timer !== null) clearTimeout(timer)
+  }
+  arm()
+  return { signal: controller.signal, arm, dispose }
+}
+
 /**
  * Per-provider wire quirks, one table instead of scattered conditionals.
  * Fields stay optional;
@@ -126,7 +163,21 @@ interface OpenAiChunk {
     }
   }>
   /** Providers report mid-stream failures as a data event with no choices. */
-  error?: { message?: string }
+  error?: { type?: string; code?: string | number; message?: string }
+}
+
+/**
+ * Status for a mid-stream error event. Some are the provider's
+ * deterministic verdict (bad request, context length) and must not burn
+ * the retry budget; others are transient (overloaded, gateway hiccup) and
+ * previously recovered through the backoff — keep that working.
+ */
+function streamErrorStatus(error: { type?: string; code?: string | number; message?: string } | undefined): number {
+  const kind = `${error?.type ?? ''} ${error?.code ?? ''} ${error?.message ?? ''}`
+  if (/overloaded|timeout|rate.?limit|unavailable|bad.?gateway|service|temporar|try again/i.test(kind)) {
+    return 503
+  }
+  return 400
 }
 
 /** Streams argument fragments for tool calls, indexed like the provider sends them. */
@@ -239,42 +290,48 @@ async function streamOpenAiCompatible(request: ProviderStreamRequest): Promise<P
   Object.assign(headers, request.model.modeHeaders ?? {})
   Object.assign(body, request.model.modeBody ?? {})
 
-  const response = await fetch(openAiUrl(request, endpoint), {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-    signal: request.signal
-  })
-  if (!response.ok) {
-    await failResponse(response, request.provider)
-  }
+  const guard = withIdleGuard(request.signal)
+  try {
+    const response = await fetch(openAiUrl(request, endpoint), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: guard.signal
+    })
+    if (!response.ok) {
+      await failResponse(response, request.provider)
+    }
 
-  let text = ''
-  const collector = new ToolCallCollector()
-  for await (const event of readSse(response)) {
-    if (event.data === '[DONE]') break
-    let chunk: OpenAiChunk
-    try {
-      chunk = JSON.parse(event.data) as OpenAiChunk
-    } catch {
-      continue // keep-alive noise or a stray line
+    let text = ''
+    const collector = new ToolCallCollector()
+    for await (const event of readSse(response)) {
+      guard.arm()
+      if (event.data === '[DONE]') break
+      let chunk: OpenAiChunk
+      try {
+        chunk = JSON.parse(event.data) as OpenAiChunk
+      } catch {
+        continue // keep-alive noise or a stray line
+      }
+      if (chunk.error) {
+        // A mid-stream failure ends the answer here; throwing (rather than
+        // ending silently) lets the retry/backoff layer decide whether the
+        // turn can restart, and surfaces the reason when it cannot.
+        throw new ProviderError('http', chunk.error.message ?? 'stream error', streamErrorStatus(chunk.error))
+      }
+      const delta = chunk.choices?.[0]?.delta
+      if (delta?.content) {
+        text += delta.content
+        request.onDelta(delta.content)
+      }
+      for (const part of delta?.tool_calls ?? []) {
+        collector.add(part.index, part.id, part.function?.name, part.function?.arguments)
+      }
     }
-    if (chunk.error) {
-      // A mid-stream failure ends the answer here; throwing (rather than
-      // ending silently) lets the retry/backoff layer decide whether the
-      // turn can restart, and surfaces the reason when it cannot.
-      throw new ProviderError('http', chunk.error.message ?? 'stream error')
-    }
-    const delta = chunk.choices?.[0]?.delta
-    if (delta?.content) {
-      text += delta.content
-      request.onDelta(delta.content)
-    }
-    for (const part of delta?.tool_calls ?? []) {
-      collector.add(part.index, part.id, part.function?.name, part.function?.arguments)
-    }
+    return { text, toolCalls: collector.calls() }
+  } finally {
+    guard.dispose()
   }
-  return { text, toolCalls: collector.calls() }
 }
 
 /** Flatten the internal message shape into the OpenAI wire format. */
@@ -344,7 +401,7 @@ interface AnthropicStreamEvent {
   index?: number
   content_block?: { type?: string; id?: string; name?: string; data?: string }
   delta?: { type?: string; text?: string; partial_json?: string; thinking?: string; signature?: string }
-  error?: { message?: string }
+  error?: { type?: string; code?: string | number; message?: string }
 }
 
 async function streamAnthropic(request: ProviderStreamRequest): Promise<ProviderStreamResult> {
@@ -389,30 +446,35 @@ async function streamAnthropic(request: ProviderStreamRequest): Promise<Provider
   }
   Object.assign(headers, request.model.modeHeaders ?? {})
 
-  const response = await fetch(`${endpoint.base}/messages`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-    signal: request.signal
-  })
-  if (!response.ok) {
-    await failResponse(response, request.provider)
-  }
+  const guard = withIdleGuard(request.signal)
+  try {
+    const response = await fetch(`${endpoint.base}/messages`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: guard.signal
+    })
+    if (!response.ok) {
+      await failResponse(response, request.provider)
+    }
 
-  let text = ''
-  const toolBlocks = new Map<number, { id: string; name: string; json: string; seeded: boolean }>()
-  type ThinkingSlot = { kind: 'thinking'; thinking: string; signature: string } | { kind: 'redacted'; data: string }
-  const thinkingSlots = new Map<number, ThinkingSlot>()
-  for await (const event of readSse(response)) {
-    let payload: AnthropicStreamEvent
-    try {
-      payload = JSON.parse(event.data) as AnthropicStreamEvent
-    } catch {
-      continue
-    }
-    if (event.event === 'error') {
-      throw new ProviderError('http', payload.error?.message ?? 'stream error')
-    }
+    let text = ''
+    const toolBlocks = new Map<number, { id: string; name: string; json: string; seeded: boolean }>()
+    type ThinkingSlot = { kind: 'thinking'; thinking: string; signature: string } | { kind: 'redacted'; data: string }
+    const thinkingSlots = new Map<number, ThinkingSlot>()
+    for await (const event of readSse(response)) {
+      guard.arm()
+      let payload: AnthropicStreamEvent
+      try {
+        payload = JSON.parse(event.data) as AnthropicStreamEvent
+      } catch {
+        continue
+      }
+      if (event.event === 'error') {
+        // Same treatment as the OpenAI path: deterministic provider errors
+        // fail fast, transient ones keep the retry budget.
+        throw new ProviderError('http', payload.error?.message ?? 'stream error', streamErrorStatus(payload.error))
+      }
     if (event.event === 'message_stop') break
     if (event.event === 'content_block_start' && payload.content_block?.type === 'tool_use') {
       // Gateways may inline the full input instead of streaming json deltas.
@@ -481,6 +543,9 @@ async function streamAnthropic(request: ProviderStreamRequest): Promise<Provider
         : { thinking: slot.thinking, signature: slot.signature }
     )
   return { text, toolCalls, ...(thinkingBlocks.length > 0 ? { thinkingBlocks } : {}) }
+  } finally {
+    guard.dispose()
+  }
 }
 
 /** Flatten the internal message shape into Anthropic content blocks. */
@@ -674,6 +739,22 @@ async function* readSse(response: Response): AsyncGenerator<SseEvent> {
           dataLines.push(line.slice(5).replace(/^ /, ''))
         }
         newline = buffer.indexOf('\n')
+      }
+    }
+    // Flush the decoder's multi-byte tail, then honor a final frame the
+    // server left without its terminating newline — the last `data:` line
+    // (often message_stop) would otherwise be silently dropped.
+    buffer += decoder.decode()
+    if (buffer.length > 0) {
+      const line = buffer.replace(/\r$/, '')
+      buffer = ''
+      if (line === '') {
+        const event = take()
+        if (event) yield event
+      } else if (line.startsWith('event:')) {
+        eventName = line.slice(6).trim()
+      } else if (line.startsWith('data:')) {
+        dataLines.push(line.slice(5).replace(/^ /, ''))
       }
     }
     const tail = take()

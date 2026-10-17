@@ -55,7 +55,9 @@ export async function generateSessionTitle(raw: unknown): Promise<SessionTitleRe
     apiKey: target.key.value,
     system: TITLE_SYSTEM,
     messages: [{ role: 'user', content: prompt }],
-    signal: new AbortController().signal,
+    // A title is a one-shot nicety: it must settle on its own instead of
+    // parking the ipcMain.handle promise (and the renderer's await) forever.
+    signal: AbortSignal.timeout(60_000),
     onDelta: () => undefined
   })
   const title = cleanTitle(result.text)

@@ -46,12 +46,21 @@ function snapshot(target: string): Observation | null {
   }
 }
 
-/** Record an authoritative read: this is what the model has actually seen. */
-export function observeRead(target: string): void {
+/** Record an authoritative read: this is what the model has actually seen.
+ *  Pass `preStat` — captured before the bytes were read — so the CAS basis
+ *  matches the content the model saw; a concurrent external write inside
+ *  the window then fails the gate instead of being blessed. */
+export function observeRead(target: string, preStat?: Observation | null): void {
   syncRoot()
-  const stat = snapshot(target)
+  const stat = preStat === undefined ? snapshot(target) : preStat
   if (stat) observations.set(target, stat)
   else observations.delete(target)
+}
+
+/** Stat a file the caller is about to read; hand the result to observeRead. */
+export function statForRead(target: string): Observation | null {
+  syncRoot()
+  return snapshot(target)
 }
 
 /** Record the version a write just produced, so follow-up edits pass. */

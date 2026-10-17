@@ -21,7 +21,7 @@ import { TASK_TOOL_SPEC } from './subagent'
 import { applyEditText } from './edit-text'
 import { repairToolInput } from './tool-input-repair'
 import { readSpill, saveSpill, truncateLongLines } from './spill'
-import { assertEditable, observeRead, recordWrite } from './observation'
+import { assertEditable, observeRead, recordWrite, statForRead } from './observation'
 import { callMcpTool, mcpSchemaFor, MCP_TOOL_PREFIX } from './mcp'
 import {
   activateJob,
@@ -488,8 +488,12 @@ async function readFileTool(input: Record<string, unknown>): Promise<ToolOutcome
 
 function readWorkspaceFile(relPath: string, observed: boolean): string {
   const target = requireWorkspace().resolve(relPath)
+  // Stat before the read: the observation must match the bytes the model
+  // actually saw, or an external write landing inside the read window
+  // would be blessed as "read" and a later edit would silently clobber it.
+  const basis = observed ? statForRead(target) : undefined
   const content = readFileContent(relPath)
-  if (observed) observeRead(target)
+  if (observed) observeRead(target, basis ?? null)
   return content
 }
 
@@ -633,6 +637,9 @@ async function runCommandTool(
     })
 
     let combined = ''
+    const tailParts: string[] = []
+    let tailLen = 0
+    let tailMode = false
     let truncated = false
     let settled = false
     const stream = fs.createWriteStream(handle.outputFile, { flags: 'w' })
@@ -655,10 +662,27 @@ async function runCommandTool(
     // Keep a generous tail for the inline answer; the file keeps everything,
     // and the clamp/spill layer adds a pointer when even this is too much.
     const append = (chunk: string): void => {
-      combined += chunk
       if (!streamBroken) stream.write(chunk)
+      if (tailMode) {
+        // Past the cap the head is already represented by the dropped
+        // marker; shed from a chunk list instead of re-slicing a megabyte
+        // string on every chunk of a chatty command.
+        tailParts.push(chunk)
+        tailLen += chunk.length
+        while (tailLen > MAX_COMMAND_OUTPUT) {
+          const oldest = tailParts.shift()
+          if (oldest === undefined) break
+          tailLen -= oldest.length
+        }
+        return
+      }
+      combined += chunk
       if (combined.length > MAX_COMMAND_OUTPUT) {
-        combined = combined.slice(combined.length - MAX_COMMAND_OUTPUT)
+        const tail = combined.slice(-MAX_COMMAND_OUTPUT)
+        tailParts.push(tail)
+        tailLen = tail.length
+        combined = ''
+        tailMode = true
         truncated = true
       }
     }
@@ -740,8 +764,12 @@ async function runCommandTool(
         releaseJob(handle)
       }
       let output = `$ ${command}\n`
-      if (truncated) output += '… (earlier output dropped)\n'
-      output += combined.trim()
+      if (truncated) {
+        output += '… (earlier output dropped)\n'
+        output += tailParts.join('').trim()
+      } else {
+        output += combined.trim()
+      }
       if (note) output += `\n(${note})`
       resolve({ ok, output })
     }
@@ -802,7 +830,18 @@ function clamp(outcome: ToolOutcome, call?: { name: string; id: string }): ToolO
   // Fold monster lines first; a capped single line often fits outright.
   const folded = truncateLongLines(outcome.output)
   if (folded.length <= MAX_OUTPUT) {
-    return { ...outcome, output: folded }
+    if (folded === outcome.output) return { ...outcome, output: folded }
+    // Folding really did remove content — a 500 KB single-line JSON folds
+    // to ~2 KB, and without the spill pointer the rest is gone for good,
+    // contradicting the spill store's nothing-lost contract.
+    const spilled = call ? saveSpill(call.name, call.id, outcome.output) : null
+    if (!spilled) return { ...outcome, output: folded }
+    const note = `\n… (long lines folded; full output saved to: ${spilled} — read it back with read_file using that absolute path)`
+    if (folded.length + note.length <= MAX_OUTPUT) {
+      return { ...outcome, output: folded + note }
+    }
+    // No room for the pointer inline: fall through to the head/tail path,
+    // which spills and points anyway.
   }
   const source = folded.length < outcome.output.length ? folded : outcome.output
   // Keep both ends — the tail carries outcomes and completion notes the

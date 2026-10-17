@@ -208,7 +208,10 @@ export async function runTaskTool(input: Record<string, unknown>, ctx: SubagentC
     // that merely mentions cancelled/aborted in its message must keep its
     // real cause so the parent can retry with the context it needs.
     if (err instanceof ProviderError && err.code === 'aborted') {
-      return { ok: false, output: STOPPED_OUTPUT }
+      // An abort that lands inside streamChat still leaves files the
+      // subagent wrote before stopping — report them so the explorer and
+      // any open editor refresh, exactly like the flag-based path above.
+      return { ok: false, output: STOPPED_OUTPUT, ...spreadChanged(changedPaths) }
     }
     const message = err instanceof Error ? err.message : String(err)
     return {

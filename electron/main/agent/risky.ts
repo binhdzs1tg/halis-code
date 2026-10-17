@@ -22,7 +22,10 @@ const RISKY_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /\bchmod\s+(?:-[a-z]+\s+)*(?:0?777\b|a[=+][rwx]+\b)/i, reason: 'it makes files world-writable' },
   { pattern: /\b(?:npm|yarn|pnpm)\s+(?:publish|unpublish)\b/, reason: 'it publishes to a package registry' },
   { pattern: /\b(?:shutdown|reboot|halt|poweroff)\b/i, reason: 'it stops or restarts the machine' },
-  { pattern: />\s*\/dev\//, reason: 'it writes directly to a device node' },
+  // Redirecting into a real device node can clobber hardware; the null and
+  // std-fd sinks are among the most common shell idioms and must not teach
+  // users to rubber-stamp the approval dialog.
+  { pattern: />\s*\/dev\/(?!null\b|stdout\b|stderr\b)/, reason: 'it writes directly to a device node' },
   // -9, -SIGKILL and -s KILL all force-kill.
   { pattern: /\bp?kill(?:all)?\b[^;&|]*\s-(?:9\b|SIGKILL\b|(?:s|e)\s+(?:SIG)?(?:KILL|9)\b)/i, reason: 'it force-kills processes' },
   { pattern: /\btruncate\s+(?:-[a-z]+\s+)*(?:-s\s*0\b|--size\s*=?\s*0\b)/i, reason: 'it empties files' },
