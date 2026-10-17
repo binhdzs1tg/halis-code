@@ -1,6 +1,5 @@
 /**
- * Web fetch tool, ported from opencode's webfetch and the harness's
- * web_fetch: pull one http(s) URL and hand the page to the model as
+ * Web fetch tool: pull one http(s) URL and hand the page to the model as
  * Markdown, plain text or raw HTML. Bodies are bounded, only textual
  * content types pass, and private-network hosts are refused — an agent
  * must not be a free proxy into the intranet. Redirects are followed by
@@ -137,11 +136,18 @@ export async function webFetchTool(input: Record<string, unknown>, signal: Abort
   try {
     session = await follow(BROWSER_UA)
     // Some hosts 403 unknown-looking browsers; one retry as the plain
-    // client we actually are, opencode's Cloudflare dance in miniature.
+    // client we actually are.
     if (session.response.status === 403) {
-      const retry = await follow(PLAIN_UA)
-      session.release()
-      session = retry
+      const first = session
+      try {
+        session = await follow(PLAIN_UA)
+      } catch (err) {
+        first.release()
+        void first.response.body?.cancel().catch(() => {})
+        throw err
+      }
+      first.release()
+      void first.response.body?.cancel().catch(() => {})
     }
   } catch (err) {
     if (err instanceof RefusedError) return { ok: false, output: err.message }

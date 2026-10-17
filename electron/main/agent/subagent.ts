@@ -1,6 +1,6 @@
 /**
- * Subagent delegation, ported from kimi-code's Agent tool and opencode's
- * subagent: the model hands one self-contained task to a fresh agent run
+ * Subagent delegation: the model hands one self-contained task to a fresh
+ * agent run
  * that shares the workspace but not the conversation, so exploration dumps
  * and intermediate file reads stay out of the parent's context — the
  * parent gets a report back instead. The subagent runs the same loop with
@@ -12,7 +12,7 @@ import type { ToolCall, ToolSpec } from '../../shared/types'
 import { loadWorkspaceInstructions } from './instructions'
 import { pruneToolResults } from './compaction'
 import { RepeatGuard } from './guard'
-import { streamChat, type ProviderMessage } from './providers'
+import { streamChat, ProviderError, type ProviderMessage } from './providers'
 import type { ModelTarget } from './run'
 import type { ToolOutcome } from './tools'
 
@@ -137,7 +137,7 @@ export async function runTaskTool(input: Record<string, unknown>, ctx: SubagentC
 
     for (let step = 0; ; step += 1) {
       // Budget spent: force one plain completion so a handoff still arrives
-      // instead of the run dying on step 17 (opencode degrades to text too).
+      // instead of the run dying once the step budget is exhausted.
       const wrapUp = step >= SUBAGENT_MAX_STEPS
       if (wrapUp) {
         const wrapUpText =
@@ -204,10 +204,13 @@ export async function runTaskTool(input: Record<string, unknown>, ctx: SubagentC
     }
     return { ok: true, output: taskEnvelope(boundResult(lastText)), ...spreadChanged(changedPaths) }
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    if (message.includes('cancelled') || message.includes('aborted')) {
+    // Only a genuine run-level abort reads as "stopped"; a provider error
+    // that merely mentions cancelled/aborted in its message must keep its
+    // real cause so the parent can retry with the context it needs.
+    if (err instanceof ProviderError && err.code === 'aborted') {
       return { ok: false, output: STOPPED_OUTPUT }
     }
+    const message = err instanceof Error ? err.message : String(err)
     return {
       ok: false,
       output: `The subagent failed: ${message} — retry the task or do the work directly.`
