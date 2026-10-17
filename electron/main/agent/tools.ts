@@ -26,6 +26,7 @@ import { callMcpTool, mcpSchemaFor, MCP_TOOL_PREFIX } from './mcp'
 import {
   activateJob,
   allocateJob,
+  attachJobStream,
   COMMAND_ENV,
   jobStatus,
   killJob,
@@ -365,7 +366,7 @@ export async function runTool(
       case 'ask_user':
         return await askUserTool(input, call.id, hooks)
       case 'run_command':
-        return await runCommandTool({ ...call, input }, signal, hooks)
+        return cl(await runCommandTool({ ...call, input }, signal, hooks))
       case 'job_output':
         return cl(jobOutputTool(input))
       case 'job_kill':
@@ -387,7 +388,7 @@ export async function runTool(
 
 /* ---------- individual tools ---------- */
 
-/** Bounds on the ask_user surface, tightened from the harness's ask-user tool. */
+/** Bounds on the ask_user surface. */
 const MAX_OPTIONS = 8
 const MIN_OPTIONS = 2
 const MAX_QUESTION_CHARS = 500
@@ -635,6 +636,15 @@ async function runCommandTool(
     let truncated = false
     let settled = false
     const stream = fs.createWriteStream(handle.outputFile, { flags: 'w' })
+    // An unwritable output file (full disk, locked path) must degrade to an
+    // inline answer, not crash the main process on an unhandled 'error'.
+    let streamBroken = false
+    stream.on('error', () => {
+      streamBroken = true
+    })
+    // If this command is promoted into a job, its settle notice must wait
+    // for this stream's final flush before reading the file.
+    attachJobStream(handle.id, stream)
     child.once('close', () => stream.end())
 
     // Decode at the stream level: a multi-byte character split across data
@@ -646,7 +656,7 @@ async function runCommandTool(
     // and the clamp/spill layer adds a pointer when even this is too much.
     const append = (chunk: string): void => {
       combined += chunk
-      stream.write(chunk)
+      if (!streamBroken) stream.write(chunk)
       if (combined.length > MAX_COMMAND_OUTPUT) {
         combined = combined.slice(combined.length - MAX_COMMAND_OUTPUT)
         truncated = true
@@ -656,8 +666,8 @@ async function runCommandTool(
     child.stderr.on('data', append)
 
     const timer = setTimeout(() => {
-      // Promote instead of killing, the way the harness's bash tool does:
-      // the command keeps running as a job and reports back when done.
+      // Promote instead of killing: the command keeps running as a job and
+      // reports back when done.
       activateJob(handle, command, child)
       finish(
         true,
@@ -722,8 +732,12 @@ async function runCommandTool(
       clearTimeout(timer)
       signal.removeEventListener('abort', onAbort)
       if (opts?.keepAlive !== true) {
+        // Not promoted: the reserved handle dissolves here — including the
+        // cancel path, whose later close event would otherwise skip cleanup
+        // and leak the stream slot and the placeholder .out file.
         killTree()
         stream.end()
+        releaseJob(handle)
       }
       let output = `$ ${command}\n`
       if (truncated) output += '… (earlier output dropped)\n'
@@ -792,7 +806,7 @@ function clamp(outcome: ToolOutcome, call?: { name: string; id: string }): ToolO
   }
   const source = folded.length < outcome.output.length ? folded : outcome.output
   // Keep both ends — the tail carries outcomes and completion notes the
-  // model needs, the way the harness's retainer keeps head and tail.
+  // model needs.
   const head = cutSafe(source, 0, MAX_OUTPUT - CLAMP_TAIL)
   const tail = cutSafe(source, source.length - CLAMP_TAIL, source.length)
   const omitted = source.length - head.length - tail.length

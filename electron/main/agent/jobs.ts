@@ -1,6 +1,5 @@
 /**
- * Background command jobs, ported from kimi-code's process tasks and
- * opencode's shell jobs: long commands return to the model immediately,
+ * Background command jobs: long commands return to the model immediately,
  * stream their output to a file the model can page through, and push one
  * completion notice when they settle — no polling, no lost dev servers.
  * Foreground commands that hit their timeout are promoted into a job
@@ -49,6 +48,8 @@ export interface JobHandle {
 
 const jobs = new Map<string, ShellJob>()
 const children = new Map<string, ChildProcess>()
+/** Output streams per active job; settled notices read only flushed bytes. */
+const streams = new Map<string, fs.WriteStream>()
 const killRequested = new Set<string>()
 let outputBase: string | null = null
 let sink: ((event: JobNoticeEvent) => void) | null = null
@@ -120,6 +121,20 @@ function register(handle: JobHandle, command: string, child: ChildProcess): Shel
 function settleJob(id: string, code: number | null): void {
   const job = jobs.get(id)
   if (!job || job.status !== 'running') return
+  const stream = streams.get(id)
+  if (stream && !stream.writableFinished) {
+    // The completion notice carries the job's output tail, so the last
+    // buffered chunk must reach the file before anything reads it — a
+    // quick `echo` can otherwise settle with an empty notice.
+    try {
+      stream.end()
+    } catch {
+      // end already requested; the finish event still fires
+    }
+    stream.once('finish', () => settleJob(id, code))
+    return
+  }
+  streams.delete(id)
   children.delete(id)
   job.exitCode = code
   job.finishedAt = Date.now()
@@ -146,10 +161,14 @@ function pruneSettled(): void {
   }
 }
 
-/** A foreground command finished on its own; its reserved handle dissolves. */
+/** A foreground command finished on its own; its reserved handle dissolves
+ *  and the placeholder output file goes with it — only promoted jobs keep
+ *  their file around for job_output reads. */
 export function releaseJob(handle: JobHandle): void {
   jobs.delete(handle.id)
   children.delete(handle.id)
+  streams.delete(handle.id)
+  fs.rm(handle.outputFile, { force: true }, () => {})
 }
 
 /**
@@ -158,6 +177,14 @@ export function releaseJob(handle: JobHandle): void {
  */
 export function activateJob(handle: JobHandle, command: string, child: ChildProcess): ShellJob {
   return register(handle, command, child)
+}
+
+/**
+ * Register the output stream a caller keeps for a job, so the settle path
+ * can wait for the final flush before reading the file's tail.
+ */
+export function attachJobStream(id: string, stream: fs.WriteStream): void {
+  streams.set(id, stream)
 }
 
 /** Count of still-running jobs, for the concurrency cap. */
@@ -193,10 +220,21 @@ export function startBackgroundJob(command: string, root: string, timeoutMs: num
     detached: process.platform !== 'win32'
   })
   const stream = fs.createWriteStream(handle.outputFile, { flags: 'w' })
+  streams.set(handle.id, stream)
+  // An unwritable output file must not take the process down; the job
+  // keeps running and job_output just reports an empty tail.
+  let streamBroken = false
+  stream.on('error', () => {
+    streamBroken = true
+  })
   child.stdout?.setEncoding('utf8')
   child.stderr?.setEncoding('utf8')
-  child.stdout?.on('data', (chunk: string) => stream.write(chunk))
-  child.stderr?.on('data', (chunk: string) => stream.write(chunk))
+  child.stdout?.on('data', (chunk: string) => {
+    if (!streamBroken) stream.write(chunk)
+  })
+  child.stderr?.on('data', (chunk: string) => {
+    if (!streamBroken) stream.write(chunk)
+  })
   child.once('close', () => stream.end())
   child.once('error', () => stream.end())
   const job = activateJob(handle, command, child)
