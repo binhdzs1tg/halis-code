@@ -46,7 +46,8 @@ export const IpcChannel = {
   SessionsList: 'sessions:list',
   SessionsLoad: 'sessions:load',
   SessionsSave: 'sessions:save',
-  SessionsDelete: 'sessions:delete'
+  SessionsDelete: 'sessions:delete',
+  SessionTitle: 'session:title'
 } as const
 
 export type IpcChannel = (typeof IpcChannel)[keyof typeof IpcChannel]

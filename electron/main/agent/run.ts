@@ -497,7 +497,7 @@ interface ModelTarget {
   key: { value: string }
 }
 
-async function resolveModelTarget(
+export async function resolveModelTarget(
   selection: ModelSelection
 ): Promise<{ error: { code: ChatErrorCode; message: string } } | ModelTarget> {
   const { providers } = await modelsCatalog.list()

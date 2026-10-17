@@ -73,8 +73,14 @@ export function mountConversation(): HTMLElement {
   rootEl.appendChild(header)
 
   const syncCrumb = (messages: ChatMessage[]): void => {
-    crumb.textContent = messages.length > 0 ? sessionTitle(messages) : 'New Session'
+    crumb.textContent = messages.length > 0 ? currentTitle() : 'New Session'
   }
+
+  // A model-generated title, once the first exchange produces one; until
+  // then the first user message stands in.
+  let customTitle: string | null = null
+
+  const currentTitle = (): string => customTitle ?? sessionTitle(messages)
 
   /* ---------- scroll body ---------- */
   const scroll = el('div', 'chat-scroll')
@@ -119,7 +125,7 @@ export function mountConversation(): HTMLElement {
     try {
       const meta = await window.halis.saveSession({
         id: sessionId,
-        title: sessionTitle(messages),
+        title: currentTitle(),
         createdAt: messages[0]?.createdAt ?? Date.now(),
         updatedAt: Date.now(),
         workspaceRoot: store.get().workspaceRoot,
@@ -131,6 +137,21 @@ export function mountConversation(): HTMLElement {
       window.dispatchEvent(new CustomEvent<string>('halis:session-opened', { detail: meta.id }))
     } catch {
       // Persistence is best effort; the chat keeps working without it.
+    }
+  }
+
+  /** Let the model name this chat once the first exchange lands. */
+  const maybeTitle = async (selection: ModelSelection): Promise<void> => {
+    if (customTitle) return
+    const owner = sessionId
+    try {
+      const { title } = await window.halis.generateSessionTitle({ history: [...messages], model: selection })
+      if (customTitle || sessionId !== owner || title.length === 0) return
+      customTitle = title
+      syncCrumb(messages)
+      await persist()
+    } catch {
+      // the derived title stays
     }
   }
 
@@ -523,6 +544,7 @@ export function mountConversation(): HTMLElement {
     if (messages.length === 0) return
     await persist()
     sessionId = null
+    customTitle = null
     messages.splice(0, messages.length)
     queue.splice(0, queue.length)
     jobNotices.splice(0, jobNotices.length)
@@ -546,6 +568,7 @@ export function mountConversation(): HTMLElement {
         await persist()
       }
       sessionId = session.id
+      customTitle = session.title && session.title !== 'Chat' ? session.title : null
       messages.splice(0, messages.length, ...session.messages)
       clear(column)
       exitHero()
@@ -623,8 +646,8 @@ export function mountConversation(): HTMLElement {
         return `## ${label} · ${time}\n\n${message.content}`
       })
       .join('\n\n---\n\n')
-    const markdown = `# ${sessionTitle(messages)}\n\n${body}\n`
-    const base = (sessionTitle(messages) || 'chat').replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase()
+    const markdown = `# ${currentTitle()}\n\n${body}\n`
+    const base = (currentTitle() || 'chat').replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase()
     try {
       const path = await window.halis.exportConversation(`${base || 'chat'}.md`, markdown)
       if (path) appendSystemNote(`Exported to ${path}`)
@@ -874,7 +897,11 @@ export function mountConversation(): HTMLElement {
       if (traces.length > 0) assistant.tools = [...traces]
       if (liveTodos.length > 0) assistant.todos = [...liveTodos]
       node.replaceWith(renderMessage(assistant))
+      const firstExchange =
+        !customTitle && messages.filter((message) => message.role === 'user').length === 1
       void persist()
+        .then(() => (firstExchange ? maybeTitle(selection) : undefined))
+        .catch(() => undefined)
       drainQueue(sessionId)
     } catch (err) {
       // Drop the placeholder by identity — a compaction notice may have

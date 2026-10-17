@@ -68,6 +68,16 @@ export interface ChatSession {
   messages: ChatMessage[]
 }
 
+/** Request payload for `session:title` — name a conversation with the model. */
+export interface SessionTitleRequest {
+  history: ChatMessage[]
+  model: ModelSelection
+}
+
+export interface SessionTitleResult {
+  title: string
+}
+
 /** Request payload for `chat:compact` — compact the given conversation now. */
 export interface CompactRequest {
   history: ChatMessage[]

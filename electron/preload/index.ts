@@ -80,6 +80,7 @@ const api: HalisApi = {
   listSessions: () => ipcRenderer.invoke(IpcChannel.SessionsList),
   loadSession: (id) => ipcRenderer.invoke(IpcChannel.SessionsLoad, id),
   saveSession: (session) => ipcRenderer.invoke(IpcChannel.SessionsSave, session),
+  generateSessionTitle: (request) => ipcRenderer.invoke(IpcChannel.SessionTitle, request),
   deleteSession: (id) => ipcRenderer.invoke(IpcChannel.SessionsDelete, id),
   onKeysChanged: (listener) => {
     const handler = (): void => listener()

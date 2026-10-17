@@ -11,6 +11,8 @@ import type {
   ChatRunStarted,
   ChatSession,
   ChatSessionMeta,
+  SessionTitleRequest,
+  SessionTitleResult,
   ChatToolEvent,
   CompactRequest,
   CompactResult,
@@ -111,6 +113,8 @@ export interface HalisApi {
   loadSession(id: string): Promise<ChatSession>
   /** Persist a conversation; assigns its id on the first save. */
   saveSession(session: ChatSession): Promise<ChatSessionMeta>
+  /** Name a conversation with a short model-generated title. */
+  generateSessionTitle(request: SessionTitleRequest): Promise<SessionTitleResult>
   /** Delete one saved conversation. */
   deleteSession(id: string): Promise<void>
   /** Fired whenever a vault key is added or removed. */

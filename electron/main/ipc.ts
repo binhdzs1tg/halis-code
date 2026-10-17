@@ -16,6 +16,7 @@ import * as keyStore from './keys/store'
 import * as terminal from './terminal'
 import * as sessions from './sessions'
 import { cancelRun, startRun, compactNow } from './agent/run'
+import { generateSessionTitle } from './agent/title'
 import { resolveApproval, resolveUserQuestion } from './agent/approval'
 import { shellSettings, updateShellSettings } from './settings'
 import fs from 'node:fs'
@@ -307,5 +308,9 @@ export function registerIpcHandlers(): void {
 
   handle(IpcChannel.SessionsDelete, (_event, id: unknown) => {
     sessions.deleteSession(id)
+  })
+
+  handle(IpcChannel.SessionTitle, async (_event, request: unknown) => {
+    return await generateSessionTitle(request)
   })
 }

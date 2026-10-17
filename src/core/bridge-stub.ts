@@ -71,6 +71,7 @@ export function installBridgeStub(): void {
     listSessions: () => Promise.resolve([]),
     loadSession: unavailable,
     saveSession: unavailable,
+    generateSessionTitle: unavailable,
     deleteSession: unavailable,
     onMenuCommand: listener
   }
