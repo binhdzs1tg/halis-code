@@ -688,6 +688,9 @@ export function mountConversation(): HTMLElement {
     // Raised synchronously, before any await: a double-tap of Enter during
     // the key-status roundtrip must not start two runs.
     running = true
+    // A manual stop on the previous run tells the runtime that the turn
+    // above may be incomplete — capture it before the flag resets.
+    const afterInterrupted = stoppedManually
     stoppedManually = false
 
     // Everything that can bail without a run happens before the user's
@@ -755,6 +758,9 @@ export function mountConversation(): HTMLElement {
       outgoing = `${text}\n\n${jobNotices.join('\n\n')}`
       jobNotices.length = 0
     }
+    // The freshest todo snapshot travels with the turn so the runtime can
+    // nudge when the plan goes stale mid-run.
+    const todos = [...messages].reverse().find((message) => message.todos && message.todos.length > 0)?.todos ?? []
     const assistant = makeMessage('assistant', '')
     const node = renderMessage(assistant)
     const bubble = node.querySelector<HTMLElement>('.bubble')
@@ -806,7 +812,13 @@ export function mountConversation(): HTMLElement {
 
     try {
       const full = await agentService.run(
-        { prompt: outgoing, history, model: selection },
+        {
+          prompt: outgoing,
+          history,
+          model: selection,
+          ...(todos.length > 0 ? { todos } : {}),
+          ...(afterInterrupted ? { afterInterrupted: true } : {})
+        },
         {
           onDelta: (chunk) => {
             buffered += chunk

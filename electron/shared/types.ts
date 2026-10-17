@@ -94,6 +94,10 @@ export interface AgentTurnRequest {
   prompt: string
   history: ChatMessage[]
   model: ModelSelection
+  /** Latest todo snapshot, so the runtime can nudge about stale plans. */
+  todos?: TodoItem[]
+  /** True when the previous run was stopped by the user mid-flight. */
+  afterInterrupted?: boolean
 }
 
 export interface ChatRunStarted {

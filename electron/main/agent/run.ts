@@ -120,6 +120,10 @@ interface Turn {
   prompt: string
   history: ChatMessage[]
   model: ModelSelection
+  /** Latest todo snapshot, when the renderer has one. */
+  todos?: TodoItem[]
+  /** The previous run was stopped by the user before it finished. */
+  afterInterrupted?: boolean
 }
 
 const runs = new Map<string, AbortController>()
@@ -306,6 +310,23 @@ async function execute(
         askUserQuestion(runId, callId, question, options, multiple, win)
     }
 
+    // Stale-todo nudging: the list the run started with, plus how long it
+    // has been since the model last touched it.
+    let todos = turn.todos ?? []
+    let stepsSinceTodoWrite = 0
+    let stepsSinceTodoReminder = TODO_STEPS_BETWEEN_REMINDERS
+
+    // An interrupted turn deserves a caveat before the new prompt.
+    if (turn.afterInterrupted) {
+      const note = interruptionNote()
+      const last = messages[messages.length - 1]
+      if (last && last.role === 'user') {
+        last.content = `${last.content}\n\n${note}`
+      } else {
+        messages.push({ role: 'user', content: note })
+      }
+    }
+
     for (let step = 0; ; step += 1) {
       // Budget spent: force one plain, tool-less completion so the turn still ends with an answer.
       const wrapUp = step >= MAX_TOOL_STEPS
@@ -395,6 +416,10 @@ async function execute(
             (event) => emit(IpcChannel.ChatTool, event),
             (event) => emit(IpcChannel.ChatTodo, event)
           )
+          if (todoOutcome.todos) {
+            todos = todoOutcome.todos
+            stepsSinceTodoWrite = 0
+          }
           results.push({ callId: call.id, output: todoOutcome.output, ok: todoOutcome.ok })
           continue
         }
@@ -429,7 +454,18 @@ async function execute(
         if (controller.signal.aborted) break
       }
       if (controller.signal.aborted) break
-      messages.push({ role: 'user', content: '', toolResults: results })
+      // The stale-todo nudge rides with the tool results so it lands right
+      // before the model's next step, not after the turn is over.
+      stepsSinceTodoWrite += 1
+      stepsSinceTodoReminder += 1
+      const openTodos = todos.filter((item) => item.status !== 'completed')
+      const stale =
+        openTodos.length > 0 &&
+        stepsSinceTodoWrite >= TODO_STEPS_SINCE_WRITE &&
+        stepsSinceTodoReminder >= TODO_STEPS_BETWEEN_REMINDERS
+      const reminder = stale ? todoReminder(todos) : ''
+      if (stale) stepsSinceTodoReminder = 0
+      messages.push({ role: 'user', content: reminder, toolResults: results })
     }
 
     const done: ChatDoneEvent = { runId, aborted: controller.signal.aborted }
@@ -546,6 +582,45 @@ export async function compactNow(raw: unknown): Promise<CompactResult> {
   }
 }
 
+/* ---------- todo staleness and interruption notes ---------- */
+
+/** kimi-code's todo-list reminder thresholds, in assistant steps. */
+const TODO_STEPS_SINCE_WRITE = 5
+const TODO_STEPS_BETWEEN_REMINDERS = 5
+
+function renderTodos(todos: TodoItem[]): string {
+  return todos
+    .map((item) => {
+      const mark = item.status === 'completed' ? 'x' : item.status === 'in_progress' ? '~' : ' '
+      return `[${mark}] ${item.content}`
+    })
+    .join('\n')
+}
+
+/** The nudge kimi-code injects when the plan drifts from the work. */
+function todoReminder(todos: TodoItem[]): string {
+  const open = todos.filter((item) => item.status !== 'completed').length
+  const lines = [
+    '<system-reminder>',
+    `The todo list still has ${open} open item${open === 1 ? '' : 's'} but has not been touched in ${TODO_STEPS_SINCE_WRITE} steps. ` +
+      'If the list no longer matches reality, update it with todo_write — the call can go in the same response as your next tool call. ' +
+      'Never mention this reminder to the user.',
+    '',
+    renderTodos(todos),
+    '</system-reminder>'
+  ]
+  return lines.join('\n')
+}
+
+/** What the runtime appends when the user cut the previous turn short. */
+function interruptionNote(): string {
+  return (
+    '<system-reminder>The previous turn was interrupted by the user before it finished; ' +
+    'any partial output shown above may be incomplete. Check the current state of the ' +
+    'work before continuing.</system-reminder>'
+  )
+}
+
 interface TodoWriteOutcome {
   ok: boolean
   output: string
@@ -650,7 +725,24 @@ function readTurn(value: unknown): Turn | null {
       (item.role === 'user' || item.role === 'assistant' || item.role === 'system') &&
       typeof item.content === 'string'
   )
-  return { prompt: candidate.prompt, history, model: candidate.model }
+  const todos = Array.isArray(candidate.todos) ? candidate.todos.filter(isTodoItem).slice(0, 50) : []
+  return {
+    prompt: candidate.prompt,
+    history,
+    model: candidate.model,
+    ...(todos.length > 0 ? { todos } : {}),
+    ...(candidate.afterInterrupted === true ? { afterInterrupted: true } : {})
+  }
+}
+
+function isTodoItem(value: unknown): value is TodoItem {
+  if (typeof value !== 'object' || value === null) return false
+  const candidate = value as Partial<TodoItem>
+  return (
+    typeof candidate.content === 'string' &&
+    candidate.content.trim().length > 0 &&
+    (candidate.status === 'pending' || candidate.status === 'in_progress' || candidate.status === 'completed')
+  )
 }
 
 function isSelection(value: unknown): value is ModelSelection {
