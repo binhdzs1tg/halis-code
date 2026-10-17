@@ -122,16 +122,18 @@ function settleJob(id: string, code: number | null): void {
   const job = jobs.get(id)
   if (!job || job.status !== 'running') return
   const stream = streams.get(id)
-  if (stream && !stream.writableFinished) {
+  if (stream && !stream.destroyed && !stream.writableFinished) {
     // The completion notice carries the job's output tail, so the last
     // buffered chunk must reach the file before anything reads it — a
-    // quick `echo` can otherwise settle with an empty notice.
+    // quick `echo` can otherwise settle with an empty notice. Wait on
+    // 'close', not 'finish': it fires after a clean flush AND after an
+    // error destroy, so an unwritable file settles instead of wedging.
     try {
       stream.end()
     } catch {
-      // end already requested; the finish event still fires
+      // end already requested; the close event still fires
     }
-    stream.once('finish', () => settleJob(id, code))
+    stream.once('close', () => settleJob(id, code))
     return
   }
   streams.delete(id)

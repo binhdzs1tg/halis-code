@@ -210,7 +210,6 @@ export function saveSession(raw: unknown): ChatSessionMeta {
 function pruneSessions(directory: string): void {
   const entries: Array<{ file: string; updatedAt: number }> = []
   for (const file of readdirSync(directory)) {
-    if (!file.endsWith('.json')) continue
     if (file.endsWith('.json.tmp')) {
       // Saves are synchronous, so a leftover temp file means a crashed
       // write — no reader wants it, sweep it.
@@ -221,6 +220,7 @@ function pruneSessions(directory: string): void {
       }
       continue
     }
+    if (!file.endsWith('.json')) continue
     const session = readSessionFile(join(directory, file))
     if (session) {
       entries.push({ file, updatedAt: session.updatedAt })

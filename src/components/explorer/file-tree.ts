@@ -66,7 +66,10 @@ export function mountFileTree(container: HTMLElement): void {
         const children = await window.halis.readDir(path)
         // The user may have collapsed it during the read, or a newer render
         // replaced the whole listing — neither may receive ghost children.
-        if (gen !== renderGen || !row.isConnected || row.dataset.expanded !== '1') continue
+        if (gen !== renderGen || !row.isConnected || row.dataset.expanded !== '1') {
+          if (row.isConnected && row.dataset.expanded !== '1') delete row.dataset.loaded
+          continue
+        }
         let anchor: HTMLElement = row
         for (const child of children) {
           const node = renderEntry(child, depthOf(path) + 1)
@@ -170,7 +173,13 @@ export function mountFileTree(container: HTMLElement): void {
         const children = await window.halis.readDir(entry.path)
         // A re-render (or a collapse during the read) makes this row stale —
         // the same guard restoreExpanded applies before inserting children.
-        if (gen !== renderGen || !row.isConnected || row.dataset.expanded !== '1') return
+        if (gen !== renderGen || !row.isConnected || row.dataset.expanded !== '1') {
+          // Collapsed mid-read: forget the load so the next expand refetches
+          // instead of showing an empty folder. A detached row belongs to an
+          // older render, which refetches on its own.
+          if (row.isConnected && row.dataset.expanded !== '1') delete row.dataset.loaded
+          return
+        }
         let anchor: HTMLElement = row
         for (const child of children) {
           const node = renderEntry(child, depth + 1)
