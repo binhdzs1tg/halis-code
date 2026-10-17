@@ -28,8 +28,7 @@ function senderWindow(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent
 /**
  * Guard every channel against calls from foreign frames: only the main frame
  * of a window this process created may invoke shell APIs. Subframes, guest
- * pages and windows Electron created for other reasons are all rejected, the
- * same way DeepSeek Harness desktop validates its senders.
+ * pages and windows Electron created for other reasons are all rejected.
  */
 function assertMainSender(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): void {
   if (!senderWindow(event)) {

@@ -15,7 +15,7 @@ import { mountSidebar } from './components/sidebar'
 import { mountConversation } from './components/conversation'
 import { mountWorkspaceRail } from './components/right-rail'
 
-/* Column geometry, mirroring the harness sidebar/rail solve. */
+/* Column geometry defaults. */
 const SIDEBAR_DEFAULT = 280
 const RAIL_DEFAULT = 420
 const SIDEBAR_MIN = 264
@@ -106,7 +106,7 @@ function buildShell(): void {
   paint()
 
   // Only a discrete collapse/expand toggle eases the tracks; steady-state
-  // drags land instantly, exactly as in the harness frame.
+  // drags land instantly.
   let animatingTimer = 0
   const animateOnce = (): void => {
     shell.dataset.animating = ''
@@ -127,7 +127,7 @@ function buildShell(): void {
     paint()
   })
 
-  // ---- drag handles, ported from the harness frame --------------------
+  // ---- drag handles ---------------------------------------------------
   const leftHandle = el('div', 'handle handle-left')
   const rightHandle = el('div', 'handle handle-right')
   shell.append(leftHandle, rightHandle)
@@ -207,10 +207,10 @@ async function boot(): Promise<void> {
   const splash = mountSplash()
   document.body.appendChild(splash)
 
-  // Theme follows the system, as the harness does.
+  // Theme follows the system.
   const palette = window.matchMedia('(prefers-color-scheme: dark)')
   const syncTheme = (): void => {
-    document.body.toggleAttribute('data-ds-dark-theme', palette.matches)
+    document.body.toggleAttribute('data-halis-dark-theme', palette.matches)
   }
   syncTheme()
   palette.addEventListener('change', syncTheme)

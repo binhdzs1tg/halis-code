@@ -1,6 +1,5 @@
 /**
- * Minimal MCP client, ported from codex's connection set and opencode's
- * transport handling: servers declared in ~/.halis/mcp.json run as child
+ * Minimal MCP client: servers declared in ~/.halis/mcp.json run as child
  * processes speaking newline-delimited JSON-RPC 2.0, and their tools join
  * the agent's list as mcp__<server>__<tool>. Only the user-level file is
  * read — a workspace copy would let the agent grant itself commands.
@@ -17,7 +16,7 @@ import { getWorkspaceRoot } from '../workspace'
 
 /** The legacy handshake both sources default to. */
 const PROTOCOL_VERSION = '2025-06-18'
-/** Tool names carry this prefix, codex-style. */
+/** Tool names carry this prefix. */
 export const MCP_TOOL_PREFIX = 'mcp__'
 
 const STARTUP_TIMEOUT_MS = 30_000
@@ -114,7 +113,7 @@ export function parseMcpConfig(raw: unknown): McpConfigParse {
   return out
 }
 
-/** Providers only accept [a-zA-Z0-9_-]; codex folds everything else to _. */
+/** Providers only accept [a-zA-Z0-9_-]; anything else folds to _. */
 export function sanitizeMcpName(name: string): string {
   return name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64) || '_'
 }
@@ -128,7 +127,7 @@ export function mcpToolName(server: string, tool: string): string {
 /**
  * Flatten a tools/call result into model-usable text: text blocks are
  * joined, binary blocks are counted rather than carried, unknown blocks
- * keep their raw JSON (codex does the same). `structuredContent`, when
+ * keep their raw JSON. `structuredContent`, when
  * present, rides along as a fenced JSON block.
  */
 export function flattenMcpContent(result: unknown): { text: string; isError: boolean } {
@@ -244,7 +243,7 @@ export class McpConnection {
       clientInfo: { name: 'halis-code', version: '0.1.0' }
     }, STARTUP_TIMEOUT_MS)
     this.notify('notifications/initialized')
-    // opencode skips tools/list when the capability is absent — some servers
+    // tools/list is skipped when the capability is absent — some servers
     // answer it with an error anyway.
     const capabilities = init?.capabilities
     if (typeof capabilities !== 'object' || capabilities === null || !('tools' in capabilities)) {
@@ -357,7 +356,7 @@ export class McpConnection {
     }
   }
 
-  /** Paginated tools/list with the repeated-cursor guard codex carries. */
+  /** Paginated tools/list with a repeated-cursor guard. */
   private async refreshTools(): Promise<void> {
     const tools: McpToolEntry[] = []
     let cursor: string | undefined

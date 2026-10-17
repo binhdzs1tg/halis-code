@@ -1,8 +1,7 @@
 /**
  * Native quit confirmation: quitting proceeds silently only when nothing is
- * running that a quit would interrupt. Adapted from DeepSeek Harness desktop's
- * quit confirmation — one decision at a time, repeated quit requests join the
- * open dialog instead of stacking a second one.
+ * running that a quit would interrupt. One decision at a time; repeated
+ * quit requests join the open dialog instead of stacking a second one.
  */
 import { app, dialog } from 'electron'
 import * as terminal from './terminal'
@@ -34,7 +33,7 @@ let sessionEnding = false
  * Mark an in-progress OS shutdown (powerMonitor 'shutdown', or the Windows
  * 'session-end' window event). Shutting down is not the moment to hold the
  * process hostage for a confirmation, so the next quit goes straight through.
- * Like Harness, a cancelled macOS power-off clears the flag on the next
+ * A cancelled macOS power-off clears the flag on the next
  * window focus.
  */
 export function markSessionEnding(): void {

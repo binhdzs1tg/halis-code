@@ -1,7 +1,7 @@
 import { el } from './dom'
 
 /**
- * TextShimmer, ported from the DeepSeek Harness primitive: two stacked copies
+ * TextShimmer: two stacked copies
  * of the text; a tinted copy sweeps under a 105° gradient mask while an
  * opposite-moving highlight keeps the glyphs aligned.
  */

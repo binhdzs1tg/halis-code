@@ -1,9 +1,7 @@
 /**
- * Web search tool, ported from opencode's websearch. The tool shape and the
- * result formatting are theirs; this port ships with the keyless provider
- * pattern opencode demonstrated with its built-in provider — DuckDuckGo's
- * lite endpoints need no key, which keeps the tool useful out of the box.
- * Swap in a keyed provider later by editing fetchSearchResults only.
+ * Web search tool. The keyless provider — DuckDuckGo's lite endpoints —
+ * needs no key, which keeps the tool useful out of the box. Swap in a
+ * keyed provider later by editing fetchSearchResults only.
  */
 import { htmlToText } from './html-to-markdown'
 import type { ToolOutcome } from './tools'
@@ -51,7 +49,7 @@ export async function webSearchTool(input: Record<string, unknown>, signal: Abor
     return { ok: true, output: `No results for "${query}".` }
   }
 
-  // opencode's block format: one headed link per result, snippet below.
+  // One headed link per result, snippet below.
   const blocks = results.map((result) => `## [${result.title}](${result.url})\n${result.snippet}`)
   return { ok: true, output: `${results.length} results for "${query}":\n\n${blocks.join('\n\n')}` }
 }

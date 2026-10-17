@@ -1,9 +1,8 @@
 /**
  * Context compaction: when the built request would run past the model's
  * context pressure point, condense the older span into a structured
- * checkpoint and keep a verbatim tail. The checkpoint format and the
- * pressure/retain ratios follow DeepSeek Harness's compaction-basic:
- * summarise at 80% of the window, keep the most recent ~16% verbatim.
+ * checkpoint and keep a verbatim tail: summarise at 80% of the window,
+ * keep the most recent ~16% verbatim.
  */
 import type { ModelEntry, ModelVariant, ProviderEntry } from '../../shared/models'
 import { streamChat, type ProviderMessage } from './providers'

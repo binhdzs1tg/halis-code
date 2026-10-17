@@ -14,10 +14,9 @@ const TABS: Array<{ id: RailTab; label: string; icon: string }> = [
 ]
 
 /**
- * Right column, ported from the harness dockkit: a tab strip above the
- * files / search / editor / terminal panels. Opening a file from the tree
- * or a search hit flips to the Editor tab, the way the harness previews
- * documents in its right column.
+ * Right column: a tab strip above the files / search / editor / terminal
+ * panels. Opening a file from the tree or a search hit flips to the Editor
+ * tab so the document is always one click from where it was referenced.
  */
 export function mountWorkspaceRail(): HTMLElement {
   const rail = el('div', 'rail')
@@ -73,8 +72,8 @@ export function mountWorkspaceRail(): HTMLElement {
 
   const paint = (): void => {
     const state = store.get()
-    // The editor tab only exists while a file is open, as in the harness —
-    // the preview panel appears when there is something to show.
+    // The editor tab only exists while a file is open — the preview panel
+    // appears when there is something to show.
     const editorTab = tabButtons.get('editor')
     if (editorTab) {
       editorTab.hidden = state.openFiles.length === 0
@@ -101,7 +100,7 @@ export function mountWorkspaceRail(): HTMLElement {
       paint()
     }
     // Opening a file (tree click, search hit, agent reference) surfaces the
-    // editor, the same reflex as the harness document preview.
+    // editor right away.
     if (state.openFile && state.openFile !== prev.openFile && state.railTab !== 'terminal') {
       store.update({ railTab: 'editor' })
     }

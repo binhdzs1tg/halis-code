@@ -1,5 +1,5 @@
-/* Halis Code — design tokens ported from the DeepSeek Harness desktop UI.
- * Light palette rides :root, dark rides body[data-ds-dark-theme]; the
+/* Halis Code — design tokens.
+ * Light palette rides :root, dark rides body[data-halis-dark-theme]; the
  * renderer syncs the attribute from prefers-color-scheme. */
 
 @font-face {
@@ -27,305 +27,305 @@
 }
 
 :root {
-  --dsh-font-family-text-default: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+  --hal-font-family-text-default: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
     'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
-  --dsw-font-family: var(--dsh-font-family-text-default);
-  --dsw-font-family-brand: 'Montserrat', var(--dsh-font-family-text-default);
-  --dsh-font-family-code-default: 'SF Mono', 'JetBrains Mono', 'Fira Code', Consolas,
+  --hal-font-family: var(--hal-font-family-text-default);
+  --hal-font-family-brand: 'Montserrat', var(--hal-font-family-text-default);
+  --hal-font-family-code-default: 'SF Mono', 'JetBrains Mono', 'Fira Code', Consolas,
     'Liberation Mono', Menlo, Courier, 'PingFang SC', 'Microsoft YaHei';
-  --ds-font-family-code: var(--dsh-font-family-code-default);
+  --ds-font-family-code: var(--hal-font-family-code-default);
   --ds-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
   --ds-transition-duration: 0.2s;
   --ds-transition-duration-fast: 0.1s;
   --ds-transition-duration-slow: 0.3s;
-  --dsw-radius-xs: 4px;
-  --dsw-radius-sm: 8px;
-  --dsw-radius-md: 12px;
-  --dsw-radius-lg: 16px;
-  --dsw-radius-xl: 20px;
-  --dsw-radius-panel: 28px;
+  --hal-radius-xs: 4px;
+  --hal-radius-sm: 8px;
+  --hal-radius-md: 12px;
+  --hal-radius-lg: 16px;
+  --hal-radius-xl: 20px;
+  --hal-radius-panel: 28px;
 }
 
 /* Static palette (shared by both themes). */
 body {
-  --dsw-static-amber-100: rgb(254, 245, 231);
-  --dsw-static-amber-400: rgb(247, 173, 49);
-  --dsw-static-amber-500: rgb(245, 158, 11);
-  --dsw-static-amber-600: rgb(221, 134, 41);
-  --dsw-static-amber-900: rgb(39, 36, 31);
-  --dsw-static-blue-100: rgb(219, 234, 254);
-  --dsw-static-blue-300: rgb(147, 197, 253);
-  --dsw-static-blue-400: rgb(96, 165, 250);
-  --dsw-static-blue-450: rgb(77, 147, 248);
-  --dsw-static-blue-500: rgb(59, 130, 246);
-  --dsw-static-blue-50: rgb(239, 246, 255);
-  --dsw-static-blue-50p: rgb(234, 243, 255);
-  --dsw-static-blue-600: rgb(37, 99, 235);
-  --dsw-static-blue-75: rgb(229, 240, 255);
-  --dsw-static-blue-800: rgb(30, 64, 175);
-  --dsw-static-blue-900: rgb(14, 48, 116);
-  --dsw-static-blue-950: rgb(23, 37, 84);
-  --dsw-static-deepseek-100: rgb(228, 237, 253);
-  --dsw-static-deepseek-200: rgb(211, 226, 255);
-  --dsw-static-deepseek-300: rgb(183, 200, 254);
-  --dsw-static-deepseek-400: rgb(122, 170, 255);
-  --dsw-static-deepseek-450: rgb(86, 134, 254);
-  --dsw-static-deepseek-500: rgb(65, 118, 230);
-  --dsw-static-deepseek-50: rgb(237, 243, 254);
-  --dsw-static-deepseek-600: rgb(72, 104, 178);
-  --dsw-static-deepseek-800: rgb(52, 65, 91);
-  --dsw-static-deepseek-900: rgb(40, 49, 66);
-  --dsw-static-green-100: rgb(230, 250, 237);
-  --dsw-static-green-400: rgb(78, 209, 126);
-  --dsw-static-green-500: rgb(34, 197, 94);
-  --dsw-static-green-500-a08: rgb(34 197 94 / 8%);
-  --dsw-static-green-500-a12: rgb(34 197 94 / 12%);
-  --dsw-static-green-900: rgb(35, 60, 44);
-  --dsw-static-neutral-00: rgb(255, 255, 255);
-  --dsw-static-neutral-1000: rgb(0, 0, 0);
-  --dsw-static-neutral-100: rgb(245, 245, 245);
-  --dsw-static-neutral-150: rgb(237, 237, 237);
-  --dsw-static-neutral-200: rgb(229, 229, 229);
-  --dsw-static-neutral-250: rgb(220, 220, 220);
-  --dsw-static-neutral-300: rgb(212, 212, 212);
-  --dsw-static-neutral-400: rgb(162, 164, 166);
-  --dsw-static-neutral-500: rgb(127, 130, 135);
-  --dsw-static-neutral-50: rgb(250, 250, 250);
-  --dsw-static-neutral-550: rgb(101, 103, 107);
-  --dsw-static-neutral-600: rgb(84, 85, 87);
-  --dsw-static-neutral-700: rgb(60, 60, 61);
-  --dsw-static-neutral-800: rgb(41, 41, 41);
-  --dsw-static-neutral-850: rgb(33, 33, 35);
-  --dsw-static-neutral-900: rgb(15, 15, 15);
-  --dsw-static-neutral-bluish-00: rgb(255, 255, 255);
-  --dsw-static-neutral-bluish-1000: rgb(15, 17, 21);
-  --dsw-static-neutral-bluish-100: rgb(235, 238, 242);
-  --dsw-static-neutral-bluish-150: rgb(233, 236, 242);
-  --dsw-static-neutral-bluish-200: rgb(225, 229, 238);
-  --dsw-static-neutral-bluish-300: rgb(207, 211, 214);
-  --dsw-static-neutral-bluish-400: rgb(173, 178, 184);
-  --dsw-static-neutral-bluish-500: rgb(151, 157, 166);
-  --dsw-static-neutral-bluish-50: rgb(249, 250, 251);
-  --dsw-static-neutral-bluish-600: rgb(129, 133, 140);
-  --dsw-static-neutral-bluish-60: rgb(245, 246, 247);
-  --dsw-static-neutral-bluish-700: rgb(97, 102, 107);
-  --dsw-static-neutral-bluish-750: rgb(67, 69, 74);
-  --dsw-static-neutral-bluish-75: rgb(241, 243, 245);
-  --dsw-static-neutral-bluish-800: rgb(53, 54, 56);
-  --dsw-static-neutral-bluish-850: rgb(44, 44, 46);
-  --dsw-static-neutral-bluish-875: rgb(35, 35, 36);
-  --dsw-static-neutral-bluish-900: rgb(27, 27, 28);
-  --dsw-static-neutral-bluish-950: rgb(21, 21, 23);
-  --dsw-static-red-100: rgb(254, 226, 226);
-  --dsw-static-red-400: rgb(242, 90, 90);
-  --dsw-static-red-400-a12: rgb(242 90 90 / 12%);
-  --dsw-static-red-500: rgb(239, 68, 68);
-  --dsw-static-red-50: rgb(254, 242, 242);
-  --dsw-static-red-600: rgb(236, 19, 19);
-  --dsw-static-red-600-a08: rgb(236 19 19 / 8%);
-  --dsw-static-red-900: rgb(87, 12, 12);
+  --hal-static-amber-100: rgb(254, 245, 231);
+  --hal-static-amber-400: rgb(247, 173, 49);
+  --hal-static-amber-500: rgb(245, 158, 11);
+  --hal-static-amber-600: rgb(221, 134, 41);
+  --hal-static-amber-900: rgb(39, 36, 31);
+  --hal-static-blue-100: rgb(219, 234, 254);
+  --hal-static-blue-300: rgb(147, 197, 253);
+  --hal-static-blue-400: rgb(96, 165, 250);
+  --hal-static-blue-450: rgb(77, 147, 248);
+  --hal-static-blue-500: rgb(59, 130, 246);
+  --hal-static-blue-50: rgb(239, 246, 255);
+  --hal-static-blue-50p: rgb(234, 243, 255);
+  --hal-static-blue-600: rgb(37, 99, 235);
+  --hal-static-blue-75: rgb(229, 240, 255);
+  --hal-static-blue-800: rgb(30, 64, 175);
+  --hal-static-blue-900: rgb(14, 48, 116);
+  --hal-static-blue-950: rgb(23, 37, 84);
+  --hal-static-brand-100: rgb(228, 237, 253);
+  --hal-static-brand-200: rgb(211, 226, 255);
+  --hal-static-brand-300: rgb(183, 200, 254);
+  --hal-static-brand-400: rgb(122, 170, 255);
+  --hal-static-brand-450: rgb(86, 134, 254);
+  --hal-static-brand-500: rgb(65, 118, 230);
+  --hal-static-brand-50: rgb(237, 243, 254);
+  --hal-static-brand-600: rgb(72, 104, 178);
+  --hal-static-brand-800: rgb(52, 65, 91);
+  --hal-static-brand-900: rgb(40, 49, 66);
+  --hal-static-green-100: rgb(230, 250, 237);
+  --hal-static-green-400: rgb(78, 209, 126);
+  --hal-static-green-500: rgb(34, 197, 94);
+  --hal-static-green-500-a08: rgb(34 197 94 / 8%);
+  --hal-static-green-500-a12: rgb(34 197 94 / 12%);
+  --hal-static-green-900: rgb(35, 60, 44);
+  --hal-static-neutral-00: rgb(255, 255, 255);
+  --hal-static-neutral-1000: rgb(0, 0, 0);
+  --hal-static-neutral-100: rgb(245, 245, 245);
+  --hal-static-neutral-150: rgb(237, 237, 237);
+  --hal-static-neutral-200: rgb(229, 229, 229);
+  --hal-static-neutral-250: rgb(220, 220, 220);
+  --hal-static-neutral-300: rgb(212, 212, 212);
+  --hal-static-neutral-400: rgb(162, 164, 166);
+  --hal-static-neutral-500: rgb(127, 130, 135);
+  --hal-static-neutral-50: rgb(250, 250, 250);
+  --hal-static-neutral-550: rgb(101, 103, 107);
+  --hal-static-neutral-600: rgb(84, 85, 87);
+  --hal-static-neutral-700: rgb(60, 60, 61);
+  --hal-static-neutral-800: rgb(41, 41, 41);
+  --hal-static-neutral-850: rgb(33, 33, 35);
+  --hal-static-neutral-900: rgb(15, 15, 15);
+  --hal-static-neutral-bluish-00: rgb(255, 255, 255);
+  --hal-static-neutral-bluish-1000: rgb(15, 17, 21);
+  --hal-static-neutral-bluish-100: rgb(235, 238, 242);
+  --hal-static-neutral-bluish-150: rgb(233, 236, 242);
+  --hal-static-neutral-bluish-200: rgb(225, 229, 238);
+  --hal-static-neutral-bluish-300: rgb(207, 211, 214);
+  --hal-static-neutral-bluish-400: rgb(173, 178, 184);
+  --hal-static-neutral-bluish-500: rgb(151, 157, 166);
+  --hal-static-neutral-bluish-50: rgb(249, 250, 251);
+  --hal-static-neutral-bluish-600: rgb(129, 133, 140);
+  --hal-static-neutral-bluish-60: rgb(245, 246, 247);
+  --hal-static-neutral-bluish-700: rgb(97, 102, 107);
+  --hal-static-neutral-bluish-750: rgb(67, 69, 74);
+  --hal-static-neutral-bluish-75: rgb(241, 243, 245);
+  --hal-static-neutral-bluish-800: rgb(53, 54, 56);
+  --hal-static-neutral-bluish-850: rgb(44, 44, 46);
+  --hal-static-neutral-bluish-875: rgb(35, 35, 36);
+  --hal-static-neutral-bluish-900: rgb(27, 27, 28);
+  --hal-static-neutral-bluish-950: rgb(21, 21, 23);
+  --hal-static-red-100: rgb(254, 226, 226);
+  --hal-static-red-400: rgb(242, 90, 90);
+  --hal-static-red-400-a12: rgb(242 90 90 / 12%);
+  --hal-static-red-500: rgb(239, 68, 68);
+  --hal-static-red-50: rgb(254, 242, 242);
+  --hal-static-red-600: rgb(236, 19, 19);
+  --hal-static-red-600-a08: rgb(236 19 19 / 8%);
+  --hal-static-red-900: rgb(87, 12, 12);
 }
 
 /* Aliased tokens — light. */
 body {
-  --dsw-alias-bg-base: var(--dsw-static-neutral-bluish-00);
-  --dsw-alias-bg-layer-1: var(--dsw-static-neutral-bluish-00);
-  --dsw-alias-bg-layer-2: var(--dsw-static-neutral-bluish-00);
-  --dsw-alias-bg-layer-3: var(--dsw-static-neutral-bluish-00);
-  --dsw-alias-bg-mask-1: rgba(0, 0, 0, 0.24);
-  --dsw-alias-bg-mask-2: rgba(0, 0, 0, 0.12);
-  --dsw-alias-bg-mask-3: rgba(0, 0, 0, 0.48);
-  --dsw-alias-bg-module-platform: var(--dsw-static-neutral-bluish-60);
-  --dsw-alias-bg-overlay: var(--dsw-static-neutral-bluish-150);
-  --dsw-alias-bg-skeleton: rgba(0, 0, 0, 0.04);
-  --dsw-alias-border-l1: rgba(0, 0, 0, 0.04);
-  --dsw-alias-border-l2: rgba(0, 0, 0, 0.1);
-  --dsw-alias-border-l3: rgba(0, 0, 0, 0.12);
-  --dsw-alias-border-l4: rgba(0, 0, 0, 0.16);
-  --dsw-alias-brand-primary: var(--dsw-static-neutral-bluish-1000);
-  --dsw-alias-brand-text: var(--dsw-static-neutral-bluish-1000);
-  --dsw-alias-button-elevated-fill: var(--dsw-static-neutral-bluish-00);
-  --dsw-alias-button-floating-fill: var(--dsw-static-neutral-bluish-00);
-  --dsw-alias-button-floating-hover: var(--dsw-static-neutral-bluish-75);
-  --dsw-alias-button-info-fill: var(--dsw-static-deepseek-500);
-  --dsw-alias-button-info-hover: var(--dsw-static-deepseek-400);
-  --dsw-alias-button-primary-hover: var(--dsw-static-neutral-bluish-750);
-  --dsw-alias-interactive-bg-active: rgba(38, 49, 72, 0.1);
-  --dsw-alias-interactive-bg-hover-danger: rgba(236, 19, 19, 0.05);
-  --dsw-alias-interactive-bg-hover-solid: var(--dsw-static-neutral-bluish-75);
-  --dsw-alias-interactive-bg-hover: rgba(38, 49, 72, 0.06);
-  --dsw-alias-label-caption: var(--dsw-static-neutral-bluish-400);
-  --dsw-alias-label-deep-diving: color-mix(in srgb, var(--dsw-static-deepseek-500) 70%, var(--dsw-static-blue-950));
-  --dsw-alias-label-deep-diving-shimmer: color-mix(in srgb, var(--dsw-static-deepseek-500) 30%, var(--dsw-static-blue-950));
-  --dsw-alias-label-dimmed: var(--dsw-static-neutral-bluish-200);
-  --dsw-alias-label-primary-inverted: var(--dsw-static-neutral-bluish-00);
-  --dsw-alias-label-primary: var(--dsw-static-neutral-bluish-1000);
-  --dsw-alias-label-secondary: var(--dsw-static-neutral-bluish-700);
-  --dsw-alias-label-shimmer: color-mix(in srgb, var(--dsw-static-neutral-1000) 30%, transparent);
-  --dsw-alias-label-tertiary: var(--dsw-static-neutral-bluish-600);
-  --dsw-alias-link: var(--dsw-static-deepseek-500);
-  --dsw-alias-markdown-code-block-banner: var(--dsw-static-neutral-bluish-50);
-  --dsw-alias-markdown-code-block: var(--dsw-static-neutral-bluish-50);
-  --dsw-alias-markdown-inline-code: var(--dsw-static-neutral-50);
-  --dsw-alias-scrollbar-bg-l1: var(--dsw-static-neutral-200);
-  --dsw-alias-scrollbar-bg-l2: var(--dsw-static-neutral-200);
-  --dsw-alias-scrollbar-hover-l1: var(--dsw-static-neutral-300);
-  --dsw-alias-scrollbar-hover-l2: var(--dsw-static-neutral-300);
-  --dsw-alias-state-business-primary: var(--dsw-static-deepseek-500);
-  --dsw-alias-state-business-tertiary: var(--dsw-static-deepseek-100);
-  --dsw-alias-state-error-primary: var(--dsw-static-red-600);
-  --dsw-alias-state-idle-primary: var(--dsw-static-neutral-300);
-  --dsw-alias-state-success-primary: var(--dsw-static-green-500);
-  --dsw-alias-state-warn-label: var(--dsw-static-amber-600);
-  --dsw-alias-state-warn-primary: var(--dsw-static-amber-500);
-  --dsw-alias-code-diff-added: var(--dsw-static-green-500-a08);
-  --dsw-alias-code-diff-deleted: var(--dsw-static-red-600-a08);
-  --dsw-alias-file-diff-added-bg: rgb(230, 244, 231);
-  --dsw-alias-file-diff-added-gutter: rgb(237, 247, 237);
-  --dsw-alias-file-diff-added-marker: rgb(1, 162, 65);
-  --dsw-alias-file-diff-deleted-bg: rgb(252, 230, 226);
-  --dsw-alias-file-diff-deleted-gutter: rgb(253, 236, 233);
-  --dsw-alias-file-diff-deleted-marker: rgb(186, 39, 35);
-  --dsw-alias-switch-thumb: var(--dsw-static-neutral-bluish-00);
-  --dsw-alias-toast-bg: var(--dsw-static-neutral-bluish-800);
-  --dsw-alias-toast-label: var(--dsw-static-neutral-bluish-00);
-  --dsw-alias-tooltip-bg: var(--dsw-static-neutral-bluish-850);
-  --dsw-specific-bubble: var(--dsw-static-deepseek-50);
-  --dsw-specific-input-major: var(--dsw-static-neutral-bluish-00);
-  --dsw-menu-surface-fill: rgba(248, 249, 250, 0.58);
-  --dsw-specific-menu: var(--dsw-menu-surface-fill);
-  --dsw-specific-selector: var(--dsw-static-neutral-bluish-60);
-  --dsw-specific-sidebar-fill: var(--dsw-static-neutral-bluish-50);
-  --dsw-specific-tip: var(--dsw-static-neutral-bluish-60);
-  --dsw-mask-blur: none;
+  --hal-alias-bg-base: var(--hal-static-neutral-bluish-00);
+  --hal-alias-bg-layer-1: var(--hal-static-neutral-bluish-00);
+  --hal-alias-bg-layer-2: var(--hal-static-neutral-bluish-00);
+  --hal-alias-bg-layer-3: var(--hal-static-neutral-bluish-00);
+  --hal-alias-bg-mask-1: rgba(0, 0, 0, 0.24);
+  --hal-alias-bg-mask-2: rgba(0, 0, 0, 0.12);
+  --hal-alias-bg-mask-3: rgba(0, 0, 0, 0.48);
+  --hal-alias-bg-module-platform: var(--hal-static-neutral-bluish-60);
+  --hal-alias-bg-overlay: var(--hal-static-neutral-bluish-150);
+  --hal-alias-bg-skeleton: rgba(0, 0, 0, 0.04);
+  --hal-alias-border-l1: rgba(0, 0, 0, 0.04);
+  --hal-alias-border-l2: rgba(0, 0, 0, 0.1);
+  --hal-alias-border-l3: rgba(0, 0, 0, 0.12);
+  --hal-alias-border-l4: rgba(0, 0, 0, 0.16);
+  --hal-alias-brand-primary: var(--hal-static-neutral-bluish-1000);
+  --hal-alias-brand-text: var(--hal-static-neutral-bluish-1000);
+  --hal-alias-button-elevated-fill: var(--hal-static-neutral-bluish-00);
+  --hal-alias-button-floating-fill: var(--hal-static-neutral-bluish-00);
+  --hal-alias-button-floating-hover: var(--hal-static-neutral-bluish-75);
+  --hal-alias-button-info-fill: var(--hal-static-brand-500);
+  --hal-alias-button-info-hover: var(--hal-static-brand-400);
+  --hal-alias-button-primary-hover: var(--hal-static-neutral-bluish-750);
+  --hal-alias-interactive-bg-active: rgba(38, 49, 72, 0.1);
+  --hal-alias-interactive-bg-hover-danger: rgba(236, 19, 19, 0.05);
+  --hal-alias-interactive-bg-hover-solid: var(--hal-static-neutral-bluish-75);
+  --hal-alias-interactive-bg-hover: rgba(38, 49, 72, 0.06);
+  --hal-alias-label-caption: var(--hal-static-neutral-bluish-400);
+  --hal-alias-label-deep-diving: color-mix(in srgb, var(--hal-static-brand-500) 70%, var(--hal-static-blue-950));
+  --hal-alias-label-deep-diving-shimmer: color-mix(in srgb, var(--hal-static-brand-500) 30%, var(--hal-static-blue-950));
+  --hal-alias-label-dimmed: var(--hal-static-neutral-bluish-200);
+  --hal-alias-label-primary-inverted: var(--hal-static-neutral-bluish-00);
+  --hal-alias-label-primary: var(--hal-static-neutral-bluish-1000);
+  --hal-alias-label-secondary: var(--hal-static-neutral-bluish-700);
+  --hal-alias-label-shimmer: color-mix(in srgb, var(--hal-static-neutral-1000) 30%, transparent);
+  --hal-alias-label-tertiary: var(--hal-static-neutral-bluish-600);
+  --hal-alias-link: var(--hal-static-brand-500);
+  --hal-alias-markdown-code-block-banner: var(--hal-static-neutral-bluish-50);
+  --hal-alias-markdown-code-block: var(--hal-static-neutral-bluish-50);
+  --hal-alias-markdown-inline-code: var(--hal-static-neutral-50);
+  --hal-alias-scrollbar-bg-l1: var(--hal-static-neutral-200);
+  --hal-alias-scrollbar-bg-l2: var(--hal-static-neutral-200);
+  --hal-alias-scrollbar-hover-l1: var(--hal-static-neutral-300);
+  --hal-alias-scrollbar-hover-l2: var(--hal-static-neutral-300);
+  --hal-alias-state-business-primary: var(--hal-static-brand-500);
+  --hal-alias-state-business-tertiary: var(--hal-static-brand-100);
+  --hal-alias-state-error-primary: var(--hal-static-red-600);
+  --hal-alias-state-idle-primary: var(--hal-static-neutral-300);
+  --hal-alias-state-success-primary: var(--hal-static-green-500);
+  --hal-alias-state-warn-label: var(--hal-static-amber-600);
+  --hal-alias-state-warn-primary: var(--hal-static-amber-500);
+  --hal-alias-code-diff-added: var(--hal-static-green-500-a08);
+  --hal-alias-code-diff-deleted: var(--hal-static-red-600-a08);
+  --hal-alias-file-diff-added-bg: rgb(230, 244, 231);
+  --hal-alias-file-diff-added-gutter: rgb(237, 247, 237);
+  --hal-alias-file-diff-added-marker: rgb(1, 162, 65);
+  --hal-alias-file-diff-deleted-bg: rgb(252, 230, 226);
+  --hal-alias-file-diff-deleted-gutter: rgb(253, 236, 233);
+  --hal-alias-file-diff-deleted-marker: rgb(186, 39, 35);
+  --hal-alias-switch-thumb: var(--hal-static-neutral-bluish-00);
+  --hal-alias-toast-bg: var(--hal-static-neutral-bluish-800);
+  --hal-alias-toast-label: var(--hal-static-neutral-bluish-00);
+  --hal-alias-tooltip-bg: var(--hal-static-neutral-bluish-850);
+  --hal-specific-bubble: var(--hal-static-brand-50);
+  --hal-specific-input-major: var(--hal-static-neutral-bluish-00);
+  --hal-menu-surface-fill: rgba(248, 249, 250, 0.58);
+  --hal-specific-menu: var(--hal-menu-surface-fill);
+  --hal-specific-selector: var(--hal-static-neutral-bluish-60);
+  --hal-specific-sidebar-fill: var(--hal-static-neutral-bluish-50);
+  --hal-specific-tip: var(--hal-static-neutral-bluish-60);
+  --hal-mask-blur: none;
 
-  background-color: var(--dsw-alias-bg-base);
+  background-color: var(--hal-alias-bg-base);
 }
 
 /* Aliased tokens — dark. */
-body[data-ds-dark-theme] {
-  --dsw-alias-bg-base: var(--dsw-static-neutral-bluish-950);
-  --dsw-alias-bg-layer-1: var(--dsw-static-neutral-bluish-875);
-  --dsw-alias-bg-layer-2: var(--dsw-static-neutral-bluish-850);
-  --dsw-alias-bg-layer-3: var(--dsw-static-neutral-bluish-800);
-  --dsw-alias-bg-mask-1: rgba(0, 0, 0, 0.5);
-  --dsw-alias-bg-mask-2: rgba(0, 0, 0, 0.2);
-  --dsw-alias-bg-mask-3: rgba(0, 0, 0, 0.48);
-  --dsw-alias-bg-module-platform: var(--dsw-static-neutral-bluish-800);
-  --dsw-alias-bg-overlay: var(--dsw-static-neutral-bluish-700);
-  --dsw-alias-bg-skeleton: rgba(255, 255, 255, 0.08);
-  --dsw-alias-border-l1: rgba(255, 255, 255, 0.06);
-  --dsw-alias-border-l2: rgba(255, 255, 255, 0.12);
-  --dsw-alias-border-l3: rgba(255, 255, 255, 0.16);
-  --dsw-alias-border-l4: rgba(255, 255, 255, 0.2);
-  --dsw-alias-brand-primary: var(--dsw-static-neutral-bluish-50);
-  --dsw-alias-brand-text: var(--dsw-static-neutral-bluish-50);
-  --dsw-alias-button-elevated-fill: var(--dsw-static-neutral-bluish-750);
-  --dsw-alias-button-floating-fill: var(--dsw-static-neutral-bluish-850);
-  --dsw-alias-button-floating-hover: var(--dsw-static-neutral-bluish-800);
-  --dsw-alias-button-info-fill: var(--dsw-static-deepseek-400);
-  --dsw-alias-button-info-hover: var(--dsw-static-deepseek-500);
-  --dsw-alias-button-primary-hover: var(--dsw-static-neutral-bluish-100);
-  --dsw-alias-interactive-bg-active: rgba(255, 255, 255, 0.14);
-  --dsw-alias-interactive-bg-hover-danger: rgba(242, 90, 90, 0.15);
-  --dsw-alias-interactive-bg-hover-solid: var(--dsw-static-neutral-bluish-800);
-  --dsw-alias-interactive-bg-hover: rgba(255, 255, 255, 0.08);
-  --dsw-alias-label-caption: var(--dsw-static-neutral-bluish-600);
-  --dsw-alias-label-deep-diving: color-mix(in srgb, var(--dsw-static-deepseek-450) 55%, var(--dsw-static-neutral-bluish-400));
-  --dsw-alias-label-deep-diving-shimmer: color-mix(in srgb, var(--dsw-static-blue-300) 65%, var(--dsw-static-deepseek-400));
-  --dsw-alias-label-dimmed: var(--dsw-static-neutral-bluish-750);
-  --dsw-alias-label-primary-inverted: var(--dsw-static-neutral-bluish-800);
-  --dsw-alias-label-primary: var(--dsw-static-neutral-bluish-50);
-  --dsw-alias-label-secondary: var(--dsw-static-neutral-bluish-300);
-  --dsw-alias-label-shimmer: color-mix(in srgb, var(--dsw-static-neutral-00) 45%, transparent);
-  --dsw-alias-label-tertiary: var(--dsw-static-neutral-bluish-400);
-  --dsw-alias-link: var(--dsw-static-deepseek-400);
-  --dsw-alias-markdown-code-block-banner: var(--dsw-static-neutral-bluish-850);
-  --dsw-alias-markdown-code-block: var(--dsw-static-neutral-bluish-900);
-  --dsw-alias-markdown-inline-code: var(--dsw-static-neutral-800);
-  --dsw-alias-scrollbar-bg-l1: var(--dsw-static-neutral-700);
-  --dsw-alias-scrollbar-bg-l2: var(--dsw-static-neutral-600);
-  --dsw-alias-scrollbar-hover-l1: var(--dsw-static-neutral-600);
-  --dsw-alias-scrollbar-hover-l2: var(--dsw-static-neutral-550);
-  --dsw-alias-state-business-primary: var(--dsw-static-deepseek-400);
-  --dsw-alias-state-business-tertiary: var(--dsw-static-deepseek-800);
-  --dsw-alias-state-error-primary: var(--dsw-static-red-400);
-  --dsw-alias-state-idle-primary: var(--dsw-static-neutral-600);
-  --dsw-alias-state-success-primary: var(--dsw-static-green-500);
-  --dsw-alias-state-warn-label: var(--dsw-static-amber-600);
-  --dsw-alias-state-warn-primary: var(--dsw-static-amber-500);
-  --dsw-alias-code-diff-added: var(--dsw-static-green-500-a12);
-  --dsw-alias-code-diff-deleted: var(--dsw-static-red-400-a12);
-  --dsw-alias-file-diff-added-bg: rgb(31, 49, 36);
-  --dsw-alias-file-diff-added-gutter: rgb(19, 32, 22);
-  --dsw-alias-file-diff-added-marker: rgb(65, 201, 119);
-  --dsw-alias-file-diff-deleted-bg: rgb(60, 31, 27);
-  --dsw-alias-file-diff-deleted-gutter: rgb(40, 19, 14);
-  --dsw-alias-file-diff-deleted-marker: rgb(250, 66, 62);
-  --dsw-alias-switch-thumb: var(--dsw-static-neutral-bluish-400);
-  --dsw-alias-toast-bg: var(--dsw-static-neutral-bluish-750);
-  --dsw-alias-toast-label: var(--dsw-static-neutral-bluish-00);
-  --dsw-alias-tooltip-bg: var(--dsw-static-neutral-bluish-750);
-  --dsw-specific-bubble: var(--dsw-static-neutral-bluish-850);
-  --dsw-specific-input-major: var(--dsw-static-neutral-bluish-850);
-  --dsw-menu-surface-fill: rgba(67, 69, 74, 0.45);
-  --dsw-specific-menu: var(--dsw-menu-surface-fill);
-  --dsw-specific-selector: var(--dsw-static-neutral-bluish-800);
-  --dsw-specific-sidebar-fill: var(--dsw-static-neutral-bluish-900);
-  --dsw-specific-tip: var(--dsw-static-neutral-bluish-800);
+body[data-halis-dark-theme] {
+  --hal-alias-bg-base: var(--hal-static-neutral-bluish-950);
+  --hal-alias-bg-layer-1: var(--hal-static-neutral-bluish-875);
+  --hal-alias-bg-layer-2: var(--hal-static-neutral-bluish-850);
+  --hal-alias-bg-layer-3: var(--hal-static-neutral-bluish-800);
+  --hal-alias-bg-mask-1: rgba(0, 0, 0, 0.5);
+  --hal-alias-bg-mask-2: rgba(0, 0, 0, 0.2);
+  --hal-alias-bg-mask-3: rgba(0, 0, 0, 0.48);
+  --hal-alias-bg-module-platform: var(--hal-static-neutral-bluish-800);
+  --hal-alias-bg-overlay: var(--hal-static-neutral-bluish-700);
+  --hal-alias-bg-skeleton: rgba(255, 255, 255, 0.08);
+  --hal-alias-border-l1: rgba(255, 255, 255, 0.06);
+  --hal-alias-border-l2: rgba(255, 255, 255, 0.12);
+  --hal-alias-border-l3: rgba(255, 255, 255, 0.16);
+  --hal-alias-border-l4: rgba(255, 255, 255, 0.2);
+  --hal-alias-brand-primary: var(--hal-static-neutral-bluish-50);
+  --hal-alias-brand-text: var(--hal-static-neutral-bluish-50);
+  --hal-alias-button-elevated-fill: var(--hal-static-neutral-bluish-750);
+  --hal-alias-button-floating-fill: var(--hal-static-neutral-bluish-850);
+  --hal-alias-button-floating-hover: var(--hal-static-neutral-bluish-800);
+  --hal-alias-button-info-fill: var(--hal-static-brand-400);
+  --hal-alias-button-info-hover: var(--hal-static-brand-500);
+  --hal-alias-button-primary-hover: var(--hal-static-neutral-bluish-100);
+  --hal-alias-interactive-bg-active: rgba(255, 255, 255, 0.14);
+  --hal-alias-interactive-bg-hover-danger: rgba(242, 90, 90, 0.15);
+  --hal-alias-interactive-bg-hover-solid: var(--hal-static-neutral-bluish-800);
+  --hal-alias-interactive-bg-hover: rgba(255, 255, 255, 0.08);
+  --hal-alias-label-caption: var(--hal-static-neutral-bluish-600);
+  --hal-alias-label-deep-diving: color-mix(in srgb, var(--hal-static-brand-450) 55%, var(--hal-static-neutral-bluish-400));
+  --hal-alias-label-deep-diving-shimmer: color-mix(in srgb, var(--hal-static-blue-300) 65%, var(--hal-static-brand-400));
+  --hal-alias-label-dimmed: var(--hal-static-neutral-bluish-750);
+  --hal-alias-label-primary-inverted: var(--hal-static-neutral-bluish-800);
+  --hal-alias-label-primary: var(--hal-static-neutral-bluish-50);
+  --hal-alias-label-secondary: var(--hal-static-neutral-bluish-300);
+  --hal-alias-label-shimmer: color-mix(in srgb, var(--hal-static-neutral-00) 45%, transparent);
+  --hal-alias-label-tertiary: var(--hal-static-neutral-bluish-400);
+  --hal-alias-link: var(--hal-static-brand-400);
+  --hal-alias-markdown-code-block-banner: var(--hal-static-neutral-bluish-850);
+  --hal-alias-markdown-code-block: var(--hal-static-neutral-bluish-900);
+  --hal-alias-markdown-inline-code: var(--hal-static-neutral-800);
+  --hal-alias-scrollbar-bg-l1: var(--hal-static-neutral-700);
+  --hal-alias-scrollbar-bg-l2: var(--hal-static-neutral-600);
+  --hal-alias-scrollbar-hover-l1: var(--hal-static-neutral-600);
+  --hal-alias-scrollbar-hover-l2: var(--hal-static-neutral-550);
+  --hal-alias-state-business-primary: var(--hal-static-brand-400);
+  --hal-alias-state-business-tertiary: var(--hal-static-brand-800);
+  --hal-alias-state-error-primary: var(--hal-static-red-400);
+  --hal-alias-state-idle-primary: var(--hal-static-neutral-600);
+  --hal-alias-state-success-primary: var(--hal-static-green-500);
+  --hal-alias-state-warn-label: var(--hal-static-amber-600);
+  --hal-alias-state-warn-primary: var(--hal-static-amber-500);
+  --hal-alias-code-diff-added: var(--hal-static-green-500-a12);
+  --hal-alias-code-diff-deleted: var(--hal-static-red-400-a12);
+  --hal-alias-file-diff-added-bg: rgb(31, 49, 36);
+  --hal-alias-file-diff-added-gutter: rgb(19, 32, 22);
+  --hal-alias-file-diff-added-marker: rgb(65, 201, 119);
+  --hal-alias-file-diff-deleted-bg: rgb(60, 31, 27);
+  --hal-alias-file-diff-deleted-gutter: rgb(40, 19, 14);
+  --hal-alias-file-diff-deleted-marker: rgb(250, 66, 62);
+  --hal-alias-switch-thumb: var(--hal-static-neutral-bluish-400);
+  --hal-alias-toast-bg: var(--hal-static-neutral-bluish-750);
+  --hal-alias-toast-label: var(--hal-static-neutral-bluish-00);
+  --hal-alias-tooltip-bg: var(--hal-static-neutral-bluish-750);
+  --hal-specific-bubble: var(--hal-static-neutral-bluish-850);
+  --hal-specific-input-major: var(--hal-static-neutral-bluish-850);
+  --hal-menu-surface-fill: rgba(67, 69, 74, 0.45);
+  --hal-specific-menu: var(--hal-menu-surface-fill);
+  --hal-specific-selector: var(--hal-static-neutral-bluish-800);
+  --hal-specific-sidebar-fill: var(--hal-static-neutral-bluish-900);
+  --hal-specific-tip: var(--hal-static-neutral-bluish-800);
 }
 
 /* Font-size axis published on body; every surface derives from it. */
 body {
-  --dsh-content-font-size: 14px;
-  --dsh-content-font-delta: calc(var(--dsh-content-font-size, 14px) - 14px);
-  --dsh-content-font-size-secondary: min(calc(var(--dsh-content-font-size, 14px) - 1px), max(13px, calc(var(--dsh-content-font-size, 14px) - 2px)));
-  --dsh-content-font-delta-secondary: calc(var(--dsh-content-font-size-secondary, 13px) - 13px);
-  --dsh-code-font-size: 11px;
-  --dsh-code-font-delta: calc(var(--dsh-code-font-size, 11px) - 11px);
-  --dsw-font-markdown-base: normal 400 var(--dsh-content-font-size, 14px) / calc(24px + var(--dsh-content-font-delta, 0px)) var(--dsw-font-family);
-  --dsw-font-markdown-code: 400 calc(12px + var(--dsh-code-font-delta, 0px)) / calc(19px + var(--dsh-code-font-delta, 0px)) var(--ds-font-family-code);
-  --dsw-font-markdown-code-block: 400 calc(11px + var(--dsh-code-font-delta, 0px)) / calc(19px + var(--dsh-code-font-delta, 0px)) var(--ds-font-family-code);
-  --dsw-font-markdown-code-block-small: 400 calc(11px + var(--dsh-code-font-delta, 0px)) / calc(16px + var(--dsh-code-font-delta, 0px)) var(--ds-font-family-code);
-  --dsw-font-xs-13: 400 13px / 20px var(--dsw-font-family);
-  --dsw-font-xxs-12: 400 12px / 18px var(--dsw-font-family);
+  --hal-content-font-size: 14px;
+  --hal-content-font-delta: calc(var(--hal-content-font-size, 14px) - 14px);
+  --hal-content-font-size-secondary: min(calc(var(--hal-content-font-size, 14px) - 1px), max(13px, calc(var(--hal-content-font-size, 14px) - 2px)));
+  --hal-content-font-delta-secondary: calc(var(--hal-content-font-size-secondary, 13px) - 13px);
+  --hal-code-font-size: 11px;
+  --hal-code-font-delta: calc(var(--hal-code-font-size, 11px) - 11px);
+  --hal-font-markdown-base: normal 400 var(--hal-content-font-size, 14px) / calc(24px + var(--hal-content-font-delta, 0px)) var(--hal-font-family);
+  --hal-font-markdown-code: 400 calc(12px + var(--hal-code-font-delta, 0px)) / calc(19px + var(--hal-code-font-delta, 0px)) var(--ds-font-family-code);
+  --hal-font-markdown-code-block: 400 calc(11px + var(--hal-code-font-delta, 0px)) / calc(19px + var(--hal-code-font-delta, 0px)) var(--ds-font-family-code);
+  --hal-font-markdown-code-block-small: 400 calc(11px + var(--hal-code-font-delta, 0px)) / calc(16px + var(--hal-code-font-delta, 0px)) var(--ds-font-family-code);
+  --hal-font-xs-13: 400 13px / 20px var(--hal-font-family);
+  --hal-font-xxs-12: 400 12px / 18px var(--hal-font-family);
 
   /* Elevation tiers. */
-  --dsw-elevation-stroke: 0 0 0 0.5px var(--dsw-elevation-stroke-color, var(--dsw-alias-border-l4));
-  --dsw-elevation-panel: var(--dsw-elevation-stroke), 0 3px 8px 0 rgba(0, 0, 0, 0.03), 0 0 16px 0 rgba(0, 0, 0, 0.02);
-  --dsw-elevation-prominent: var(--dsw-elevation-stroke), 0 3px 8px 0 rgba(0, 0, 0, 0.04), 0 0 20px 0 rgba(0, 0, 0, 0.05);
-  --dsw-elevation-soft: var(--dsw-elevation-stroke), 0 4px 16px 0 rgba(0, 0, 0, 0.03), 0 0 24px 0 rgba(0, 0, 0, 0.03);
-  --dsw-menu-backdrop-filter: blur(40px) saturate(150%);
-  --dsw-focus-ring-color: var(--dsw-alias-state-business-primary);
-  --dsw-focus-ring-width: 2px;
-  --dsw-hovercard-bg: var(--dsw-static-neutral-bluish-850);
+  --hal-elevation-stroke: 0 0 0 0.5px var(--hal-elevation-stroke-color, var(--hal-alias-border-l4));
+  --hal-elevation-panel: var(--hal-elevation-stroke), 0 3px 8px 0 rgba(0, 0, 0, 0.03), 0 0 16px 0 rgba(0, 0, 0, 0.02);
+  --hal-elevation-prominent: var(--hal-elevation-stroke), 0 3px 8px 0 rgba(0, 0, 0, 0.04), 0 0 20px 0 rgba(0, 0, 0, 0.05);
+  --hal-elevation-soft: var(--hal-elevation-stroke), 0 4px 16px 0 rgba(0, 0, 0, 0.03), 0 0 24px 0 rgba(0, 0, 0, 0.03);
+  --hal-menu-backdrop-filter: blur(40px) saturate(150%);
+  --hal-focus-ring-color: var(--hal-alias-state-business-primary);
+  --hal-focus-ring-width: 2px;
+  --hal-hovercard-bg: var(--hal-static-neutral-bluish-850);
 
   /* Chat width axis. */
-  --dsh-chat-content-width: clamp(560px, calc(var(--dsh-conversation-column-width, 900px) * 0.72), 920px);
-  --dsh-composer-card-max-width: calc(var(--dsh-chat-content-width) + 32px);
-  --dsh-composer-side-clearance: 16px;
-  --dsh-composer-dock-inset: 8px;
-  --dsh-composer-text-max-height: 336px;
-  --dsh-composer-stack-gap: 6px;
+  --hal-chat-content-width: clamp(560px, calc(var(--hal-conversation-column-width, 900px) * 0.72), 920px);
+  --hal-composer-card-max-width: calc(var(--hal-chat-content-width) + 32px);
+  --hal-composer-side-clearance: 16px;
+  --hal-composer-dock-inset: 8px;
+  --hal-composer-text-max-height: 336px;
+  --hal-composer-stack-gap: 6px;
 
   /* Scrollbar contract. */
-  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l1);
-  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l1);
-  --dsh-scrollbar-thumb-border: 0px;
-  --dsh-scrollbar-track-margin: 0px;
-  --dsh-scrollbar-width: 5px;
+  --hal-scrollbar-thumb: var(--hal-alias-scrollbar-bg-l1);
+  --hal-scrollbar-thumb-hover: var(--hal-alias-scrollbar-hover-l1);
+  --hal-scrollbar-thumb-border: 0px;
+  --hal-scrollbar-track-margin: 0px;
+  --hal-scrollbar-width: 5px;
 }
 
-/* Smooth corner curvature for every rounded surface, as upstream. */
+/* Smooth corner curvature for every rounded surface. */
 @supports (corner-shape: superellipse(1.5)) {
   :root {
-    --dsw-corner-shape: superellipse(1.5);
+    --hal-corner-shape: superellipse(1.5);
   }
 
   *,
   *::before,
   *::after {
-    corner-shape: var(--dsw-corner-shape);
+    corner-shape: var(--hal-corner-shape);
   }
 }
 
@@ -346,12 +346,12 @@ body {
 }
 
 body {
-  font-family: var(--dsw-font-family);
+  font-family: var(--hal-font-family);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  color: var(--dsw-alias-label-primary);
-  background: var(--dsw-alias-bg-base);
-  font-size: var(--dsh-content-font-size, 14px);
+  color: var(--hal-alias-label-primary);
+  background: var(--hal-alias-bg-base);
+  font-size: var(--hal-content-font-size, 14px);
   user-select: none;
   cursor: default;
 }
@@ -376,30 +376,30 @@ button {
   cursor: pointer;
 }
 
-[data-ds-automatic-focus]:focus,
-[data-ds-automatic-focus]:focus:focus-visible {
+[data-halis-automatic-focus]:focus,
+[data-halis-automatic-focus]:focus:focus-visible {
   outline: none;
 }
 
 ::-webkit-scrollbar {
-  width: var(--dsh-scrollbar-width);
-  height: var(--dsh-scrollbar-width);
+  width: var(--hal-scrollbar-width);
+  height: var(--hal-scrollbar-width);
 }
 
 ::-webkit-scrollbar-track {
-  margin-block: var(--dsh-scrollbar-track-margin);
+  margin-block: var(--hal-scrollbar-track-margin);
   background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  border: var(--dsh-scrollbar-thumb-border) solid transparent;
+  border: var(--hal-scrollbar-thumb-border) solid transparent;
   border-radius: 999px;
-  background: var(--dsh-scrollbar-thumb);
+  background: var(--hal-scrollbar-thumb);
   background-clip: content-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background-color: var(--dsh-scrollbar-thumb-hover);
+  background-color: var(--hal-scrollbar-thumb-hover);
 }
 
 ::-webkit-scrollbar-corner {
@@ -417,5 +417,5 @@ img {
 }
 
 ::selection {
-  background: color-mix(in srgb, var(--dsw-static-blue-500) 40%, transparent);
+  background: color-mix(in srgb, var(--hal-static-blue-500) 40%, transparent);
 }

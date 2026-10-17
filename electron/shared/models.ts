@@ -138,7 +138,7 @@ export interface ModelEntry {
   variants: ModelVariant[]
   /** Provider SDK package backing this model, e.g. `@ai-sdk/anthropic`. */
   npm: string
-  /** Per-model provider overrides ported from the catalog. */
+  /** Per-model provider overrides derived from the catalog. */
   providerApi?: string
   shape?: 'responses' | 'completions'
   modeBody?: Record<string, unknown>
@@ -186,9 +186,8 @@ export function providerNeedsKey(provider: Pick<ProviderEntry, 'id' | 'env'>): b
 /**
  * The wire protocol a model speaks. Providers shipping an Anthropic SDK
  * package expect Anthropic content blocks on `/messages`; everything else
- * takes OpenAI-style chat completions — the same protocol split the
- * DeepSeek Harness draws with its `openai-completions` / `anthropic-messages`
- * adapters, derived from catalog data instead of a hand-listed table.
+ * takes OpenAI-style chat completions. The split derives from catalog data
+ * instead of a hand-listed table.
  */
 export type ModelProtocol = 'openai-completions' | 'anthropic-messages'
 

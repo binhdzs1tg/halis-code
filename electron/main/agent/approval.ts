@@ -1,6 +1,6 @@
 /**
- * Approval gate for risky tool calls, ported from DeepSeek Harness's
- * user-approval package: decisions are one-shot (allowed-once or rejected),
+ * Approval gate for risky tool calls: decisions are one-shot
+ * (allowed-once or rejected),
  * never persistent grants; with nobody to ask the gate fails closed; and a
  * denial carries the sanctioned way forward instead of leaving the model to
  * work around it.
@@ -136,7 +136,7 @@ export function resolveApproval(requestId: unknown, decision: unknown): void {
   entry.resolve(decision)
 }
 
-/* ---------- ask_user questions, the harness's ask-user pattern ---------- */
+/* ---------- ask_user questions ---------- */
 
 /**
  * Put one question to the user and wait. Resolves null when there is no live

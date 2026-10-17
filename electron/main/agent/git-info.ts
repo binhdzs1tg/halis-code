@@ -1,6 +1,5 @@
 /**
- * Git state for the environment context, ported from codex's git-info
- * snapshot: the branch and short commit of the open workspace, captured
+ * Git state for the environment context: the branch and short commit of the open workspace, captured
  * with bounded parallel calls and cached so the agent loop does not shell
  * out to git on every turn. Pure Node so the smoke tests can run it.
  */

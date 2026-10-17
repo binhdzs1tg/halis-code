@@ -24,9 +24,8 @@ const MIN_PROVIDERS = 100
 const CACHE_FILE = 'models-dev-cache.json'
 
 /**
- * Output cap for models whose catalog metadata reports zero — the harness
- * cannot build any request without one. Same spirit as Codex's unknown-model
- * fallback metadata.
+ * Output cap for models whose catalog metadata reports zero — no request
+ * can be built without one.
  */
 const DEFAULT_OUTPUT_LIMIT = 32_768
 
@@ -49,9 +48,9 @@ const BEDROCK_PROFILE_ONLY_IDS = new Set([
 
 /**
  * Deprecated aliases replaced by canonical Azure / Google Vertex providers.
- * `opencode` is Halis's own former catalog source, dropped now that the
- * catalog comes from models.dev directly; 302.AI is an aggregator
- * middleman Halis refuses to surface at all.
+ * The `opencode` slug is dropped along with them — the catalog comes from
+ * models.dev directly; 302.AI is an aggregator middleman that stays
+ * excluded.
  */
 const EXCLUDED_PROVIDERS = new Set([
   'azure-cognitive-services',
@@ -129,8 +128,8 @@ async function ensure(): Promise<ModelCatalog> {
 }
 
 async function fetchLatest(): Promise<void> {
-  // ETag round-trip like Codex's models manager: an unchanged upstream
-  // costs one HEAD-sized 304 instead of the multi-megabyte catalog.
+  // ETag round-trip: an unchanged upstream costs one HEAD-sized 304
+  // instead of the multi-megabyte catalog.
   const headers: Record<string, string> = { 'User-Agent': USER_AGENT }
   if (etag) headers['If-None-Match'] = etag
   const response = await fetch(SOURCE_URL, {
@@ -332,7 +331,7 @@ function supportsText(model: ModelEntry): boolean {
   return model.modalities.input.includes('text')
 }
 
-/** The harness reads only text back, so video/image/audio-only output is unusable. */
+/** Only text reaches the model, so video/image/audio-only output is unusable. */
 function producesText(model: ModelEntry): boolean {
   return model.modalities.output.includes('text')
 }

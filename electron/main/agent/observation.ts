@@ -1,6 +1,6 @@
 /**
- * Read-before-mutate observation policy, ported from DeepSeek Harness's
- * fs-observation-policy: the model must have read a file in this app
+ * Read-before-mutate observation policy: the model must have read a file
+ * in this app
  * session before it may edit or overwrite it, and the edit carries the
  * observed version as a compare-and-swap basis — a file that changed on
  * disk since the read fails with a remedy instead of silently clobbering

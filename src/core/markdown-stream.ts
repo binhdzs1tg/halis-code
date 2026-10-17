@@ -5,8 +5,8 @@
  * message is split into top-level blocks and everything but the last few is
  * frozen — their elements are appended once and never touched again, while
  * only the unstable tail is re-rendered each frame. The idea and the freeze
- * window come from DeepSeek Harness's `IncrementalMarkdownParser`; the DOM
- * shape here is flattened to what a vanilla renderer needs.
+ * window come from an incremental block parser; the DOM
+ * shape is flattened to what a vanilla renderer needs.
  *
  * The block splitter runs on the same grammar the full renderer uses (fences
  * override everything, headings and rules stand alone, blank lines separate

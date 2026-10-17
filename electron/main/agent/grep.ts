@@ -1,8 +1,7 @@
 /**
- * Grep tool, ported from opencode's and the harness's grep: regular
- * expression or literal search over file contents with an include filter.
- * Upstreams delegate to ripgrep; this port reuses the app's walker and plain
- * RegExp so no binary ships with the app. The scan itself runs in a worker
+ * Grep tool: regular expression or literal search over file contents with
+ * an include filter. The scan reuses the app's walker and plain RegExp so
+ * no extra binary ships with the app. The scan itself runs in a worker
  * thread: the model can send any pattern, and a catastrophic-backtracking
  * regex must be terminable instead of freezing the main process.
  */
@@ -30,8 +29,7 @@ export interface GrepOptions {
 /**
  * Compile the model's pattern into a line RegExp. Literal patterns are
  * escaped so metacharacters match themselves, and invalid regexes surface
- * as a readable error the model can act on — the harness's
- * SEARCH_INVALID_PATTERN discipline.
+ * as a readable error the model can act on.
  */
 export function compileLineRegex(pattern: string, options: GrepOptions): RegExp {
   const body = options.literal ? escapeRegex(pattern) : pattern
@@ -281,7 +279,7 @@ export async function grepTool(input: Record<string, unknown>): Promise<ToolOutc
     return { ok: true, output: `No matches for /${pattern}/${scope ? ` in ${scope}` : ''}.` }
   }
   // Grouped by file so a dozen hits in one file read as one block, not
-  // twelve repeated paths — the harness's format.
+  // twelve repeated paths.
   const blocks: string[] = []
   let currentPath = ''
   for (const hit of hits) {

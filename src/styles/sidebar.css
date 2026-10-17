@@ -1,16 +1,16 @@
-/* Halis Code — sidebar column, ported from the DeepSeek Harness desktop UI. */
+/* Halis Code — sidebar column. */
 
 .sidebar {
-  --dsh-sidebar-inline-padding: 12px;
+  --hal-sidebar-inline-padding: 12px;
   display: flex;
   flex-direction: column;
   height: 100%;
   padding: 6px 12px;
-  background: var(--dsw-specific-sidebar-fill);
-  color: var(--dsw-alias-label-primary);
+  background: var(--hal-specific-sidebar-fill);
+  color: var(--hal-alias-label-primary);
   font-size: 14px;
-  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
-  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+  --hal-scrollbar-thumb: var(--hal-alias-scrollbar-bg-l2);
+  --hal-scrollbar-thumb-hover: var(--hal-alias-scrollbar-hover-l2);
 }
 
 body.is-mac .sidebar {
@@ -18,8 +18,8 @@ body.is-mac .sidebar {
 }
 
 .sidebar.quiet-bars {
-  --dsh-scrollbar-thumb: transparent;
-  --dsh-scrollbar-thumb-hover: transparent;
+  --hal-scrollbar-thumb: transparent;
+  --hal-scrollbar-thumb-hover: transparent;
 }
 
 /* Wide content fades out during the collapse's first phase. */
@@ -95,7 +95,7 @@ body.is-mac .top-strip + .logo-row {
   flex: none;
   -webkit-mask: url('../assets/logo.png') center / contain no-repeat;
   mask: url('../assets/logo.png') center / contain no-repeat;
-  background: var(--dsw-alias-label-primary);
+  background: var(--hal-alias-label-primary);
 }
 
 /* The wordmark rides a mask + token ink so it re-tints with the theme. */
@@ -106,7 +106,7 @@ body.is-mac .top-strip + .logo-row {
   aspect-ratio: 5.408;
   -webkit-mask: url('../assets/name.png') center / contain no-repeat;
   mask: url('../assets/name.png') center / contain no-repeat;
-  background: var(--dsw-alias-label-primary);
+  background: var(--hal-alias-label-primary);
 }
 
 .brand:hover .brand-name-img {
@@ -124,31 +124,31 @@ body.is-mac .top-strip + .logo-row {
   width: 28px;
   height: 28px;
   border: none;
-  border-radius: var(--dsw-radius-sm);
+  border-radius: var(--hal-radius-sm);
   padding: 0;
   background: transparent;
   cursor: pointer;
-  color: var(--dsw-alias-label-secondary);
+  color: var(--hal-alias-label-secondary);
   transition: background-color 100ms ease, color 100ms ease;
 }
 
 .icon-btn:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
+  background: var(--hal-alias-interactive-bg-hover);
 }
 
 .icon-btn:focus-visible {
-  outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline: 2px solid var(--hal-focus-ring-color, var(--hal-alias-state-business-primary));
   outline-offset: -2px;
 }
 
 .icon-btn.danger:hover {
-  background: var(--dsw-alias-interactive-bg-hover-danger);
-  color: var(--dsw-alias-state-error-primary);
+  background: var(--hal-alias-interactive-bg-hover-danger);
+  color: var(--hal-alias-state-error-primary);
 }
 
 .icon-btn.active {
-  background: var(--dsw-alias-interactive-bg-hover);
-  color: var(--dsw-alias-label-primary);
+  background: var(--hal-alias-interactive-bg-hover);
+  color: var(--hal-alias-label-primary);
 }
 
 /* ---- New session bar ---------------------------------------------------- */
@@ -162,10 +162,10 @@ body.is-mac .top-strip + .logo-row {
   height: 38px;
   padding: 8px 12px;
   margin: 0 2px 12px;
-  border: 0.5px solid var(--dsw-alias-border-l3);
-  border-radius: var(--dsw-radius-md);
-  background: var(--dsw-alias-button-elevated-fill);
-  color: var(--dsw-alias-label-primary);
+  border: 0.5px solid var(--hal-alias-border-l3);
+  border-radius: var(--hal-radius-md);
+  background: var(--hal-alias-button-elevated-fill);
+  color: var(--hal-alias-label-primary);
   font-size: 14px;
   font-weight: 500;
   line-height: 22px;
@@ -175,11 +175,11 @@ body.is-mac .top-strip + .logo-row {
 }
 
 .new-session:hover {
-  background: var(--dsw-alias-button-floating-hover);
+  background: var(--hal-alias-button-floating-hover);
 }
 
 .new-session:focus-visible {
-  outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline: 2px solid var(--hal-focus-ring-color, var(--hal-alias-state-business-primary));
   outline-offset: -2px;
 }
 
@@ -207,7 +207,7 @@ body.is-mac .top-strip + .logo-row {
   font-size: 12px;
   line-height: 16px;
   font-weight: 400;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--hal-alias-label-tertiary);
   transition: opacity 120ms ease;
 }
 
@@ -243,7 +243,7 @@ body.is-mac .top-strip + .logo-row {
   margin-bottom: 4px;
   border-radius: 12px;
   overflow: hidden;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--hal-alias-label-tertiary);
 }
 
 .section-label {
@@ -289,7 +289,7 @@ body.is-mac .top-strip + .logo-row {
   border-radius: 8px;
   background: transparent;
   cursor: text;
-  color: var(--dsw-alias-label-secondary);
+  color: var(--hal-alias-label-secondary);
   transition: width 180ms var(--ds-ease-in-out),
     padding 180ms var(--ds-ease-in-out),
     border-color 180ms var(--ds-ease-in-out),
@@ -301,9 +301,9 @@ body.is-mac .top-strip + .logo-row {
   height: 30px;
   margin-inline: -2px;
   padding: 0 4px 0 0;
-  border: 0.5px solid var(--dsw-alias-border-l4);
+  border: 0.5px solid var(--hal-alias-border-l4);
   border-radius: 12px;
-  color: var(--dsw-alias-label-caption);
+  color: var(--hal-alias-label-caption);
 }
 
 .search-button {
@@ -318,7 +318,7 @@ body.is-mac .top-strip + .logo-row {
 }
 
 .search-button:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
+  background: var(--hal-alias-interactive-bg-hover);
 }
 
 .search-input {
@@ -329,7 +329,7 @@ body.is-mac .top-strip + .logo-row {
   background: transparent;
   font-size: 13px;
   line-height: 18px;
-  color: var(--dsw-alias-label-primary);
+  color: var(--hal-alias-label-primary);
   opacity: 0;
   transition: opacity 120ms var(--ds-ease-in-out);
 }
@@ -339,7 +339,7 @@ body.is-mac .top-strip + .logo-row {
 }
 
 .search-input::placeholder {
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--hal-alias-label-tertiary);
 }
 
 .clear-button {
@@ -350,11 +350,11 @@ body.is-mac .top-strip + .logo-row {
   width: 24px;
   height: 24px;
   border-radius: 8px;
-  color: var(--dsw-alias-label-secondary);
+  color: var(--hal-alias-label-secondary);
 }
 
 .clear-button:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
+  background: var(--hal-alias-interactive-bg-hover);
 }
 
 /* ---- Session list -------------------------------------------------------- */
@@ -378,10 +378,10 @@ body.is-mac .top-strip + .logo-row {
   display: flex;
   align-items: center;
   gap: 6px;
-  border-radius: var(--dsw-radius-md);
+  border-radius: var(--hal-radius-md);
   padding: 0 8px;
   cursor: pointer;
-  color: var(--dsw-alias-label-primary);
+  color: var(--hal-alias-label-primary);
   transition: background-color 100ms ease;
 }
 
@@ -399,7 +399,7 @@ body.is-mac .top-strip + .logo-row {
 .session-row:hover,
 .session-row.selected,
 .session-row.menu-open {
-  background: var(--dsw-alias-interactive-bg-hover);
+  background: var(--hal-alias-interactive-bg-hover);
 }
 
 .project-row .slot,
@@ -410,11 +410,11 @@ body.is-mac .top-strip + .logo-row {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--hal-alias-label-tertiary);
 }
 
 .project-row .folder-active {
-  color: var(--dsw-alias-state-business-primary);
+  color: var(--hal-alias-state-business-primary);
 }
 
 .session-row .title {
@@ -432,7 +432,7 @@ body.is-mac .top-strip + .logo-row {
   flex: none;
   font-size: 10px;
   line-height: 16px;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--hal-alias-label-tertiary);
 }
 
 .session-row:hover .time,
@@ -456,17 +456,17 @@ body.is-mac .top-strip + .logo-row {
 .row-actions .icon-btn {
   width: 16px;
   height: 16px;
-  border-radius: var(--dsw-radius-xs);
-  color: var(--dsw-alias-label-tertiary);
+  border-radius: var(--hal-radius-xs);
+  color: var(--hal-alias-label-tertiary);
 }
 
 .row-actions .icon-btn:hover {
-  color: var(--dsw-alias-label-primary);
+  color: var(--hal-alias-label-primary);
   background: transparent;
 }
 
 .row-actions .icon-btn.danger:hover {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--hal-alias-state-error-primary);
 }
 
 .session-row .run-dot {
@@ -475,7 +475,7 @@ body.is-mac .top-strip + .logo-row {
   height: 6px;
   margin: 0 5px;
   border-radius: 50%;
-  background: var(--dsw-alias-state-success-primary);
+  background: var(--hal-alias-state-success-primary);
 }
 
 .list-empty {
@@ -487,7 +487,7 @@ body.is-mac .top-strip + .logo-row {
   padding: 16px 12px;
   font-size: 13px;
   line-height: 20px;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--hal-alias-label-tertiary);
   text-align: center;
 }
 
@@ -503,7 +503,7 @@ body.is-mac .top-strip + .logo-row {
   right: 0;
   bottom: 0;
   height: 24px;
-  background: linear-gradient(to bottom, transparent, var(--dsw-specific-sidebar-fill));
+  background: linear-gradient(to bottom, transparent, var(--hal-specific-sidebar-fill));
   pointer-events: none;
 }
 
@@ -524,7 +524,7 @@ body.is-mac .top-strip + .logo-row {
   padding: 0 8px;
   font-size: 12px;
   line-height: 18px;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--hal-alias-label-tertiary);
 }
 
 .settings-row {
@@ -544,22 +544,22 @@ body.is-mac .top-strip + .logo-row {
   height: 42px;
   padding: 0 10px 0 8px;
   border: none;
-  border-radius: var(--dsw-radius-md);
+  border-radius: var(--hal-radius-md);
   background: transparent;
   cursor: pointer;
   overflow: hidden;
-  color: var(--dsw-alias-label-primary);
+  color: var(--hal-alias-label-primary);
   font-size: 14px;
   line-height: 22px;
   transition: background-color 100ms ease;
 }
 
 .settings-trigger:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
+  background: var(--hal-alias-interactive-bg-hover);
 }
 
 .settings-trigger:focus-visible {
-  outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline: 2px solid var(--hal-focus-ring-color, var(--hal-alias-state-business-primary));
   outline-offset: -2px;
 }
 
@@ -577,7 +577,7 @@ body.is-mac .top-strip + .logo-row {
   width: 10px;
   height: 10px;
   flex: none;
-  color: var(--dsw-alias-state-idle-primary);
+  color: var(--hal-alias-state-idle-primary);
 }
 
 .state-dot::after {
@@ -589,15 +589,15 @@ body.is-mac .top-strip + .logo-row {
 }
 
 .state-dot.ok {
-  color: var(--dsw-alias-state-success-primary);
+  color: var(--hal-alias-state-success-primary);
 }
 
 .state-dot.busy {
-  color: var(--dsw-alias-state-business-primary);
+  color: var(--hal-alias-state-business-primary);
 }
 
 .state-dot.error {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--hal-alias-state-error-primary);
 }
 
 .state-dot .state-spinner {
@@ -618,21 +618,21 @@ body.is-mac .top-strip + .logo-row {
 
 .state-spinner .arc {
   stroke-dasharray: 12 150;
-  animation: dsh-state-dot-dash 1.5s ease-in-out infinite;
+  animation: hal-state-dot-dash 1.5s ease-in-out infinite;
 }
 
 .state-spinner {
   transform-origin: center;
-  animation: dsh-state-dot-spin 1.5s linear infinite;
+  animation: hal-state-dot-spin 1.5s linear infinite;
 }
 
-@keyframes dsh-state-dot-spin {
+@keyframes hal-state-dot-spin {
   to {
     transform: rotate(360deg);
   }
 }
 
-@keyframes dsh-state-dot-dash {
+@keyframes hal-state-dot-dash {
   0% {
     stroke-dasharray: 12 150;
     stroke-dashoffset: 0;

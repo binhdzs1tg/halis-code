@@ -1,6 +1,6 @@
 /**
- * Model-generated session titles, ported from opencode's session title
- * agent: after the first exchange, one tool-less completion condenses the
+ * Model-generated session titles: after the first exchange, one tool-less
+ * completion condenses the
  * conversation into a few words. A failure here is silent — the derived
  * first-line title stays as the fallback.
  */

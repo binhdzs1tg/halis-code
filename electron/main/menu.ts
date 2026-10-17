@@ -2,7 +2,7 @@
  * Native application menu. On macOS it fixes the usual frameless-app gaps
  * (Edit roles, About panel); on Windows/Linux it adds the File and Help
  * entries. DevTools toggles ship as hidden menu items so the accelerators
- * keep working in packaged builds, same trick DeepSeek Harness desktop uses.
+ * keep working in packaged builds.
  */
 import { app, BrowserWindow, Menu, dialog, type MenuItemConstructorOptions } from 'electron'
 import { IpcChannel } from '../shared/ipc-channels'

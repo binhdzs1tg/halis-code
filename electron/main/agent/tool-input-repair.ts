@@ -1,6 +1,6 @@
 /**
- * Schema-guided repair of malformed tool arguments, ported from opencode's
- * tool-input-repair: weaker models routinely emit {"limit": "20"}, stringified
+ * Schema-guided repair of malformed tool arguments: weaker models routinely
+ * emit {"limit": "20"}, stringified
  * JSON or null placeholders for optional fields. Instead of failing the call,
  * the input is coerced against the tool's own JSON schema — but only where
  * the fix is unambiguous. Pure logic so the smoke tests can run it in Node.

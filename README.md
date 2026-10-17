@@ -3,11 +3,9 @@
 Halis Code is a desktop coding agent built on Electron. It pairs a
 session-list sidebar, a centered conversation and a workspace rail
 (files, search, editor, terminal) with a streaming chat agent that
-reads, edits and runs code in the open folder. The interface follows
-the design language of
-[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness),
-and the agent runtime borrows its best ideas — compaction, guards,
-approvals, skills — scaled down to a single-user desktop app.
+reads, edits and runs code in the open folder. The interface and the
+agent runtime — compaction, guards, approvals, skills — are designed
+from the ground up for a single-user desktop app.
 
 ## Highlights
 
@@ -15,19 +13,18 @@ approvals, skills — scaled down to a single-user desktop app.
   `edit_file`, `search`, `glob`, `grep`, `web_fetch`, `web_search`,
   `patch`, `ask_user`, `run_command`, `todo_write`, `skill`), live tool
   cards, plan todos and a message queue while a run is in flight. The tool
-  set borrows from DeepSeek Harness and Codex: glob finds files by
-  pattern, grep regexes across them, patch applies multi-file Codex-style
-  edits, the web tools reach outside the workspace, and ask_user puts a
+  set covers the everyday loop: glob finds files by pattern, grep regexes
+  across them, patch applies multi-file edits, the web tools reach outside the workspace, and ask_user puts a
   question card in the chat when a decision truly needs the human.
 - **Model catalog from models.dev**: 230+ providers and 8,000+ models ship
   in a bundled snapshot, refreshed in the background with ETag-cached
-  revalidation. Wire protocols resolve from catalog data the way the
-  DeepSeek Harness routes them — Anthropic-SDK providers speak messages,
-  everyone else chat completions — and per-provider quirks (token cap
-  field, thinking body shape) live in one compat table.
+  revalidation. Wire protocols resolve from catalog data — Anthropic-SDK
+  providers speak messages, everyone else chat completions — and
+  per-provider quirks (token cap field, thinking body shape) live in one
+  compat table.
 - **Context compaction** at 80% of the model's window with a 16% verbatim
   tail, tool-pair-safe cut points, a shrink check and an 8-section
-  checkpoint summary — the same recipe as `compaction-basic`. Oversized old
+  checkpoint summary. Oversized old
   tool results are pruned deterministically first (head 4k / tail 1k), and
   `/compact` folds a conversation into a checkpoint on demand.
 - **Repeat-call guard**: identical calls with identical arguments trigger
@@ -38,7 +35,7 @@ approvals, skills — scaled down to a single-user desktop app.
   notes when files do not fit.
 - **Skills**: put a folder with a `SKILL.md` under `.halis/skills/` and the
   model sees its one-line summary; the full body loads only when the
-  `skill` tool asks for it — progressive disclosure, as in the harness.
+  `skill` tool asks for it — progressive disclosure keeps the prompt small.
 - **Command approvals**: commands that look destructive (recursive
   deletes, sudo, force pushes, pipes into `sh`, …) ask the user first.
   Decisions are one-shot and fail closed; "Full access" turns the gate off

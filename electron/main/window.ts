@@ -14,7 +14,7 @@ const DIST = path.join(__dirname, '..')
 const RESOURCES = path.join(app.getAppPath(), 'resources')
 
 export function createMainWindow(): BrowserWindow {
-  // The harness desktop shell: hidden chrome everywhere. macOS keeps native
+  // Hidden chrome everywhere. macOS keeps native
   // traffic lights inside the sidebar strip; Windows/linux draw the custom
   // caption row in the renderer.
   const mac = process.platform === 'darwin'
@@ -191,7 +191,7 @@ async function hideToTray(win: BrowserWindow): Promise<void> {
   }
 }
 
-/* ---------- one-time background-close notice (Windows parity with Harness) ---------- */
+/* ---------- one-time background-close notice (Windows parity) ---------- */
 
 const MARKER = 'background-close-confirmed'
 

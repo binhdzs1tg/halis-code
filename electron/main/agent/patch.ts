@@ -1,6 +1,6 @@
 /**
- * The patch tool: apply one multi-file patch in the Codex-style format
- * opencode's patch tool uses. The parser lives in patch-format.ts (pure,
+ * The patch tool: apply one multi-file patch. The parser lives in
+ * patch-format.ts (pure,
  * smoke-tested); this wrapper owns the filesystem, the diffs and the
  * workspace-change events.
  */

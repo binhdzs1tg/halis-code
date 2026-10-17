@@ -1,7 +1,6 @@
 /**
- * Workspace instruction files, ported from DeepSeek Harness's
- * agent-instructions with codex's global layer: the user's own
- * ~/.halis/AGENTS.md applies to every project, then the workspace's
+ * Workspace instruction files: the user's own ~/.halis/AGENTS.md applies
+ * to every project, then the workspace's
  * AGENTS.md / CLAUDE.md (plus *.local.md overlays) are injected into the
  * system prompt inside a <system-reminder> frame. Files are loaded
  * broadest-first and dropped or truncated — most specific last, never

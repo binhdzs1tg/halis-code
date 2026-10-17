@@ -1,6 +1,5 @@
 /**
- * Hunk-level file diffs, ported from DeepSeek Harness's tool-fs diff:
- * write and edit results carry structured hunks (context included) instead
+ * Hunk-level file diffs: write and edit results carry structured hunks (context included) instead
  * of raw before/after text, so the chat can render a faithful diff card
  * and replay it later from the persisted trace.
  */

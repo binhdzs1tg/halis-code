@@ -1,8 +1,7 @@
 /**
- * Glob tool, ported from opencode's and the harness's glob tools: find files
- * by pattern instead of content. Both upstreams shell out to ripgrep; this
- * port walks the tree with the same SKIP_DIRS discipline the rest of the app
- * already uses, so nothing extra has to ship with the app.
+ * Glob tool: find files by pattern instead of content. The walk reuses the
+ * SKIP_DIRS discipline the rest of the app already uses, so nothing extra
+ * has to ship with the app.
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -122,8 +121,8 @@ export interface GlobResult {
 
 /**
  * Every file under the scope that matches, newest first. The mtime sort
- * comes from the harness's `--sort=modified`: the file the user touched
- * last is the one the model most likely wants. The whole tree is walked
+ * puts the file the user touched last first — the one the model most
+ * likely wants. The whole tree is walked
  * (bounded by MAX_VISITED) so the limit keeps the newest N, not the first
  * N in walk order.
  */

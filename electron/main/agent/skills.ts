@@ -1,6 +1,6 @@
 /**
- * Skills with progressive disclosure, ported from DeepSeek Harness's skill
- * packages: each skill is a `<dir>/SKILL.md` with YAML frontmatter. The
+ * Skills with progressive disclosure: each skill is a `<dir>/SKILL.md` with
+ * YAML frontmatter. The
  * model only ever sees the compact catalog (name + description) in the
  * system prompt; the full body loads on demand through the `skill` tool.
  * Skills live in `.halis/skills/<name>/SKILL.md` inside the workspace.
@@ -26,8 +26,7 @@ export interface SkillDefinition extends SkillSummary {
 
 /**
  * Minimal frontmatter reader for the three keys that matter; anything
- * malformed is skipped with a console warning, never fatal — the same
- * discipline the harness applies to bad SKILL.md files.
+ * malformed is skipped with a console warning, never fatal.
  */
 function parseSkillFile(filePath: string, raw: string): SkillDefinition | null {
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(raw)

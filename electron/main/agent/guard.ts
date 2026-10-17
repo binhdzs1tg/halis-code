@@ -1,6 +1,6 @@
 /**
- * Repeat-call guard, ported from DeepSeek Harness's repeat-tool-reminder:
- * when the model fires the exact same tool call with identical arguments
+ * Repeat-call guard: when the model fires the exact same tool call with
+ * identical arguments
  * over and over, a reminder rides along with the tool result. The guard is
  * advisory — it never vetoes — and counts denied calls too, since a model
  * hammering a denied call is exactly the loop worth breaking.

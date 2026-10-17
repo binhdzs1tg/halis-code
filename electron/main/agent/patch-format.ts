@@ -1,6 +1,6 @@
 /**
- * Parser and applier for the Codex-style patch format, ported from
- * opencode's util/patch.ts. Pure string logic — no fs, no Electron — so the
+ * Parser and applier for the multi-file patch format. Pure string logic —
+ * no fs, no Electron — so the
  * smoke tests can exercise it in plain Node. The tool wrapper in patch.ts
  * owns the filesystem side effects.
  *
@@ -29,7 +29,7 @@ export type PatchHunk =
   | { type: 'delete'; path: string }
   | { type: 'update'; path: string; movePath?: string; chunks: UpdateFileChunk[] }
 
-/** UTF-8 BOM handling, the one thing opencode's Bom util did. */
+/** UTF-8 BOM handling. */
 function splitBom(text: string): { text: string; bom: boolean } {
   const bom = text.charCodeAt(0) === 0xfeff
   return { text: bom ? text.slice(1) : text, bom }
@@ -257,7 +257,7 @@ function isBoundary(line: string): boolean {
  * Derive the updated content of a file from its chunks. Line matching runs
  * in four tiers — exact, trailing-whitespace-insensitive, trim, and
  * unicode-normalized — so a patch survives smart quotes and NBSP noise the
- * way opencode intended.
+ * way the matching tiers are tuned.
  */
 export function applyUpdate(path: string, chunks: UpdateFileChunk[], original: string): string {
   const source = splitBom(original)

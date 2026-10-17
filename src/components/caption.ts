@@ -4,7 +4,7 @@ import { store } from '../app/store'
 
 /**
  * Windows/linux caption strip: a 40px drag row with custom min/max/close
- * controls, matching the DeepSeek Harness desktop chrome. macOS hides the
+ * controls. macOS hides the
  * row entirely — traffic lights sit in the sidebar top strip instead.
  */
 export function mountCaption(): HTMLElement {

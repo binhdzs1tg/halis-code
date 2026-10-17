@@ -168,8 +168,7 @@ export interface DiffLine {
 /**
  * A hunk-level diff of a file the agent changed, computed in the main
  * process and persisted on the tool trace so replay shows the same card
- * the live run did — the way DeepSeek Harness stores diff meta on tool
- * results.
+ * the live run did.
  */
 export interface FileDiff {
   /** File path relative to the workspace root. */

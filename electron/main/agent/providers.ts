@@ -76,8 +76,8 @@ export class ProviderError extends Error {
 const ANTHROPIC_MIN_BUDGET = 1024
 
 /**
- * Per-provider wire quirks, one table instead of scattered conditionals —
- * the DeepSeek Harness `compat` profile pattern. Fields stay optional;
+ * Per-provider wire quirks, one table instead of scattered conditionals.
+ * Fields stay optional;
  * everything falls back to the generic OpenAI-compatible behavior.
  */
 interface ProviderCompat {
@@ -277,7 +277,7 @@ async function streamOpenAiCompatible(request: ProviderStreamRequest): Promise<P
   return { text, toolCalls: collector.calls() }
 }
 
-/** Flatten the harness message shape into the OpenAI wire format. */
+/** Flatten the internal message shape into the OpenAI wire format. */
 function toOpenAiMessages(request: ProviderStreamRequest): unknown[] {
   const out: Array<Record<string, unknown>> = [{ role: 'system', content: request.system }]
   for (const message of request.messages) {
@@ -483,7 +483,7 @@ async function streamAnthropic(request: ProviderStreamRequest): Promise<Provider
   return { text, toolCalls, ...(thinkingBlocks.length > 0 ? { thinkingBlocks } : {}) }
 }
 
-/** Flatten the harness message shape into Anthropic content blocks. */
+/** Flatten the internal message shape into Anthropic content blocks. */
 function toAnthropicMessages(request: ProviderStreamRequest): unknown[] {
   const out: Array<Record<string, unknown>> = []
   // Anthropic rejects consecutive same-role messages, so blocks merge into

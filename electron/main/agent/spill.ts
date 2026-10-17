@@ -1,6 +1,5 @@
 /**
- * Spill store for oversized tool output, ported from kimi-code's tool-result
- * truncation and DeepSeek Harness's spill store: when a result cannot fit
+ * Spill store for oversized tool output: when a result cannot fit
  * the inline budget, the full text is saved under the user data folder and
  * the model gets a bounded head/tail preview plus a pointer it can page
  * through with read_file. Nothing is lost to a silent truncation.
@@ -69,7 +68,7 @@ function safeSegment(value: string): string {
 /**
  * Save the full text and return its absolute path, or null when storage
  * failed — a spill failure must never turn a successful tool call into an
- * error, the harness degrades to inline truncation instead.
+ * error, it degrades to inline truncation instead.
  */
 export function saveSpill(toolName: string, callId: string, content: string): string | null {
   const base = ensureBase()

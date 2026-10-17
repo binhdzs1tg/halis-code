@@ -25,8 +25,8 @@ const PAGES: Array<{ id: SettingsPage; label: string; icon: string }> = [
 ]
 
 /**
- * Settings as a modal panel, ported from the DeepSeek Harness settings
- * surface: an 800px dialog with a left nav (General / Agent / Shortcuts)
+ * Settings as a modal panel: an 800px dialog with a left nav
+ * (General / Agent / Shortcuts)
  * and fact cards on the right. Models and keys live in the chat flow — the
  * model pill and the key dialog that pops when a provider needs one.
  */

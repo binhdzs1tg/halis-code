@@ -1,6 +1,6 @@
 /**
- * String-edit core for the edit_file tool, ported from opencode's edit
- * matching tiers: exact first, then a line-based match that forgives
+ * String-edit core for the edit_file tool, matching tiers: exact first,
+ * then a line-based match that forgives
  * trailing whitespace, smart quotes and exotic dashes. Pure logic so the
  * smoke tests can run it in plain Node.
  */

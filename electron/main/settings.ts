@@ -1,8 +1,7 @@
 /**
  * Local shell settings, loaded once per process. Read-once with validation:
  * a broken document falls back to the defaults instead of blocking startup,
- * and absent fields keep whatever the user already has on disk. Same
- * ownership rules as DeepSeek Harness desktop's shell settings.
+ * and absent fields keep whatever the user already has on disk.
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'

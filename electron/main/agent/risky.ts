@@ -37,7 +37,7 @@ export function assessCommand(command: string): string | null {
   return null
 }
 
-/** The denial recipe the model sees, mirroring the harness's escalation-at-denial-point. */
+/** The denial recipe the model sees. */
 export function denialText(reason: string): string {
   return (
     `The command was not approved by the user (${reason}). ` +

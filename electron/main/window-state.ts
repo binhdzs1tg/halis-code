@@ -1,9 +1,8 @@
 /**
  * Window bounds persistence: the last size, position and maximized flag are
- * saved when the window closes and restored on the next launch. Modeled after
- * the shell-state conventions of DeepSeek Harness desktop — read-once with
- * validation, so a broken or off-screen document falls back to the defaults
- * instead of trapping the window outside every connected display.
+ * saved when the window closes and restored on the next launch. Read-once
+ * with validation, so a broken or off-screen document falls back to the
+ * defaults instead of trapping the window outside every connected display.
  */
 import { app, screen, type BrowserWindow, type Rectangle } from 'electron'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'

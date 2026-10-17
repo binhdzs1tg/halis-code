@@ -11,7 +11,7 @@ interface SessionMeta {
 }
 
 /**
- * Left column, ported from the DeepSeek Harness sidebar: a brand row with the
+ * Left column: a brand row with the
  * collapse toggle, the New Session bar, an expandable search over the session
  * list, the workspace + session rows, and the settings foot.
  */
@@ -142,7 +142,7 @@ export function mountSidebar(): HTMLElement {
     clear(listArea)
     const workspaceRoot = store.get().workspaceRoot
 
-    // workspace row: folder + name + open action, as in the harness browser
+    // workspace row: folder + name + open action
     const projectRow = el('div', 'project-row')
     projectRow.title = workspaceRoot ?? 'Open a folder'
     const folderSlot = el('span', 'slot')
@@ -294,7 +294,7 @@ function buildToggle(): HTMLButtonElement {
   return toggle
 }
 
-/** "⌘ N" / "Ctrl N" chips, styled like the harness ShortcutKeys. */
+/** "⌘ N" / "Ctrl N" chips. */
 function shortcutKeys(key: string): HTMLElement[] {
   const mod = document.body.classList.contains('is-mac') ? '⌘' : 'Ctrl'
   return [el('span', undefined, mod), el('span', undefined, key)]
@@ -312,7 +312,7 @@ function fileName(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() || path
 }
 
-/** Kept for symmetry with the harness: shimmer lives here if needed later. */
+/** Shimmer lives here if needed later. */
 export function sidebarShimmer(text: string): HTMLElement {
   return mountShimmer(text).root
 }

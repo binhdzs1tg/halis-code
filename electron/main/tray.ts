@@ -1,7 +1,7 @@
 /**
  * System tray for Windows and Linux: the always-present way back to a hidden
- * window and the explicit quit entry. Modeled after DeepSeek Harness desktop's
- * tray — present for the whole run, not only while the window is hidden.
+ * window and the explicit quit entry. The icon stays present for the whole
+ * run, not only while the window is hidden.
  */
 import { Menu, Tray, nativeImage } from 'electron'
 import { requestQuit } from './quit'

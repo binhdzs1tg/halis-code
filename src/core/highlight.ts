@@ -1,10 +1,9 @@
 /**
  * Tiny zero-dependency syntax highlighting for chat code blocks.
  *
- * DeepSeek Harness highlights with Shiki backed by the JavaScript regex
- * engine; for this app a hand-rolled tokenizer over the same idea — sticky
- * regexes, escape-then-wrap — covers the languages model replies actually
- * contain without pulling a grammar engine into the bundle. Input is escaped
+ * A hand-rolled tokenizer — sticky regexes, escape-then-wrap — covers the
+ * languages model replies actually contain, without pulling a grammar
+ * engine into the bundle. Input is escaped
  * as it is consumed, so raw HTML never reaches the DOM.
  */
 

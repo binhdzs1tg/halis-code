@@ -1,6 +1,5 @@
 /**
- * Dependency-free HTML to Markdown/text conversion, ported from opencode's
- * html-markdown.ts (which leans on htmlparser2). The port keeps the behavior
+ * Dependency-free HTML to Markdown/text conversion. It keeps the behavior
  * that matters for feeding pages to a model: script/style stripping, code
  * fence sizing against backtick runs, GFM tables, link and image syntax and
  * entity decoding — in plain TS so nothing extra ships with the app.

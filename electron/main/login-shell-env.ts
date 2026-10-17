@@ -4,7 +4,7 @@
  * paths, custom PATH entries) are missing and spawning `git` or `node` fails.
  *
  * Probe the account's login shell once and merge what it reports into
- * `process.env`, following the approach of DeepSeek Harness desktop: run
+ * `process.env`: run
  * `<shell> -ilc` with a NUL-delimited `env -0` framed by markers, ignore all
  * rc-file noise around it, and give each candidate a deadline.
  */

@@ -1,9 +1,8 @@
 /**
  * Context menu for the main window: undo/redo/cut/copy/paste/select-all built
  * from the webContents editFlags for editable fields, copy-only for text
- * selections, plus an open-in-browser entry for links. Follows the shape of
- * DeepSeek Harness desktop's menu — items are added only when they can do
- * something, so the popup never shows dead entries.
+ * selections, plus an open-in-browser entry for links. Items are added only
+ * when they can do something, so the popup never shows dead entries.
  */
 import { clipboard, Menu, shell, type BrowserWindow, type MenuItemConstructorOptions } from 'electron'
 

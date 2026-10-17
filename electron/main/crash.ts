@@ -1,8 +1,7 @@
 /**
  * Crash reports: the complete diagnostic of one fatal failure, written before
- * the dialog so the dialog can name the file. Adapted from DeepSeek Harness
- * desktop — a bounded report directory, newest kept, older ones pruned by
- * file-name order, and renderer-side failures (console errors, crashed render
+ * the dialog so the dialog can name the file. Reports live in a bounded
+ * directory, newest kept, older ones pruned by file-name order, and renderer-side failures (console errors, crashed render
  * process, failed load) captured into the same pipeline.
  */
 import { mkdir, readdir, unlink, writeFile } from 'node:fs/promises'
@@ -146,7 +145,6 @@ const CONSOLE_TAIL_MAX_BYTES = 64 * 1024
 /**
  * A byte-bounded ring of error-level console output. Oversized lines are kept
  * whole so stack traces are never cut mid-frame; old lines fall off the front.
- * Modeled on DeepSeek Harness desktop's `RendererConsoleTail`.
  */
 export class RendererConsoleTail {
   private lines: string[] = []

@@ -71,7 +71,7 @@ function buildSystemPrompt(): string {
 
 /* ---------- time context ---------- */
 
-/** Re-sample the clock at most this often, mirroring the harness's time-context. */
+/** Re-sample the clock at most this often. */
 const TIME_REFRESH_MS = 10 * 60_000
 let lastTimeSample = 0
 
@@ -92,7 +92,7 @@ function sampleTimeContext(): string | null {
 }
 
 /**
- * Environment context, codex-style: the folder, platform and git state the
+ * Environment context: the folder, platform and git state the
  * model is actually working against. Injected once per workspace — a new
  * folder is a new world, the same folder keeps its earlier snapshot.
  */
@@ -152,8 +152,7 @@ function retryable(err: ProviderError): boolean {
 
 function backoffDelay(attempt: number, retryAfterMs?: number): number {
   // A Retry-After hint wins over the local curve, but stays capped so a
-  // confused gateway cannot stall the turn for minutes — the harness's
-  // llm-retry honors the header the same way.
+  // confused gateway cannot stall the turn for minutes.
   if (retryAfterMs !== undefined && Number.isFinite(retryAfterMs)) {
     return Math.min(Math.max(retryAfterMs, 0), RETRY_MAX_MS)
   }
@@ -181,7 +180,7 @@ function wait(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 /**
- * streamChat with the harness's bounded backoff: transient provider
+ * streamChat with bounded backoff: transient provider
  * failures (rate limits, server errors, flaky connections) retry with an
  * exponential, jittered delay; anything structural fails through. Once a
  * retry's target has already streamed deltas to the user, retrying would
@@ -602,7 +601,7 @@ export async function compactNow(raw: unknown): Promise<CompactResult> {
 
 /* ---------- todo staleness and interruption notes ---------- */
 
-/** kimi-code's todo-list reminder thresholds, in assistant steps. */
+/** Todo-list reminder thresholds, in assistant steps. */
 const TODO_STEPS_SINCE_WRITE = 5
 const TODO_STEPS_BETWEEN_REMINDERS = 5
 
@@ -615,7 +614,7 @@ function renderTodos(todos: TodoItem[]): string {
     .join('\n')
 }
 
-/** The nudge kimi-code injects when the plan drifts from the work. */
+/** The nudge injected when the plan drifts from the work. */
 function todoReminder(todos: TodoItem[]): string {
   const open = todos.filter((item) => item.status !== 'completed').length
   const lines = [

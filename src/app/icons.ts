@@ -1,5 +1,5 @@
 /**
- * Inline SVG icon set. Thin 16-box glyphs in the DeepSeek Harness style:
+ * Inline SVG icon set. Thin 16-box glyphs:
  * `stroke="currentColor"` with 1.2 weight and round joins, sized by the
  * caller through the `%SIZE%` placeholder.
  */

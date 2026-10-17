@@ -1,6 +1,5 @@
 /**
- * `@path` file references, ported from DeepSeek Harness's file-reference
- * grammar: tokens the user explicitly pointed at are read and attached to
+ * `@path` file references: tokens the user explicitly pointed at are read and attached to
  * the prompt, so the model argues about real file contents instead of
  * guessing what the user has in front of them.
  */
@@ -72,8 +71,8 @@ function readRef(raw: string): FileReference {
 
 /**
  * Build the attachment block for a prompt's file references, or null when
- * the prompt references nothing. The guidance line mirrors the harness:
- * referenced paths are user-intended context, nothing more.
+ * the prompt references nothing. Referenced paths are user-intended
+ * context, nothing more.
  */
 export function buildFileRefBlock(prompt: string): string | null {
   const roots = extractFileRefs(prompt)
