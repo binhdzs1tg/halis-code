@@ -57,15 +57,41 @@ function initialState(): AppState {
 class Store {
   private state: AppState = initialState()
   private listeners = new Set<Listener>()
+  /** Guards the notification pass against re-entrant update() calls. */
+  private notifying = false
+  private queued: Partial<AppState>[] = []
 
   get(): AppState {
     return this.state
   }
 
   update(patch: Partial<AppState>): void {
+    if (this.notifying) {
+      // A listener is reacting mid-pass; a nested update here would hand
+      // listeners later in the set a mismatched (state, prev) pair. Defer
+      // it until the current pass has drained.
+      this.queued.push(patch)
+      return
+    }
+    this.notifying = true
+    try {
+      this.apply(patch)
+      while (this.queued.length > 0) {
+        const next = this.queued.shift()
+        if (next === undefined) break
+        this.apply(next)
+      }
+    } finally {
+      this.notifying = false
+      this.queued = []
+    }
+  }
+
+  private apply(patch: Partial<AppState>): void {
     const prev = this.state
     this.state = { ...prev, ...patch }
-    for (const listener of this.listeners) {
+    // Snapshot: listeners may subscribe/unsubscribe during the pass.
+    for (const listener of [...this.listeners]) {
       listener(this.state, prev)
     }
   }

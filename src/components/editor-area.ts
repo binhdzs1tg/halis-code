@@ -198,6 +198,15 @@ async function loadInto(input: HTMLTextAreaElement, path: string, lines: HTMLEle
     const content = await window.halis.readFile(path)
     // the user may have switched tabs while the file was being read
     if (store.get().openFile !== path) return
+    // ...or started typing into the buffer: their edits already live in
+    // `unsaved`, and clobbering them here would desync screen and save.
+    const typed = unsaved.get(path)
+    if (typed !== undefined) {
+      input.value = typed
+      paintGutter(lines, typed)
+      revealPendingLine(input)
+      return
+    }
     input.value = content
     paintGutter(lines, content)
     revealPendingLine(input)
@@ -323,6 +332,9 @@ function reconcile(area: HTMLElement, touched: TouchedFile): void {
         // writing into the (now different) textarea would paste this file's
         // content into another file's buffer.
         if (textarea !== input || store.get().openFile !== touched.path) return
+        // Typing during the read wins over the disk content; the reload
+        // would otherwise erase it from the screen (but not from `unsaved`).
+        if (unsaved.has(touched.path)) return
         if (input.value !== content) {
           input.value = content
           paintGutter(linesNode, content)

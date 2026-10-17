@@ -33,9 +33,13 @@ function loadSizes(): FrameSizes {
     const raw = localStorage.getItem('halis.frame-sizes')
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<FrameSizes>
+      const sidebar = Number(parsed.sidebar)
+      const rail = Number(parsed.rail)
       return {
-        sidebar: clamp(parsed.sidebar ?? SIDEBAR_DEFAULT, SIDEBAR_MIN, SIDEBAR_MAX),
-        rail: clamp(parsed.rail ?? RAIL_DEFAULT, RAIL_MIN, RAIL_MAX)
+        // A corrupted entry could hold anything; NaN would poison the grid
+        // template and persist across restarts.
+        sidebar: clamp(Number.isFinite(sidebar) ? sidebar : SIDEBAR_DEFAULT, SIDEBAR_MIN, SIDEBAR_MAX),
+        rail: clamp(Number.isFinite(rail) ? rail : RAIL_DEFAULT, RAIL_MIN, RAIL_MAX)
       }
     }
   } catch {

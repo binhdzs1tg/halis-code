@@ -330,6 +330,9 @@ export function openModelDialog(): void {
   // Bound on the document: the variant step hides the search input, and a
   // picker with focus on the body never sends key events through the dialog.
   const onKeydown = (event: KeyboardEvent): void => {
+    // IME navigation/commit keys belong to the search input's composition,
+    // not to the dialog's shortcut set.
+    if (event.isComposing) return
     if (event.key === 'Escape') {
       event.preventDefault()
       if (variantBase) {
@@ -384,7 +387,6 @@ export function openModelDialog(): void {
     }
   }
   document.addEventListener('keydown', onKeydown)
-
   overlay.addEventListener('mousedown', (event) => {
     if (event.target === overlay) close()
   })

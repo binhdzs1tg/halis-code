@@ -140,7 +140,7 @@ export function openKeyDialog(onSaved?: () => void, onCancelled?: () => void): v
   save.addEventListener('click', () => void saveKey())
   remove.addEventListener('click', () => void removeKey())
   input.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') {
+    if (event.key === 'Enter' && !event.isComposing) {
       event.preventDefault()
       void saveKey()
     }

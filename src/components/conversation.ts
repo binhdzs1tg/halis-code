@@ -24,6 +24,15 @@ import { providerNeedsKey } from '../../electron/shared/models'
 
 let counter = 0
 
+/** Keydown events bubbling out of editable surfaces must not drive dialogs. */
+function isEditableTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    (target instanceof HTMLElement && target.isContentEditable)
+  )
+}
+
 function makeMessage(role: ChatMessage['role'], content: string): ChatMessage {
   counter += 1
   return {
@@ -118,6 +127,9 @@ export function mountConversation(): HTMLElement {
 
   // The conversation currently on screen; null until its first save.
   let sessionId: string | null = null
+  // Generation token for session loads: two loads in flight resolve in
+  // arrival order, and the stale one must not paint over the newer.
+  let loadGen = 0
 
   const persist = async (): Promise<void> => {
     if (messages.length === 0) return
@@ -344,6 +356,9 @@ export function mountConversation(): HTMLElement {
         return
       }
       if (event.key === 'Enter' && !event.isComposing) {
+        // Enter in the terminal input or another editable surface is that
+        // surface's key — it must never silently approve a risky command.
+        if (isEditableTarget(event.target)) return
         event.preventDefault()
         decide('allowed-once')
       } else if (event.key === 'Escape') {
@@ -457,7 +472,10 @@ export function mountConversation(): HTMLElement {
         document.removeEventListener('keydown', onKey)
         return
       }
-      if (event.key === 'Enter' && !event.isComposing && document.activeElement !== custom) {
+      if (event.key === 'Enter' && !event.isComposing) {
+        // Same contract as approvals: a bubble from any editable surface
+        // (this card's own input included) must not submit the answers.
+        if (isEditableTarget(event.target)) return
         event.preventDefault()
         submitAnswers()
       } else if (event.key === 'Escape') {
@@ -561,10 +579,15 @@ export function mountConversation(): HTMLElement {
       return
     }
     if (!id) return
+    const gen = ++loadGen
     try {
       const session = await window.halis.loadSession(id)
+      // A second click or a run that started while this load was in flight
+      // wins; painting this session now would resurrect stale history.
+      if (gen !== loadGen || running) return
       if (sessionId !== id) {
         await persist()
+        if (gen !== loadGen || running) return
       }
       sessionId = session.id
       customTitle = session.title && session.title !== 'Chat' ? session.title : null
@@ -966,6 +989,8 @@ export function mountConversation(): HTMLElement {
    *  switched away from during the handoff window. */
   const drainQueue = (atSettle: string | null): void => {
     if (stoppedManually) return
+    // A run that started meanwhile drains its own queue when it settles.
+    if (running) return
     if (queue.length === 0) {
       // Nothing queued, but a background job notice may be waiting for
       // the resume the agent promised it.
@@ -1194,6 +1219,9 @@ function buildComposer(
   }
 
   textarea.addEventListener('keydown', (event) => {
+    // IME navigation and commit keys arrive as keydown while composing;
+    // they must never drive the slash menu or submit a half-composed text.
+    if (event.isComposing) return
     if (!slashPop.hidden) {
       if (event.key === 'ArrowDown') {
         event.preventDefault()

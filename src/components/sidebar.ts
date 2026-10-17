@@ -212,8 +212,13 @@ export function mountSidebar(): HTMLElement {
     return row
   }
 
+  // Two refreshes can be in flight (save events burst during a run); the
+  // stale response must not repaint over the newer list.
+  let listGen = 0
   async function refreshSessions(): Promise<void> {
+    const gen = ++listGen
     const metas = await window.halis.listSessions().catch(() => [])
+    if (gen !== listGen) return
     metas.sort((a, b) => b.updatedAt - a.updatedAt)
     sessionMetas = metas
     await renderList()

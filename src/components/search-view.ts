@@ -125,6 +125,9 @@ export function mountSearchView(container: HTMLElement): void {
       renderResults(query, response)
     } catch (err) {
       if (current !== token) return
+      // A failed query must be re-runnable: keeping the key would make the
+      // next Enter a silent no-op until the text changes.
+      lastQuery = null
       summary.textContent = ''
       clear(results)
       results.appendChild(
@@ -140,6 +143,7 @@ export function mountSearchView(container: HTMLElement): void {
 
   input.addEventListener('input', schedule)
   input.addEventListener('keydown', (event) => {
+    if (event.isComposing) return
     if (event.key === 'Enter') {
       event.preventDefault()
       window.clearTimeout(debounceTimer)
