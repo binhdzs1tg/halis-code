@@ -9,7 +9,8 @@ Instructions for coding agents (and humans) working on Halis Code.
 - `npm run dev` — build and launch the app.
 - `npm run smoke` — algorithm smoke tests (diff, guard, file refs, risk
   heuristics, glob matching, grep, html conversion, patch parsing, edit
-  matching). Run it after touching anything under
+  matching, tool input repair, spill, the read-before-edit gate, git info,
+  background jobs). Run it after touching anything under
   `electron/main/agent/`.
 
 ## Conventions
