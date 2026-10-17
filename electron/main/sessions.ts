@@ -1,10 +1,8 @@
 /**
  * Chat session persistence: every conversation is a JSON document under
- * `userData/sessions`, listed by recency and pruned to a bounded set —
- * the same discipline as DeepSeek Harness's session storage, scaled down
- * to a single-user desktop app.
+ * `userData/sessions`, listed by recency and pruned to a bounded set.
  */
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 import type { ChatMessage, ChatSession, ChatSessionMeta, TodoItem } from '../shared/types'
@@ -183,7 +181,22 @@ export function saveSession(raw: unknown): ChatSessionMeta {
   if (Buffer.byteLength(payload) > MAX_FILE_BYTES) {
     throw new Error('This chat has grown too large to save.')
   }
-  writeFileSync(path, payload, { mode: 0o600 })
+  // Write through a temp file and rename over the target: a crash or full
+  // disk mid-write must never leave a half-written session behind, and a
+  // truncated file would not just vanish from the list — the next prune
+  // would delete it for good.
+  const tmp = `${path}.tmp`
+  try {
+    writeFileSync(tmp, payload, { mode: 0o600 })
+    renameSync(tmp, path)
+  } catch (err) {
+    try {
+      rmSync(tmp, { force: true })
+    } catch {
+      // nothing more to clean up
+    }
+    throw err
+  }
   pruneSessions(directory)
   return {
     id,
@@ -198,6 +211,16 @@ function pruneSessions(directory: string): void {
   const entries: Array<{ file: string; updatedAt: number }> = []
   for (const file of readdirSync(directory)) {
     if (!file.endsWith('.json')) continue
+    if (file.endsWith('.json.tmp')) {
+      // Saves are synchronous, so a leftover temp file means a crashed
+      // write — no reader wants it, sweep it.
+      try {
+        rmSync(join(directory, file), { force: true })
+      } catch {
+        // best effort
+      }
+      continue
+    }
     const session = readSessionFile(join(directory, file))
     if (session) {
       entries.push({ file, updatedAt: session.updatedAt })

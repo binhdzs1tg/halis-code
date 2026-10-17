@@ -35,7 +35,7 @@ function makeMessage(role: ChatMessage['role'], content: string): ChatMessage {
 }
 
 /**
- * The centre column: a DeepSeek Harness-style conversation — crumbs header,
+ * The centre column: the conversation — crumbs header,
  * the message flow with a deep-diving shimmer row while the agent runs, and
  * the 28px-radius composer card with its dock (queue + approvals).
  */
@@ -109,11 +109,10 @@ export function mountConversation(): HTMLElement {
   let running = false
   let stoppedManually = false
 
-  // Publish the column width so the chat content axis resolves, exactly as
-  // the harness conversation root does.
+  // Publish the column width so the chat content axis resolves.
   const widthObserver = new ResizeObserver((entries) => {
     const width = entries[0]?.contentRect.width ?? 0
-    document.body.style.setProperty('--dsh-conversation-column-width', `${Math.round(width)}px`)
+    document.body.style.setProperty('--hal-conversation-column-width', `${Math.round(width)}px`)
   })
   widthObserver.observe(rootEl)
 
@@ -337,8 +336,8 @@ export function mountConversation(): HTMLElement {
     // The composer is taken over until the user decides — without the lock,
     // one Enter press both approves and queues the composer text.
     composer.setLocked(true)
-    // Enter approves, Escape rejects — the same keys as DeepSeek Harness's
-    // approval panel; the composer is taken over until the user decides.
+    // Enter approves, Escape rejects; the composer stays taken over until
+    // the user decides.
     const onKey = (event: KeyboardEvent): void => {
       if (pendingApproval?.requestId !== request.requestId) {
         document.removeEventListener('keydown', onKey)
@@ -898,10 +897,15 @@ export function mountConversation(): HTMLElement {
       node.replaceWith(renderMessage(assistant))
       const firstExchange =
         !customTitle && messages.filter((message) => message.role === 'user').length === 1
+      // The queue drains only after persistence settles: a brand-new chat
+      // gets its session id from that first save, and draining earlier
+      // would capture the stale null id and silently drop the message.
       void persist()
-        .then(() => (firstExchange ? maybeTitle(selection) : undefined))
         .catch(() => undefined)
-      drainQueue(sessionId)
+        .finally(() => {
+          drainQueue(sessionId)
+          if (firstExchange) void maybeTitle(selection)
+        })
     } catch (err) {
       // Drop the placeholder by identity — a compaction notice may have
       // landed after it, and popping the last message would strand an empty
@@ -912,13 +916,14 @@ export function mountConversation(): HTMLElement {
         messages.splice(placeholder, 1)
       }
       const agentErr = err instanceof AgentError ? err : null
+      let saved: Promise<void> = Promise.resolve()
       if (agentErr && (agentErr.partial.trim() || traces.length > 0)) {
         const partial = makeMessage('assistant', agentErr.partial)
         if (traces.length > 0) partial.tools = [...traces]
         if (liveTodos.length > 0) partial.todos = [...liveTodos]
         messages.push(partial)
         column.appendChild(renderMessage(partial))
-        void persist()
+        saved = persist()
       }
       if (agentErr?.code === 'missing-key') {
         appendSystemNote(agentErr.message, { label: 'Add API key', onClick: () => openKeyDialog() })
@@ -934,8 +939,12 @@ export function mountConversation(): HTMLElement {
         store.update({ agentStatus: 'error' })
       }
       // A failed run still pulls the next queued message — the queue is
-      // work the user asked to send, not a retry of the failed one.
-      if (agentErr?.code !== 'aborted') drainQueue(sessionId)
+      // work the user asked to send, not a retry of the failed one. The
+      // drain waits for the partial save above so a first-exchange chat
+      // drains under its real session id, not the pre-save null.
+      if (agentErr?.code !== 'aborted') {
+        void saved.finally(() => drainQueue(sessionId))
+      }
     } finally {
       if (frame) cancelAnimationFrame(frame)
       running = false
@@ -1019,7 +1028,7 @@ function sessionTitle(messages: ChatMessage[]): string {
   return raw.length > 48 ? `${raw.slice(0, 45)}…` : raw
 }
 
-/** codex's /init prompt, scaled down: draft workspace instructions in one turn. */
+/** /init: draft workspace instructions in one turn. */
 const INIT_PROMPT = [
   'Generate an AGENTS.md file for this workspace so future coding agents work well here.',
   'First check whether AGENTS.md (or CLAUDE.md) already exists at the root — if it does, read it and propose improvements instead of overwriting; ask before replacing anything.',
@@ -1233,8 +1242,8 @@ function buildComposer(
     textarea.style.height = `${Math.min(textarea.scrollHeight, 336)}px`
   }
 
-  // The unsent draft survives restarts and chat switches; a submitted draft
-  // is dropped, mirroring per-session draft stores in DeepSeek Harness.
+  // The unsent draft survives restarts and chat switches; a submitted
+  // draft is dropped.
   const DRAFT_KEY = 'halis.composer-draft'
   try {
     textarea.value = localStorage.getItem(DRAFT_KEY) ?? ''
@@ -1519,7 +1528,7 @@ interface ToolDiff {
 
 const DIFF_MAX_LINES = 24
 
-/** The harness collapses diff cards beyond nine lines. */
+/** Chat diff cards collapse beyond nine lines. */
 const CHAT_DIFF_MAX_LINES = 9
 
 /**

@@ -165,8 +165,12 @@ export function mountFileTree(container: HTMLElement): void {
 
     if (!expanded && row.dataset.loaded !== '1') {
       row.dataset.loaded = '1'
+      const gen = renderGen
       try {
         const children = await window.halis.readDir(entry.path)
+        // A re-render (or a collapse during the read) makes this row stale —
+        // the same guard restoreExpanded applies before inserting children.
+        if (gen !== renderGen || !row.isConnected || row.dataset.expanded !== '1') return
         let anchor: HTMLElement = row
         for (const child of children) {
           const node = renderEntry(child, depth + 1)
@@ -176,9 +180,11 @@ export function mountFileTree(container: HTMLElement): void {
       } catch (err) {
         // Reset the row the same way restoreExpanded does, or the folder
         // stays marked loaded with no children and never refetches.
-        row.dataset.expanded = '0'
-        delete row.dataset.loaded
-        twist?.classList.remove('open')
+        if (row.isConnected && gen === renderGen) {
+          row.dataset.expanded = '0'
+          delete row.dataset.loaded
+          twist?.classList.remove('open')
+        }
         tree.appendChild(el('div', 'planned', `Cannot read folder: ${errText(err)}`))
       }
       return

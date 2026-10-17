@@ -1,7 +1,7 @@
 /**
  * ANSI terminal output rendering, no dependencies.
  *
- * DeepSeek Harness styles terminal blocks with `anser`; this parser keeps the
+ * This parser keeps the
  * useful subset — SGR colors, bold/dim/italic/underline, 256-color and
  * truecolor — and builds DOM spans directly with `textContent`, so raw bytes
  * never become HTML. The writer is stateful across chunks: escape sequences
@@ -267,7 +267,14 @@ export class AnsiWriter {
     while (this.written > max && this.target.firstChild) {
       const first = this.target.firstChild as HTMLElement | Text
       const length = (first.textContent ?? '').length
-      this.written -= length
+      // The live span can be the oldest node once one run of plain text
+      // outgrows the cap; drop the cursor with it or every later chunk
+      // keeps flowing into a detached node nobody renders.
+      if (first === this.current) {
+        this.current = null
+        this.currentKey = ''
+      }
+      this.written = Math.max(0, this.written - length)
       first.remove()
     }
   }
