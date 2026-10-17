@@ -9,6 +9,8 @@ import type { ToolOutcome } from './tools'
 const DEFAULT_MAX_RESULTS = 8
 const MAX_RESULTS = 10
 const SEARCH_TIMEOUT_MS = 25_000
+/** Scrape endpoints are small; a huge body means an anomaly or an attack. */
+const MAX_RESPONSE_CHARS = 2_000_000
 const BROWSER_UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
 
@@ -119,7 +121,7 @@ async function fetchText(url: string, signal: AbortSignal): Promise<{ ok: boolea
       signal: controller.signal,
       headers: { 'User-Agent': BROWSER_UA, Accept: 'text/html,application/json' }
     })
-    const text = await response.text()
+    const text = await readBoundedText(response)
     return { ok: response.ok, status: response.status, text }
   } finally {
     clearTimeout(timer)
@@ -127,18 +129,49 @@ async function fetchText(url: string, signal: AbortSignal): Promise<{ ok: boolea
   }
 }
 
+/** Read the body with a hard char cap; a bloated or hostile response must
+ *  not buffer unbounded memory in the main process. */
+async function readBoundedText(response: Response): Promise<string> {
+  const reader = response.body?.getReader()
+  if (!reader) return ''
+  const decoder = new TextDecoder('utf-8')
+  let text = ''
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (value) {
+        text += decoder.decode(value, { stream: true })
+        if (text.length > MAX_RESPONSE_CHARS) {
+          void reader.cancel().catch(() => {})
+          return `${text.slice(0, MAX_RESPONSE_CHARS)}\n(response truncated)`
+        }
+      }
+    }
+    text += decoder.decode()
+    return text
+  } catch (err) {
+    void reader.cancel().catch(() => {})
+    throw err
+  }
+}
+
 function parseLiteResults(html: string): SearchResult[] {
   // lite.duckduckgo.com lays results out as table rows: an anchor with
   // class result-link, then a snippet cell.
-  const anchors = matchAll(html, /<a[^>]*class=["']?result-link["']?[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)
-  const snippets = matchAll(html, /<td[^>]*class=["']?result-snippet["']?[^>]*>([\s\S]*?)<\/td>/gi)
-  return dedupeAndClean(anchors, snippets.map((match) => match[1] ?? ''))
+  return collectResults(
+    html,
+    /<a[^>]*class=["']?result-link["']?[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,
+    /<td[^>]*class=["']?result-snippet["']?[^>]*>([\s\S]*?)<\/td>/gi
+  )
 }
 
 function parseHtmlResults(html: string): SearchResult[] {
-  const anchors = matchAll(html, /<a[^>]*class=["'][^"']*result__a[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)
-  const snippets = matchAll(html, /<a[^>]*class=["'][^"']*result__snippet[^"']*["'][^>]*>([\s\S]*?)<\/a>/gi)
-  return dedupeAndClean(anchors, snippets.map((match) => match[1] ?? ''))
+  return collectResults(
+    html,
+    /<a[^>]*class=["'][^"']*result__a[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,
+    /<a[^>]*class=["'][^"']*result__snippet[^"']*["'][^>]*>([\s\S]*?)<\/a>/gi
+  )
 }
 
 /**
@@ -173,9 +206,11 @@ function parseInstantAnswer(json: string): SearchResult[] {
   return results
 }
 
-function dedupeAndClean(anchors: RegExpExecArray[], snippetTexts: string[]): SearchResult[] {
+function collectResults(html: string, anchorPattern: RegExp, snippetPattern: RegExp): SearchResult[] {
   const results: SearchResult[] = []
   const seen = new Set<string>()
+  const anchors = matchAll(html, anchorPattern)
+  const snippets = matchAll(html, snippetPattern)
   for (let i = 0; i < anchors.length; i += 1) {
     const anchor = anchors[i]
     if (!anchor) continue
@@ -183,8 +218,22 @@ function dedupeAndClean(anchors: RegExpExecArray[], snippetTexts: string[]): Sea
     const url = resolveDuckUrl(href)
     if (!/^https?:\/\//i.test(url) || seen.has(url)) continue
     seen.add(url)
+    // Pair positionally in the document: the snippet cell that follows this
+    // anchor and precedes the next one. Zipping two parallel lists would
+    // hand every later result the previous result's snippet as soon as one
+    // result ships without a cell.
+    const matchStart = anchor.index ?? 0
+    const nextStart = i + 1 < anchors.length ? anchors[i + 1]?.index ?? html.length : html.length
+    let snippetText = ''
+    for (const snippet of snippets) {
+      const at = snippet.index ?? -1
+      if (at > matchStart && at < nextStart) {
+        snippetText = snippet[1] ?? ''
+        break
+      }
+    }
     const title = htmlToText(anchor[2] ?? '').trim()
-    const snippet = htmlToText(snippetTexts[i] ?? '').trim()
+    const snippet = htmlToText(snippetText).trim()
     if (title.length === 0) continue
     results.push({ title, url, snippet })
   }

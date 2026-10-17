@@ -159,6 +159,9 @@ export async function webFetchTool(input: Record<string, unknown>, signal: Abort
   try {
     const type = session.response.headers.get('content-type') ?? ''
     if (!TEXTUAL_TYPES.some((pattern) => pattern.test(type))) {
+      // Release the socket: an unconsumed body of a big binary would hold
+      // the connection (and its buffers) open for nothing.
+      void session.response.body?.cancel().catch(() => {})
       return {
         ok: false,
         output: `Refusing to fetch "${type || 'unknown content type'}" — web_fetch reads text pages, not binaries or images.`
@@ -166,7 +169,7 @@ export async function webFetchTool(input: Record<string, unknown>, signal: Abort
     }
 
     const { bytes, truncated } = await readBounded(session)
-    const charset = /charset=([\w-]+)/i.exec(type)?.[1] ?? sniffCharset(bytes)
+    const charset = /charset=["']?([\w-]+)/i.exec(type)?.[1] ?? sniffCharset(bytes)
     let body: string
     try {
       body = new TextDecoder(charset?.toLowerCase() === 'utf-8' || charset === undefined ? 'utf-8' : charset).decode(bytes)
@@ -266,9 +269,16 @@ function sniffCharset(bytes: Uint8Array): string | undefined {
 
 /**
  * SSRF guard: refuse loopback, private, link-local and unique-local hosts
- * before any request leaves the machine. IP literals are checked directly;
- * names are resolved once — a DNS name that points inside the perimeter is
- * just as refused. Applied to every redirect hop, not only the first URL.
+ * before any request leaves the machine. IP literals are checked directly
+ * (all IPv6 spellings canonicalized first); names are resolved once — a DNS
+ * name that points inside the perimeter is just as refused. Applied to every
+ * redirect hop, not only the first URL.
+ *
+ * Residual risk: fetch() resolves the name a second time on its own, so a
+ * DNS name alternating public/private answers could slip past this check
+ * (classic rebinding TOCTOU). Pinning the validated address would need a
+ * custom connection dispatcher; the guard here is still the strong gate
+ * for literals and steady DNS, which covers the realistic cases.
  */
 async function requirePublicHost(hostname: string): Promise<void> {
   try {
@@ -302,24 +312,111 @@ async function guardPrivateNetwork(hostname: string): Promise<void> {
 
 function isPrivateAddress(address: string): boolean {
   if (net.isIPv4(address)) {
-    const parts = address.split('.').map(Number)
-    const a = parts[0] ?? 0
-    const b = parts[1] ?? 0
-    if (a === 0 || a === 10 || a === 127) return true
-    if (a === 172 && b >= 16 && b <= 31) return true
-    if (a === 192 && b === 168) return true
-    if (a === 169 && b === 254) return true
-    return false
+    return isPrivateIpv4(address)
   }
   if (net.isIPv6(address)) {
-    const normalized = address.toLowerCase()
-    if (normalized === '::' || normalized === '::1') return true
-    if (normalized.startsWith('fc') || normalized.startsWith('fd')) return true
-    if (normalized.startsWith('fe8') || normalized.startsWith('fe9') || normalized.startsWith('fea') || normalized.startsWith('feb')) return true
-    // IPv4-mapped private ranges.
-    const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(normalized)
-    if (mapped) return isPrivateAddress(mapped[1] ?? '')
-    return false
+    return isPrivateIpv6(address)
+  }
+  return false
+}
+
+function isPrivateIpv4(address: string): boolean {
+  const parts = address.split('.').map(Number)
+  const a = parts[0] ?? 0
+  const b = parts[1] ?? 0
+  if (a === 0 || a === 10 || a === 127) return true
+  if (a === 172 && b >= 16 && b <= 31) return true
+  if (a === 192 && b === 168) return true
+  if (a === 169 && b === 254) return true
+  // Carrier-grade NAT — many intranet edges live behind 100.64.0.0/10.
+  if (a === 100 && b >= 64 && b <= 127) return true
+  return false
+}
+
+/**
+ * Expand any IPv6 spelling to its eight 16-bit groups. Every way of writing
+ * an IPv4-mapped address — "::ffff:192.168.0.1", "::ffff:c0a8:1",
+ * "0:0:0:0:0:ffff:c0a8:1" — collapses onto the same eight numbers, so the
+ * prefix checks below cannot be dodged by spelling a literal differently.
+ */
+function expandIpv6(address: string): number[] | null {
+  let rest = address
+  const zone = rest.indexOf('%')
+  if (zone >= 0) rest = rest.slice(0, zone)
+
+  // Embedded dotted-quad tail ("::ffff:192.0.2.1").
+  let tail: number[] | null = null
+  const v4 = /(\d+\.\d+\.\d+\.\d+)$/.exec(rest)
+  if (v4) {
+    const quadText = v4[1] ?? ''
+    const head = rest.slice(0, rest.length - quadText.length)
+    if (!head.endsWith(':')) return null
+    const quad = quadText.split('.').map(Number)
+    if (quad.length !== 4 || quad.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
+      return null
+    }
+    tail = [((quad[0] ?? 0) << 8) | (quad[1] ?? 0), ((quad[2] ?? 0) << 8) | (quad[3] ?? 0)]
+    rest = head.slice(0, -1)
+  }
+
+  const double = rest.split('::')
+  if (double.length > 2) return null
+  const parseGroups = (text: string): number[] | null => {
+    if (text === '') return []
+    const parsed: number[] = []
+    for (const group of text.split(':')) {
+      if (!/^[0-9a-fA-F]{1,4}$/.test(group)) return null
+      parsed.push(parseInt(group, 16))
+    }
+    return parsed
+  }
+  const left = parseGroups(double[0] ?? '')
+  const right = double.length === 2 ? parseGroups(double[1] ?? '') : []
+  if (left === null || right === null) return null
+
+  let groups: number[]
+  if (double.length === 2) {
+    const missing = 8 - left.length - right.length - (tail !== null ? 2 : 0)
+    if (missing < 0) return null
+    groups = [...left, ...Array<number>(missing).fill(0), ...right]
+  } else {
+    groups = [...left]
+  }
+  if (tail) groups.push(tail[0] ?? 0, tail[1] ?? 0)
+  if (groups.length !== 8) return null
+  return groups
+}
+
+function isPrivateIpv6(address: string): boolean {
+  const groups = expandIpv6(address)
+  // Unparseable literals never pass as public — fail closed.
+  if (!groups) return true
+  const g0 = groups[0] ?? 0
+  const g1 = groups[1] ?? 0
+  const g2 = groups[2] ?? 0
+  const g3 = groups[3] ?? 0
+  const g4 = groups[4] ?? 0
+  const g5 = groups[5] ?? 0
+  const g6 = groups[6] ?? 0
+  const g7 = groups[7] ?? 0
+  const embedded = `${(g6 >> 8) & 0xff}.${g6 & 0xff}.${(g7 >> 8) & 0xff}.${g7 & 0xff}`
+  // The all-zeros prefix holds :: (unspecified), ::1 (loopback), the
+  // deprecated IPv4-compatible range and the IPv4-mapped range — all of
+  // them route to, or stand for, the embedded IPv4 address.
+  if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0) {
+    if (g5 === 0 || g5 === 0xffff) return isPrivateIpv4(embedded)
+    return true // other all-zeros-middle forms: fail closed
+  }
+  // Unique-local fc00::/7 and link-local fe80::/10.
+  if ((g0 & 0xfe00) === 0xfc00) return true
+  if ((g0 & 0xffc0) === 0xfe80) return true
+  // Multicast and reserved-for-routing ranges are never fetchable.
+  if ((g0 & 0xff00) === 0xff00) return true
+  if (g0 === 0x2001 && g1 === 0) return true // Teredo tunneling range
+  // 6to4 (2002::/16) embeds the routable IPv4 side in groups 1-2.
+  if (g0 === 0x2002) {
+    const v4 = `${(g1 >> 8) & 0xff}.${g1 & 0xff}.${(g2 >> 8) & 0xff}.${g2 & 0xff}`
+    return isPrivateIpv4(v4)
   }
   return false
 }
