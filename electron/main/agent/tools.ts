@@ -17,6 +17,7 @@ import { GREP_TOOL_SPEC, grepTool } from './grep'
 import { WEB_FETCH_TOOL_SPEC, webFetchTool } from './web-fetch'
 import { WEB_SEARCH_TOOL_SPEC, webSearchTool } from './web-search'
 import { PATCH_TOOL_SPEC, runPatchTool } from './patch'
+import { TASK_TOOL_SPEC } from './subagent'
 import { applyEditText } from './edit-text'
 import { repairToolInput } from './tool-input-repair'
 import { readSpill, saveSpill, truncateLongLines } from './spill'
@@ -252,7 +253,8 @@ export function toolSpecs(): ToolSpec[] {
         },
         required: ['todos']
       }
-    }
+    },
+    TASK_TOOL_SPEC
   ]
 }
 

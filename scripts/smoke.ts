@@ -18,6 +18,14 @@ import { assertEditable, observeRead, recordWrite, resetObservations } from '../
 import { setWorkspaceRoot } from '../electron/main/workspace'
 import { clearGitInfoCache, getGitInfo } from '../electron/main/agent/git-info'
 import {
+  filterSubagentSpecs,
+  subagentSystemPrompt,
+  TASK_TOOL_NAME,
+  TASK_TOOL_SPEC,
+  taskEnvelope,
+  validateTaskInput
+} from '../electron/main/agent/subagent'
+import {
   configureJobStore,
   jobStatus,
   killJob,
@@ -474,6 +482,51 @@ check('decoded pipe to shell flagged', assessCommand('echo cm0gLXJmIC8= | base64
 check('xargs sh flagged', assessCommand('find . -name "*.part" | xargs sh -c') !== null)
 check('truncate -s 0 flagged', assessCommand('truncate -s 0 important.conf') !== null)
 
+/* ---------- subagents ---------- */
+function subagentChecks(): void {
+  check('task tool is named task', TASK_TOOL_NAME === 'task' && TASK_TOOL_SPEC.name === TASK_TOOL_NAME)
+  check('task tool requires only the prompt',
+    Array.isArray((TASK_TOOL_SPEC.parameters as { required?: unknown }).required) &&
+    (TASK_TOOL_SPEC.parameters as { required: string[] }).required.length === 1)
+  // A stand-in for the full registry: the blocklist has to strip the
+  // interactive and recursive tools wherever they sit in the list.
+  const registry = [
+    TASK_TOOL_SPEC,
+    { name: 'read_file', description: '', parameters: {} },
+    { name: 'ask_user', description: '', parameters: {} },
+    { name: 'todo_write', description: '', parameters: {} },
+    { name: 'run_command', description: '', parameters: {} }
+  ]
+  const subNames = filterSubagentSpecs(registry).map((spec) => spec.name)
+  check('subagent cannot spawn subagents', !subNames.includes('task'))
+  check('subagent cannot ask the user', !subNames.includes('ask_user'))
+  check('subagent cannot write the todo list', !subNames.includes('todo_write'))
+  check('subagent keeps the file tools', subNames.includes('read_file') && subNames.includes('run_command'))
+
+  let threw = false
+  try {
+    validateTaskInput({})
+  } catch {
+    threw = true
+  }
+  check('task tool requires a prompt', threw)
+  const brief = validateTaskInput({ prompt: '  Find every TODO in src/.\nList file and line.  ' })
+  check('missing description derives from the prompt', brief.description.includes('Find every TODO'))
+  check('prompt is trimmed', brief.prompt.startsWith('Find') && brief.prompt.endsWith('line.'))
+  const capped = validateTaskInput({ description: 'x'.repeat(300), prompt: 'do it' })
+  check('description is capped', capped.description.length <= 120)
+
+  const prompt = subagentSystemPrompt()
+  check('subagent prompt explains the handoff', prompt.includes('final message') && prompt.includes('subagent'))
+  const instrDir = fs.mkdtempSync(join(os.tmpdir(), 'halis-subagent-test-'))
+  fs.writeFileSync(join(instrDir, 'AGENTS.md'), 'SUBAGENT-INSTR-MARKER')
+  setWorkspaceRoot(instrDir)
+  check('subagent prompt includes workspace instructions', subagentSystemPrompt().includes('SUBAGENT-INSTR-MARKER'))
+  setWorkspaceRoot(null)
+  const envelope = taskEnvelope('found 3 todos')
+  check('task result is framed', envelope.startsWith('<task-result>') && envelope.endsWith('</task-result>'))
+}
+
 /* ---------- background jobs ---------- */
 async function jobChecks(): Promise<void> {
   const jobDir = fs.mkdtempSync(join(os.tmpdir(), 'halis-jobs-test-'))
@@ -521,6 +574,9 @@ function waitFor(condition: () => boolean, timeoutMs: number): Promise<void> {
 }
 
 void gitChecks()
+  .then(() => {
+    subagentChecks()
+  })
   .then(() => jobChecks())
   .then(() => {
     if (failures > 0) {

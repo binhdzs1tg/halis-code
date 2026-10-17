@@ -29,6 +29,7 @@ import { buildFileRefBlock } from './file-refs'
 import { askApproval, dropApprovalsForRun, askUserQuestion } from './approval'
 import { getGitInfo } from './git-info'
 import { setJobSink } from './jobs'
+import { runTaskTool, TASK_TOOL_NAME } from './subagent'
 import { getWorkspaceRoot } from '../workspace'
 
 const MAX_HISTORY_MESSAGES = 40
@@ -46,8 +47,11 @@ const SYSTEM_PROMPT = [
   'at once, run_command to build, test or inspect. Read a file before editing',
   'it and keep changes small and focused. For multi-step work, keep a plan',
   'with todo_write and update it as you go. Fetch web pages with web_fetch and',
-  'search the web with web_search when the task needs outside facts. Ask the',
-  'user with ask_user only when the next step truly needs their call. If no',
+  'search the web with web_search when the task needs outside facts. Hand',
+  'bulky self-contained exploration to task so its file dumps stay out of your',
+  'context. Ask the user with ask_user only when the next step truly needs their',
+  'call — ambiguity about intent, a destructive trade-off, or missing',
+  'information no tool can find. For everything else, decide and report. If no',
   'folder is open, ask the user to open one.'
 ].join('\n')
 
@@ -424,7 +428,17 @@ async function execute(
           continue
         }
 
-        const outcome = await runTool(call, controller.signal, hooks)
+        // A delegated task runs its own nested agent loop with the same
+        // model and hooks; everything else goes through the shared runner.
+        const outcome =
+          call.name === TASK_TOOL_NAME
+            ? await runTaskTool(call.input, {
+                target: { provider, entry, variant, key },
+                specs,
+                signal: controller.signal,
+                runStep: (sub) => runTool(sub, controller.signal, hooks)
+              })
+            : await runTool(call, controller.signal, hooks)
         // The repeat guard counts failed calls too: a model hammering a
         // denied call is exactly the loop worth breaking.
         const reminder = guard.record(call.name, call.input)
@@ -490,7 +504,7 @@ async function execute(
  * Resolve a model selection against the catalog and the key vault, shared
  * by the run loop and manual compaction so both fail the same way.
  */
-interface ModelTarget {
+export interface ModelTarget {
   provider: ProviderEntry
   entry: ModelEntry
   variant: ModelVariant | null
