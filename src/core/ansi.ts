@@ -160,6 +160,14 @@ function paint(style: AnsiStyle, span: HTMLElement): void {
   }
 }
 
+function isIntermediate(code: number): boolean {
+  return code >= 0x20 && code <= 0x2f
+}
+
+function isFinalByte(code: number): boolean {
+  return code >= 0x30 && code <= 0x7e
+}
+
 export class AnsiWriter {
   private readonly target: HTMLElement
   private current: HTMLElement | null = null
@@ -245,6 +253,27 @@ export class AnsiWriter {
         this.pending = ch
         return
       }
+      // ESC followed by intermediate bytes (0x20-0x2F) runs to one final
+      // byte (0x30-0x7E): "ESC ( B" designating a charset is three bytes,
+      // so consuming only two would leak the final byte as visible text.
+      if (isIntermediate(data.charCodeAt(i + 1))) {
+        flush()
+        let j = i + 1
+        while (j < data.length && isIntermediate(data.charCodeAt(j))) j += 1
+        if (j >= data.length) {
+          // Split mid-sequence; hold the intermediates like the CSI/OSC
+          // cases hold their open sequences.
+          const rest = data.slice(i)
+          if (rest.length > MAX_PENDING_ESCAPE) {
+            this.pending = ''
+            return
+          }
+          this.pending = rest
+          return
+        }
+        i = isFinalByte(data.charCodeAt(j)) ? j + 1 : j
+        continue
+      }
       // any other escape: consume both characters
       flush()
       i += 2
@@ -266,7 +295,11 @@ export class AnsiWriter {
   trim(max: number): void {
     while (this.written > max && this.target.firstChild) {
       const first = this.target.firstChild as HTMLElement | Text
-      const length = (first.textContent ?? '').length
+      // Echo rows appended outside the writer carry no budgeted bytes, so
+      // removing one must not push `written` down (the cap would under-fire
+      // from then on).
+      const echo = first instanceof HTMLElement && first.dataset.echo === 'true'
+      const length = echo ? 0 : (first.textContent ?? '').length
       // The live span can be the oldest node once one run of plain text
       // outgrows the cap; drop the cursor with it or every later chunk
       // keeps flowing into a detached node nobody renders.
@@ -305,5 +338,8 @@ export function stripAnsi(text: string): string {
   return text
     .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
     .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+    // ESC + intermediates + final byte, e.g. "ESC ( B" — the generic rule
+    // below would leave the final byte behind as text.
+    .replace(/\x1b[ -/]+[\x30-\x7e]/g, '')
     .replace(/\x1b./g, '')
 }

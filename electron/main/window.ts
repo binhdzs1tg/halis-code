@@ -9,6 +9,7 @@ import { saveWindowState, windowBoundsOptions } from './window-state'
 import { attachWindowDiagnostics } from './crash'
 import { attachContextMenu } from './context-menu'
 import { dropApprovalsForWindow } from './agent/approval'
+import { shutdown as shutdownTerminal } from './terminal'
 
 const DIST = path.join(__dirname, '..')
 const RESOURCES = path.join(app.getAppPath(), 'resources')
@@ -121,9 +122,13 @@ export function createMainWindow(): BrowserWindow {
   })
 
   // A closed window withdraws every approval it was asked about, failing
-  // closed — the runs waiting on them stop instead of hanging.
+  // closed — the runs waiting on them stop instead of hanging. The terminal
+  // gets the same fail-closed treatment: its events would stream into a
+  // destroyed window, and a reopened one would find the slot wedged by a
+  // command it can neither see nor stop.
   win.on('closed', () => {
     dropApprovalsForWindow(win)
+    shutdownTerminal()
   })
 
   // A reload or a render crash wipes the renderer state that answers

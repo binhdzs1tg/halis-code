@@ -58,6 +58,8 @@ export function mountTerminalPanel(): HTMLElement {
   let cwd: string | null = null
   let busy = false
   let currentRunId: string | null = null
+  /** True between submit and the invoke reply that assigns the run id. */
+  let pendingStart = false
   const history: string[] = []
   let historyIndex = -1
 
@@ -77,7 +79,13 @@ export function mountTerminalPanel(): HTMLElement {
   }
 
   const scrollToEnd = (): void => {
-    body.scrollTop = body.scrollHeight
+    // Snap to the bottom only when the user is already there; otherwise a
+    // streaming command yanks the viewport down while they read an error
+    // further up.
+    const distance = body.scrollHeight - body.scrollTop - body.clientHeight
+    if (distance < 48) {
+      body.scrollTop = body.scrollHeight
+    }
   }
 
   const appendText = (text: string): void => {
@@ -88,16 +96,21 @@ export function mountTerminalPanel(): HTMLElement {
 
   const echo = (command: string): void => {
     const line = el('div', 'line')
+    line.dataset.echo = 'true'
     const mark = el('span', 'prompt', prompt.textContent ? `${prompt.textContent} $ ` : '$ ')
     line.append(mark, document.createTextNode(command))
     out.appendChild(line)
-    // Echo lines bypass the writer, so keep the scrollback budget honest
-    // by capping the DOM here too.
+    // Echo bytes never enter `written`, so when the line cap forces a removal
+    // only adjust the writer's counter for writer-owned nodes.
     while (out.childElementCount > MAX_OUT_LINES) {
       const first = out.firstChild
-      const removed = (first?.textContent ?? '').length
-      first?.remove()
-      writer.written = Math.max(0, writer.written - removed)
+      if (!first) break
+      const isEcho = first instanceof HTMLElement && first.dataset.echo === 'true'
+      if (!isEcho) {
+        const removed = (first.textContent ?? '').length
+        writer.written = Math.max(0, writer.written - removed)
+      }
+      first.remove()
     }
     scrollToEnd()
   }
@@ -118,6 +131,7 @@ export function mountTerminalPanel(): HTMLElement {
       return
     }
     busy = true
+    pendingStart = true
     setStatus('running…')
     try {
       currentRunId = await window.halis.runTerminalCommand(command)
@@ -126,6 +140,8 @@ export function mountTerminalPanel(): HTMLElement {
       busy = false
       currentRunId = null
       setStatus('idle')
+    } finally {
+      pendingStart = false
     }
   }
 
@@ -138,6 +154,8 @@ export function mountTerminalPanel(): HTMLElement {
   // ---- events ----
   input.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
+      // An IME composition commit arrives as Enter — never submit through it.
+      if (event.isComposing) return
       event.preventDefault()
       const command = input.value.trim()
       if (!command) return
@@ -195,7 +213,10 @@ export function mountTerminalPanel(): HTMLElement {
   })
 
   window.halis.onTerminalExit((event: TerminalExitEvent) => {
-    if (event.id !== currentRunId) return
+    // While the invoke reply is still in flight, an exit event can only
+    // belong to the command we just spawned — accepting it here is what
+    // keeps a synchronous `cd` from wedging the panel on a stuck status.
+    if (event.id !== currentRunId && !(pendingStart && currentRunId === null)) return
     busy = false
     currentRunId = null
     if (typeof event.code === 'number' && event.code !== 0) {

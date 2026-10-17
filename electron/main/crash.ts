@@ -8,6 +8,8 @@ import { mkdir, readdir, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { inspect } from 'node:util'
 import { app, BrowserWindow, dialog } from 'electron'
+import { shutdown as shutdownTerminals } from './terminal'
+import { stopAllMcpServers } from './agent/mcp'
 
 /** Reports kept after pruning, newest first by file name. */
 const REPORTS_RETAINED = 10
@@ -85,6 +87,24 @@ async function pruneReports(directory: string): Promise<void> {
 let handling = false
 
 /**
+ * app.exit skips will-quit, so the terminal shell and the MCP servers would
+ * outlive the app on the crash path; give them the same treatment the
+ * normal quit path does.
+ */
+function shutdownBeforeExit(): void {
+  try {
+    shutdownTerminals()
+  } catch {
+    // dying anyway
+  }
+  try {
+    stopAllMcpServers()
+  } catch {
+    // dying anyway
+  }
+}
+
+/**
  * Whether the window has signalled readiness; used to phase-tag reports.
  * The main window calls this once its page has loaded.
  */
@@ -119,10 +139,12 @@ export function installCrashHandlers(): void {
   process.on('uncaughtException', (error) => {
     void handleFatal('uncaughtException', error)
       .then(() => {
+        shutdownBeforeExit()
         app.exit(1)
       })
       .catch(() => {
         // The report pipeline itself failed; exiting late beats never exiting.
+        shutdownBeforeExit()
         app.exit(1)
       })
   })

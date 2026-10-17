@@ -15,6 +15,11 @@ let cwd = os.homedir()
 let child: ChildProcess | null = null
 let seq = 0
 
+/** Output bursts coalesce into one IPC message per tick instead of per chunk. */
+const FLUSH_MS = 16
+const COALESCE_AT = 64 * 1024
+const BUFFER_CAP = 256 * 1024
+
 export function currentCwd(): string {
   return cwd
 }
@@ -35,7 +40,11 @@ export function run(command: string, win: BrowserWindow | null): string {
   const trimmed = command.trim()
 
   if (trimmed === 'cd' || trimmed.startsWith('cd ')) {
-    runCd(id, trimmed, win)
+    // Deferred: emitting synchronously inside the ipcMain.handle call lets
+    // terminal:exit race the invoke reply, and the renderer — which assigns
+    // the run id from that reply — would drop the exit and sit on a stuck
+    // "running…" status forever.
+    setImmediate(() => runCd(id, trimmed, win))
     return id
   }
 
@@ -55,15 +64,42 @@ export function run(command: string, win: BrowserWindow | null): string {
   proc.stdout?.setEncoding('utf8')
   proc.stderr?.setEncoding('utf8')
 
-  const append = (chunk: string): void => {
-    const event: TerminalDataEvent = { id, chunk }
+  // A chatty build would otherwise turn every stdout chunk into a
+  // synchronous webContents.send and starve both processes; buffer and
+  // drain instead, keeping the buffer itself capped for runaway output.
+  let buffer = ''
+  let flushTimer: ReturnType<typeof setTimeout> | null = null
+  const flush = (): void => {
+    if (flushTimer !== null) {
+      clearTimeout(flushTimer)
+      flushTimer = null
+    }
+    if (buffer.length === 0) return
+    const event: TerminalDataEvent = { id, chunk: buffer }
+    buffer = ''
     emit(win, IpcChannel.TerminalData, event)
+  }
+  const append = (chunk: string): void => {
+    buffer += chunk
+    if (buffer.length > BUFFER_CAP) {
+      buffer = `… output dropped (buffer over ${BUFFER_CAP} bytes) …\n${buffer.slice(-BUFFER_CAP)}`
+    }
+    if (buffer.length >= COALESCE_AT) {
+      flush()
+      return
+    }
+    if (flushTimer === null) {
+      flushTimer = setTimeout(flush, FLUSH_MS)
+    }
   }
   const onError = (err: Error): void => {
     append(`${err.message}\n`)
+    flush()
     finish(win, proc, id, 1)
   }
   const onClose = (code: number | null): void => {
+    // Drain first so the exit event can never overtake buffered output.
+    flush()
     finish(win, proc, id, code)
   }
   proc.stdout?.on('data', append)
