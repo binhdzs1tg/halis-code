@@ -661,14 +661,13 @@ export function mountConversation(): HTMLElement {
     { name: 'model', description: 'Switch model', run: () => void openModelDialog() },
     { name: 'compact', description: 'Fold this conversation into a checkpoint', requireIdle: true, run: () => void compactFlow() },
     { name: 'export', description: 'Save this conversation as Markdown', run: () => void exportFlow() },
+    { name: 'init', description: 'Draft an AGENTS.md for this folder', requireIdle: true, run: () => void send(INIT_PROMPT) },
     {
       name: 'help',
       description: 'List the commands',
       run: () =>
         appendSystemNote(
-          `Commands: ${['/new', '/model', '/compact', '/export', '/help']
-            .map((name) => name)
-            .join(', ')} — @path in a message attaches that file.`
+          `Commands: ${getCommands().map((item) => `/${item.name}`).join(', ')} — @path in a message attaches that file.`
         )
     }
   ]
@@ -1019,6 +1018,15 @@ function sessionTitle(messages: ChatMessage[]): string {
   if (!raw) return 'Chat'
   return raw.length > 48 ? `${raw.slice(0, 45)}…` : raw
 }
+
+/** codex's /init prompt, scaled down: draft workspace instructions in one turn. */
+const INIT_PROMPT = [
+  'Generate an AGENTS.md file for this workspace so future coding agents work well here.',
+  'First check whether AGENTS.md (or CLAUDE.md) already exists at the root — if it does, read it and propose improvements instead of overwriting; ask before replacing anything.',
+  'Explore the repository first: layout, languages, build tooling, test setup.',
+  'Then write a concise AGENTS.md of roughly 200-400 words covering: a short project overview, the repository layout, build/test/dev commands, code conventions, testing guidelines, and commit guidelines inferred from `git log --oneline` when they are not written down.',
+  'Keep every line short and factual — this file loads into context in every future run, so verbosity has a real cost.'
+].join(' ')
 
 /* ---------- composer ---------- */
 
