@@ -231,11 +231,21 @@ export function startBackgroundJob(command: string, root: string, timeoutMs: num
   })
   child.stdout?.setEncoding('utf8')
   child.stderr?.setEncoding('utf8')
+  const holdBack = (): void => {
+    // The disk cannot keep up; hold the child back instead of letting the
+    // file stream buffer the whole output in memory.
+    child.stdout?.pause()
+    child.stderr?.pause()
+    stream.once('drain', () => {
+      child.stdout?.resume()
+      child.stderr?.resume()
+    })
+  }
   child.stdout?.on('data', (chunk: string) => {
-    if (!streamBroken) stream.write(chunk)
+    if (!streamBroken && !stream.write(chunk)) holdBack()
   })
   child.stderr?.on('data', (chunk: string) => {
-    if (!streamBroken) stream.write(chunk)
+    if (!streamBroken && !stream.write(chunk)) holdBack()
   })
   child.once('close', () => stream.end())
   child.once('error', () => stream.end())
@@ -288,6 +298,14 @@ export function killJob(id: string): boolean {
 
 export function jobStatus(id: string): ShellJob | null {
   return jobs.get(id) ?? null
+}
+
+/** Kill every running job; called on quit — the spawns are detached, so
+ *  without this the shells would outlive the app with no way to stop them. */
+export function stopAllJobs(): void {
+  for (const id of [...jobs.keys()]) {
+    killJob(id)
+  }
 }
 
 /** The last `maxChars` of a job's output file, decoded safely. */

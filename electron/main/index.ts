@@ -11,7 +11,7 @@ import { installCrashHandlers, markRunning } from './crash'
 import { applyLoginShellEnvironment } from './login-shell-env'
 import { shutdown as shutdownTerminals } from './terminal'
 import { configureSpillStore } from './agent/spill'
-import { configureJobStore } from './agent/jobs'
+import { configureJobStore, stopAllJobs } from './agent/jobs'
 import { stopAllMcpServers, syncMcpServers } from './agent/mcp'
 
 const gotLock = app.requestSingleInstanceLock()
@@ -82,8 +82,10 @@ if (!gotLock) {
 
   app.on('will-quit', () => {
     // Orphaned shells outlive the window otherwise; the quit dialog promised
-    // quitting would interrupt them.
+    // quitting would interrupt them — the job spawns are detached, so they
+    // need an explicit kill just like the terminals do.
     shutdownTerminals()
+    stopAllJobs()
     stopAllMcpServers()
     destroyTray()
   })

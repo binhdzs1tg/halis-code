@@ -6,6 +6,7 @@
 import { app, dialog } from 'electron'
 import * as terminal from './terminal'
 import { activeRuns } from './agent/run'
+import { runningJobCount } from './agent/jobs'
 
 /** What the user would interrupt by quitting now; empty when nothing runs. */
 function describeActiveWork(): string[] {
@@ -20,6 +21,14 @@ function describeActiveWork(): string[] {
   }
   if (terminal.isRunning()) {
     notes.push('A terminal command is still running. Quitting now interrupts it.')
+  }
+  const jobs = runningJobCount()
+  if (jobs > 0) {
+    notes.push(
+      jobs === 1
+        ? 'A background command is still running. Quitting now stops it.'
+        : `${jobs} background commands are still running. Quitting now stops them.`
+    )
   }
   return notes
 }
