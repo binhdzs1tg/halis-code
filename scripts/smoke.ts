@@ -175,6 +175,44 @@ check('numeric entities decode', decodeEntities('&#65;&#x42;') === 'AB')
 check('sibling-open td keeps its cell text', htmlToMarkdown('<table><tr><td>alpha<td>beta</tr></table>') === '| alpha | beta |')
 check('entities decode inside pre', htmlToMarkdown('<pre>if (a &lt; b) { x }</pre>').includes('if (a < b) { x }'))
 check('br inside pre becomes a newline', htmlToMarkdown('<pre>one<br>two</pre>').includes('one\ntwo'))
+// End tags HTML5 makes optional before a sibling; real pages omit them
+// constantly, and each omission used to eat content.
+check(
+  'unclosed li items all survive',
+  htmlToMarkdown('<ul><li>one<li>two<li>three</ul>') === '- one\n- two\n- three'
+)
+check('unclosed ordered li items survive', htmlToMarkdown('<ol><li>first<li>second</ol>') === '1. first\n2. second')
+check(
+  'nested list under an unclosed li',
+  htmlToMarkdown('<ul><li>a<ul><li>x<li>y</ul><li>b</ul>') === '- a\n  - x\n  - y\n- b'
+)
+check('unclosed tr keeps every row', htmlToMarkdown('<table><tr><td>a<tr><td>b</table>') === '| a |\n| b |')
+check(
+  'unclosed cells keep the grid',
+  htmlToMarkdown('<table><tr><td>1<td>2<tr><td>3<td>4</table>') === '| 1 | 2 |\n| 3 | 4 |'
+)
+check(
+  'unclosed th row stays a header',
+  htmlToMarkdown('<table><tr><th>Name<th>Age<tr><td>Ada<td>36</table>') ===
+    '| Name | Age |\n| --- | --- |\n| Ada | 36 |'
+)
+check(
+  'colspan pads after its own cell',
+  htmlToMarkdown('<table><tr><td colspan="2">a<td>b</table>') === '| a |  | b |'
+)
+check(
+  'sibling anchors close the open one',
+  htmlToMarkdown('<a href="https://x.com">first<a href="https://y.com">second</a>') ===
+    '[first](https://x.com)[second](https://y.com)'
+)
+check('unclosed heading does not merge', htmlToMarkdown('<h1>Title<h2>Sub</h2>') === '# Title\n\n## Sub')
+// A nested table renders as its own block; the outer cell keeps the text
+// around it instead of feeding it to the inner table (or losing it).
+check(
+  'nested table keeps both tables',
+  htmlToMarkdown('<table><tr><td>a<table><tr><td>x<tr><td>y</table><td>b</table>') ===
+    '| x |\n| y |\n\n| a | b |'
+)
 
 /* ---------- patch format ---------- */
 const addPatch = [

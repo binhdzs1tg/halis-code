@@ -203,6 +203,11 @@ interface TableFrame {
   rowHeader: boolean[]
   /** colspan-1 padding owed by each closed cell, in order. */
   colspanPad: number[]
+  /** Cell text parked while a nested table holds the cell; restored on
+   *  the nested table's close so the surrounding cell keeps it. */
+  cellStash: string
+  /** Whether this table currently has an open cell. */
+  cellOpen: boolean
 }
 
 const BLOCKISH = new Set([
@@ -211,6 +216,38 @@ const BLOCKISH = new Set([
   'video', 'audio', 'picture', 'canvas', 'map'
 ])
 const HEADINGS: Record<string, number> = { h1: 1, h2: 2, h3: 3, h4: 4, h5: 5, h6: 6 }
+
+/** Frames that may sit between an anchor (or heading) and its replacement. */
+const INLINE_FRAMES = new Set([
+  'a', 'code', 'kbd', 'samp', 'strong', 'b', 'em', 'i', 'del', 's', 'strike'
+])
+
+interface SiblingRule {
+  /** Tag names an open frame of which this start tag implicitly closes. */
+  match: Set<string>
+  /** Structural frames that shield the match: a nested list shields the
+   *  outer item, a nested table the outer row. */
+  shield?: Set<string>
+  /** When set, only these frames may sit in between; anything else shields. */
+  through?: Set<string>
+}
+
+/**
+ * Start tags whose end tag HTML5 makes optional before a sibling. Real pages
+ * omit these closes constantly; without the implicit close `<li>one<li>two`
+ * drops "one" on the floor and `<td>a<tr>` corrupts the table.
+ */
+const SIBLING_CLOSES: Record<string, SiblingRule> = {
+  li: { match: new Set(['li']), shield: new Set(['ul', 'ol', 'table', 'td', 'th', 'caption']) },
+  tr: { match: new Set(['tr']), shield: new Set(['table', 'thead', 'tbody', 'tfoot']) },
+  td: { match: new Set(['td', 'th']), shield: new Set(['table', 'thead', 'tbody', 'tfoot']) },
+  th: { match: new Set(['td', 'th']), shield: new Set(['table', 'thead', 'tbody', 'tfoot']) },
+  a: { match: new Set(['a']), through: INLINE_FRAMES }
+}
+for (const heading of Object.keys(HEADINGS)) {
+  // Any heading start tag closes an open heading, whatever its level.
+  SIBLING_CLOSES[heading] = { match: new Set(Object.keys(HEADINGS)), through: INLINE_FRAMES }
+}
 
 export function htmlToMarkdown(html: string): string {
   return render(html, 'markdown')
@@ -226,9 +263,10 @@ function render(html: string, mode: Mode): string {
   const inline: string[] = []
   const stack: Frame[] = []
   const lists: ListFrame[] = []
+  /** Open tables, innermost last; nested tables stack instead of clobbering. */
+  const tables: TableFrame[] = []
   /** Open <li> frames, innermost last; nested lists attach to the top. */
   const openItems: { text: string; blocks: string[] }[] = []
-  let table: TableFrame | null = null
   let quoteDepth = 0
   // While set, everything until the matching close tag is dropped.
   let skipTag: string | null = null
@@ -237,17 +275,18 @@ function render(html: string, mode: Mode): string {
   let preFrame: Frame | null = null
   let preText = ''
   let preLanguage = ''
-  let inCell = false
-  /** Whether the currently open cell was opened by <th> — the implicit
-   *  close of a sibling-open cell needs it. */
-  let cellHeader = false
 
   const currentList = (): ListFrame | null => lists[lists.length - 1] ?? null
 
+  const currentTable = (): TableFrame | null => tables[tables.length - 1] ?? null
+
+  /** Inside the open cell of the innermost table. */
+  const inCell = (): boolean => currentTable()?.cellOpen === true
+
   const pushInline = (text: string): void => {
-    if (mode === 'markdown' && !inCell) {
+    if (mode === 'markdown' && !inCell()) {
       inline.push(escapeMarkdown(text, inCode()))
-    } else if (inCell) {
+    } else if (inCell()) {
       inline.push(escapeCell(text))
     } else {
       inline.push(text)
@@ -282,7 +321,7 @@ function render(html: string, mode: Mode): string {
   // Inside a list item or table cell, block tags only break the line —
   // the item/cell is the block that gets emitted.
   const endInlineBlock = (): void => {
-    if (inCell || currentList()) {
+    if (inCell() || currentList()) {
       inline.push('\n')
       return
     }
@@ -366,7 +405,7 @@ function render(html: string, mode: Mode): string {
   }
 
   const closeCell = (header: boolean): void => {
-    const frame = table
+    const frame = currentTable()
     if (!frame || frame.row === null) return
     // A <br> inside a cell becomes a space — a newline would break the
     // pipe row it lands in.
@@ -453,7 +492,7 @@ function render(html: string, mode: Mode): string {
     }
     if (name === 'hr') {
       endInlineBlock()
-      if (mode === 'markdown' && !currentList() && !inCell) emitBlock('---')
+      if (mode === 'markdown' && !currentList() && !inCell()) emitBlock('---')
       continue
     }
     if (name === 'img') {
@@ -511,6 +550,9 @@ function render(html: string, mode: Mode): string {
 
   function openTag(name: string, token: TagToken): void {
     if (stack.length > MAX_DEPTH) return
+    // Commit the element this start tag implicitly closes before pushing
+    // the new frame — closeTag must find the sibling, not this token.
+    implicitCloseSibling(name)
     const frame: Frame = { tag: name, mark: inline.length, attrs: token.attrs }
     if (name === 'a' || HEADINGS[name] !== undefined || BLOCKISH.has(name) || name === 'blockquote' ||
         name === 'code' || name === 'kbd' || name === 'samp' || name === 'strong' || name === 'b' ||
@@ -543,34 +585,30 @@ function render(html: string, mode: Mode): string {
       return
     }
     if (name === 'table') {
-      endInlineBlock()
-      table = { rows: [], headerFlags: [], row: null, rowHeader: [], colspanPad: [] }
+      const parent = currentTable()
+      if (parent?.cellOpen) {
+        // A nested table parks the surrounding cell's text and hands it
+        // back on close; the cell keeps its content instead of losing it.
+        parent.cellStash = `${parent.cellStash} ${flushInline()}`.trim()
+      } else {
+        endInlineBlock()
+      }
+      tables.push({ rows: [], headerFlags: [], row: null, rowHeader: [], colspanPad: [], cellStash: '', cellOpen: false })
       return
     }
     if (name === 'tr') {
-      if (table) {
-        table.row = []
-        table.rowHeader = []
+      const frame = currentTable()
+      if (frame) {
+        frame.row = []
+        frame.rowHeader = []
       }
       return
     }
     if (name === 'td' || name === 'th') {
-      // Sloppy markup opens the next cell without closing the previous one;
-      // the open cell's text must land in the row, not vanish.
-      if (inCell) {
-        closeCell(cellHeader)
-        // The open cell's frame simulated its own close just now — drop it
-        // so the row's implicit close does not push a phantom empty cell.
-        for (let i = stack.length - 1; i >= 0; i -= 1) {
-          const frame = stack[i]
-          if (frame && (frame.tag === 'td' || frame.tag === 'th')) {
-            stack.splice(i, 1)
-            break
-          }
-        }
-      }
-      inCell = true
-      cellHeader = name === 'th'
+      // An unclosed previous cell was committed by the sibling rule above;
+      // this branch only opens the new one.
+      const frame = currentTable()
+      if (frame) frame.cellOpen = true
       flushInline()
       return
     }
@@ -588,7 +626,7 @@ function render(html: string, mode: Mode): string {
       return
     }
     if (name === 'code' || name === 'kbd' || name === 'samp') {
-      if (mode === 'markdown' && !inCell) inline.push('`')
+      if (mode === 'markdown' && !inCell()) inline.push('`')
       return
     }
     if (name === 'dt' || name === 'dd' || name === 'summary' || name === 'caption' || name === 'figcaption') {
@@ -597,6 +635,22 @@ function render(html: string, mode: Mode): string {
     }
     if (BLOCKISH.has(name)) {
       endInlineBlock()
+    }
+  }
+
+  /** Run the optional-end-tag rules for one incoming start tag. */
+  function implicitCloseSibling(name: string): void {
+    const rule = SIBLING_CLOSES[name]
+    if (!rule) return
+    for (let i = stack.length - 1; i >= 0; i -= 1) {
+      const tag = stack[i]?.tag
+      if (!tag) continue
+      if (rule.match.has(tag)) {
+        closeTag(tag)
+        return
+      }
+      const blocked = rule.through ? !rule.through.has(tag) : rule.shield?.has(tag) === true
+      if (blocked) return
     }
   }
 
@@ -634,7 +688,7 @@ function render(html: string, mode: Mode): string {
     if (HEADINGS[name] !== undefined) {
       const level = HEADINGS[name] ?? 1
       const content = flushInline()
-      if (currentList() || inCell) {
+      if (currentList() || inCell()) {
         inline.push(content)
         return
       }
@@ -658,32 +712,41 @@ function render(html: string, mode: Mode): string {
       return
     }
     if (name === 'table') {
-      if (table) {
-        if (table.row) {
-          table.rows.push(table.row)
-          table.headerFlags.push(table.rowHeader.some(Boolean))
-          table.row = null
+      const frame = tables.pop()
+      if (frame) {
+        if (frame.row) {
+          frame.rows.push(frame.row)
+          frame.headerFlags.push(frame.rowHeader.some(Boolean))
+          frame.row = null
         }
-        renderTable(table)
-        table = null
+        renderTable(frame)
+        // The surrounding cell, if any, resumes with the text it parked
+        // when this nested table opened.
+        const parent = currentTable()
+        if (parent?.cellOpen && parent.cellStash) {
+          inline.push(parent.cellStash)
+          parent.cellStash = ''
+        }
       }
       return
     }
     if (name === 'tr') {
-      if (table?.row) {
-        table.rows.push(table.row)
-        table.headerFlags.push(table.rowHeader.some(Boolean))
-        table.row = null
+      const frame = currentTable()
+      if (frame?.row) {
+        frame.rows.push(frame.row)
+        frame.headerFlags.push(frame.rowHeader.some(Boolean))
+        frame.row = null
       }
       return
     }
     if (name === 'td' || name === 'th') {
-      inCell = false
-      if (table) {
+      const open = currentTable()
+      if (open) {
+        open.cellOpen = false
         // A colspan pads the row so the pipe columns still line up.
         // The cap keeps a hostile attribute from ballooning the row.
         const span = Math.min(64, Math.max(1, Math.trunc(Number(frame.attrs['colspan'] ?? '1')) || 1))
-        table.colspanPad.push(span - 1)
+        open.colspanPad.push(span - 1)
       }
       closeCell(name === 'th')
       return
@@ -701,7 +764,7 @@ function render(html: string, mode: Mode): string {
       return
     }
     if (name === 'code' || name === 'kbd' || name === 'samp') {
-      if (mode === 'markdown' && !inCell) inline.push('`')
+      if (mode === 'markdown' && !inCell()) inline.push('`')
       return
     }
     if (name === 'dt' || name === 'dd' || name === 'summary' || name === 'caption' || name === 'figcaption') {
