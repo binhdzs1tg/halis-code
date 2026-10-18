@@ -5,10 +5,11 @@ import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { computeHunks, fileDiff } from '../electron/main/agent/diff'
 import { RepeatGuard } from '../electron/main/agent/guard'
-import { extractFileRefs } from '../electron/main/agent/file-refs'
+import { extractFileRefs, buildFileRefBlock } from '../electron/main/agent/file-refs'
 import { assessCommand } from '../electron/main/agent/risky'
 import { expandBraces, matchGlob } from '../electron/main/agent/glob'
-import { compileLineRegex, matchesInclude, validateInclude } from '../electron/main/agent/grep'
+import { compileLineRegex, grepWorkspace, matchesInclude, validateInclude } from '../electron/main/agent/grep'
+import { estimateTokens } from '../electron/main/agent/compaction'
 import { htmlToMarkdown, htmlToText, decodeEntities } from '../electron/main/agent/html-to-markdown'
 import { applyUpdate, normalizeForMatch, parsePatch } from '../electron/main/agent/patch-format'
 import { applyEditText } from '../electron/main/agent/edit-text'
@@ -171,6 +172,9 @@ check('tables render as pipes', markdown.includes('| Name | Qty |') && markdown.
 const text = htmlToText('<p>a<b>b</b>c</p><script>no()</script>')
 check('text mode keeps words, drops marks and scripts', text.includes('abc') && !text.includes('no()'))
 check('numeric entities decode', decodeEntities('&#65;&#x42;') === 'AB')
+check('sibling-open td keeps its cell text', htmlToMarkdown('<table><tr><td>alpha<td>beta</tr></table>') === '| alpha | beta |')
+check('entities decode inside pre', htmlToMarkdown('<pre>if (a &lt; b) { x }</pre>').includes('if (a < b) { x }'))
+check('br inside pre becomes a newline', htmlToMarkdown('<pre>one<br>two</pre>').includes('one\ntwo'))
 
 /* ---------- patch format ---------- */
 const addPatch = [
@@ -234,6 +238,26 @@ const anchorPatch = [
 const anchorHunk = parsePatch(anchorPatch)[0]
 const anchorApplied = applyUpdate('f.txt', anchorHunk?.type === 'update' ? anchorHunk.chunks : [], 'one\ntwo\nthree\nfour')
 check('context anchors a pure insertion', anchorApplied === 'one\ntwo\nINSERTED\nthree\nfour\n')
+
+// A file whose last line is genuinely blank: the parse popped the phantom
+// empty element, so the trailing newline must go back on unconditionally
+// or the patch silently deletes the file's final blank line.
+const blankTailHunk = parsePatch([
+  '*** Begin Patch',
+  '*** Update File: b.txt',
+  '-a',
+  '+b',
+  '*** End Patch'
+].join('\n'))[0]
+const blankTailApplied = applyUpdate('b.txt', blankTailHunk?.type === 'update' ? blankTailHunk.chunks : [], 'a\n\n')
+check('a trailing blank line survives an edit', blankTailApplied === 'b\n\n')
+const noOpHunk = parsePatch([
+  '*** Begin Patch',
+  '*** Update File: c.txt',
+  ' a',
+  '*** End Patch'
+].join('\n'))[0]
+check('no-op patch keeps a trailing blank line', applyUpdate('c.txt', noOpHunk?.type === 'update' ? noOpHunk.chunks : [], 'a\n\n') === 'a\n\n')
 
 const crlfSource = 'function a() {\r\n  console.log(\"Hello\")\r\n}\r\n'
 const crlfEdit = applyEditText(crlfSource, 'console.log("Hello")', 'console.log("Bye")', false)
@@ -441,6 +465,16 @@ try {
 }
 check('a missing file is a create and sails through', createAllowed)
 
+// An empty file reads as content '' — a truthiness test dropped the whole
+// attachment block and left the model guessing what the user pointed at.
+fs.writeFileSync(join(obsDir, 'empty.txt'), '', 'utf8')
+check('an empty referenced file still attaches', buildFileRefBlock('look at @empty.txt')?.includes('empty.txt') === true)
+
+/* ---------- token estimate ---------- */
+check('latin text keeps the 4-char average', estimateTokens([{ role: 'user', content: 'abcdefghij' }]) === 3)
+check('cjk text is not undercounted', estimateTokens([{ role: 'user', content: '你好世界' }]) >= 4)
+check('mixed text charges cjk at its own rate', estimateTokens([{ role: 'user', content: 'abcdefgh错误日志abcdefgh' }]) > 3)
+
 /* ---------- git info ---------- */
 async function gitChecks(): Promise<void> {
   const gitDir = fs.mkdtempSync(join(os.tmpdir(), 'halis-git-test-'))
@@ -490,6 +524,26 @@ check('kill -SIGKILL flagged', assessCommand('kill -SIGKILL 12345') !== null)
 check('octal chmod flagged', assessCommand('chmod 0777 /var/www') !== null)
 check('symbolic chmod flagged', assessCommand('chmod a=rwx /var/www') !== null)
 check('find -delete flagged', assessCommand('find / -name "*.bak" -delete') !== null)
+// Quoting and substitution must not hide a destructive command from the
+// heuristic: the shell removes the quotes the regex just saw.
+check('quote-spliced rm flagged', assessCommand("r'm' -rf ~/project") !== null)
+check('backslash-spliced rm flagged', assessCommand('r\\m -rf ~/project') !== null)
+check('substituted rm flagged', assessCommand('$(printf rm) -rf ~/project') !== null)
+check('backtick-substituted rm flagged', assessCommand('`printf rm` -rf ~/project') !== null)
+check('node -e one-liner flagged', assessCommand("node -e \"require('fs').rmSync(process.env.HOME, {recursive: true})\"") !== null)
+check('python -c one-liner flagged', assessCommand("python3 -c \"import shutil; shutil.rmtree('/tmp/x')\"") !== null)
+check('powershell remove-item flagged', assessCommand('powershell -c "Remove-Item -Recurse -Force C:\\Users"') !== null)
+check('cmd rd /s flagged', assessCommand('rd /s /q C:\\project') !== null)
+check('drive format flagged', assessCommand('format c: /fs:ntfs') !== null)
+check('docker system prune flagged', assessCommand('docker system prune -af --volumes') !== null)
+check('crontab -r flagged', assessCommand('crontab -r') !== null)
+check('doas flagged', assessCommand('doas rm -rf /tmp/scratch') !== null)
+check('git stash drop flagged', assessCommand('git stash drop') !== null)
+check('quoted prose stays safe', assessCommand('echo "deploying to prod"') === null)
+check('crontab -e is safe', assessCommand('crontab -e') === null)
+check('docker ps is safe', assessCommand('docker ps -a') === null)
+check('running a python file is safe', assessCommand('python3 scripts/train.py') === null)
+check('diskpart is flagged', assessCommand('diskpart /s script.txt') !== null)
 check('decoded pipe to shell flagged', assessCommand('echo cm0gLXJmIC8= | base64 -d | sh') !== null)
 check('xargs sh flagged', assessCommand('find . -name "*.part" | xargs sh -c') !== null)
 check('truncate -s 0 flagged', assessCommand('truncate -s 0 important.conf') !== null)
@@ -616,6 +670,19 @@ async function mcpChecks(): Promise<void> {
   setMcpConfigFileForTests(null)
 }
 
+/* ---------- grep scan ---------- */
+async function grepChecks(): Promise<void> {
+  const grepDir = fs.mkdtempSync(join(os.tmpdir(), 'halis-grep-test-'))
+  setWorkspaceRoot(grepDir)
+  resetObservations()
+  fs.writeFileSync(join(grepDir, 'crlf.txt'), 'first\r\nlast\r\n', 'utf8')
+  const anchored = await grepWorkspace('last$', {})
+  check('end anchor matches a CRLF file', anchored.hits.some((hit) => hit.path === 'crlf.txt' && hit.line === 2))
+  fs.writeFileSync(join(grepDir, 'plain.txt'), 'needle one\nplain needle\n', 'utf8')
+  const capped = await grepWorkspace('needle', { literal: true, caseSensitive: false, limit: 1 })
+  check('grep caps at the limit and reports truncation', capped.hits.length === 1 && capped.truncated)
+}
+
 /* ---------- background jobs ---------- */
 async function jobChecks(): Promise<void> {
   const jobDir = fs.mkdtempSync(join(os.tmpdir(), 'halis-jobs-test-'))
@@ -669,6 +736,7 @@ void gitChecks()
   .then(() => {
     subagentChecks()
   })
+  .then(() => grepChecks())
   .then(() => mcpChecks())
   .then(() => jobChecks())
   .then(() => {
