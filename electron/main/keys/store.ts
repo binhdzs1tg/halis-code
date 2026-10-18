@@ -16,6 +16,9 @@ interface StoredKey {
 type KeyFile = Record<string, StoredKey>
 
 let cache: KeyFile | null = null
+/** In-flight loader — concurrent callers share one read instead of racing
+ *  and having the slower read's object overwrite the faster one's cache. */
+let loading: Promise<KeyFile> | null = null
 /** Set when the store could not be parsed/read and its bytes are not yet safe. */
 let blocked = false
 /** All persists queue behind each other: interleaved writes on one path can tear. */
@@ -39,29 +42,37 @@ function freshFile(): KeyFile {
 
 async function load(): Promise<KeyFile> {
   if (cache) return cache
+  loading ??= loadImpl()
+  return loading
+}
+
+async function loadImpl(): Promise<KeyFile> {
+  // The file object is built locally and installed into `cache` once, fully
+  // populated — an intermediate empty object must never become the cache a
+  // racing caller mutates.
+  const file = freshFile()
   let raw: string
   try {
     raw = await readFile(keysPath(), 'utf8')
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
       // First run; nothing stored yet.
-      cache = freshFile()
-      return cache
+      cache = file
+      return file
     }
     // Unreadable for another reason (permissions, IO): start empty but
     // refuse to persist — writing would replace every stored key with the
     // one new entry and the originals would be gone.
     console.warn('keys: could not read the key store; saving new keys stays blocked until it can be read', err)
     blocked = true
-    cache = freshFile()
-    return cache
+    cache = file
+    return file
   }
   try {
     const parsed = JSON.parse(raw) as KeyFile
-    cache = freshFile()
     for (const [providerId, entry] of Object.entries(parsed)) {
       if (entry && typeof entry.value === 'string') {
-        cache[providerId] = { value: entry.value, encrypted: Boolean(entry.encrypted) }
+        file[providerId] = { value: entry.value, encrypted: Boolean(entry.encrypted) }
       }
     }
     blocked = false
@@ -70,18 +81,18 @@ async function load(): Promise<KeyFile> {
     // so the next persist cannot silently destroy them, then start empty.
     const quarantine = `${keysPath()}.corrupt-${Date.now()}`
     console.warn(`keys: the key store is not valid JSON — moved aside to ${quarantine}`, err)
-    cache = freshFile()
     blocked = true
     try {
       await rename(keysPath(), quarantine)
       blocked = false
     } catch (err) {
-      // A second racing load() may have quarantined it first — that counts
-      // as success; anything else keeps persist blocked rather than overwrite.
+      // A second racing quarantiner already moved it — that counts as
+      // success; anything else keeps persist blocked rather than overwrite.
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') blocked = false
     }
   }
-  return cache
+  cache = file
+  return file
 }
 
 async function persist(): Promise<void> {
