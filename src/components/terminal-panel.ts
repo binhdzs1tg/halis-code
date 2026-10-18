@@ -60,6 +60,8 @@ export function mountTerminalPanel(): HTMLElement {
   let currentRunId: string | null = null
   /** True between submit and the invoke reply that assigns the run id. */
   let pendingStart = false
+  /** A workspace switch made while a command runs; applied on its exit. */
+  let pendingCd: string | null = null
   const history: string[] = []
   let historyIndex = -1
 
@@ -224,7 +226,16 @@ export function mountTerminalPanel(): HTMLElement {
     // While the invoke reply is still in flight, an exit event can only
     // belong to the command we just spawned — accepting it here is what
     // keeps a synchronous `cd` from wedging the panel on a stuck status.
-    if (event.id !== currentRunId && !(pendingStart && currentRunId === null)) return
+    if (event.id !== currentRunId && !(pendingStart && currentRunId === null)) {
+      // Exits for ids this panel never tracked belong to the untracked `cd`
+      // the workspace-follow paths fire outside run(); adopt their cwd so
+      // the prompt tells the truth while the shell sits idle.
+      if (!busy && event.cwd) {
+        cwd = event.cwd
+        paintPrompt()
+      }
+      return
+    }
     busy = false
     currentRunId = null
     if (typeof event.code === 'number' && event.code !== 0) {
@@ -238,6 +249,14 @@ export function mountTerminalPanel(): HTMLElement {
     if (event.cwd) {
       cwd = event.cwd
       paintPrompt()
+    }
+    // A workspace switch dropped earlier because a command was running
+    // gets its cd now that the shell is free again — and only that: the
+    // user's own `cd somewhere` must not be fought on every exit.
+    const target = pendingCd
+    pendingCd = null
+    if (target && cwd !== target) {
+      void window.halis.runTerminalCommand(`cd ${target}`).catch(() => undefined)
     }
     if (store.get().railTab === 'terminal') {
       // Focus only when the user was already here — a finished build must
@@ -255,14 +274,27 @@ export function mountTerminalPanel(): HTMLElement {
     if (state.railTab === 'terminal' && prev.railTab !== 'terminal') {
       input.focus()
     }
-    if (state.workspaceRoot && state.workspaceRoot !== prev.workspaceRoot && !busy) {
+    if (state.workspaceRoot && state.workspaceRoot !== prev.workspaceRoot) {
       // No quoting: main-side `cd` is parsed in JS, not by a shell, so the
       // raw path (spaces included) is exactly what the parser wants.
+      if (busy) {
+        // A running command owns the shell slot; apply the switch on exit.
+        pendingCd = state.workspaceRoot
+        return
+      }
       void window.halis
         .runTerminalCommand(`cd ${state.workspaceRoot}`)
         .catch(() => undefined)
     }
   })
+
+  // A workspace already open at mount must be followed too — without this
+  // the first command runs in the home directory while the tree shows the
+  // project folder.
+  const initialRoot = store.get().workspaceRoot
+  if (initialRoot) {
+    void window.halis.runTerminalCommand(`cd ${initialRoot}`).catch(() => undefined)
+  }
 
   paintPrompt()
   return panel
