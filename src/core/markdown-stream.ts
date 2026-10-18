@@ -131,12 +131,14 @@ export class StreamingMarkdown {
   }
 
   /**
-   * Final full render; replaces the whole stream output so the settled
-   * message is exactly what a plain renderMarkdown pass would produce.
+   * Final render; rebuilds the whole stream output from a clean slate.
+   * reset() re-attaches the tail host and update() keeps it attached, so
+   * the instance stays usable — an update() after settle() must keep
+   * rendering instead of writing into a host that innerHTML dropped.
    */
   settle(source: string): void {
     this.reset()
-    this.container.innerHTML = renderMarkdown(source)
+    this.update(source)
   }
 
   reset(): void {
