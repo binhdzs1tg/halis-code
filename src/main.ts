@@ -304,17 +304,31 @@ function toggleTerminal(): void {
   }
 }
 
+function isEditableTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    (target instanceof HTMLElement && target.isContentEditable)
+  )
+}
+
 function installKeymap(): void {
   window.addEventListener('keydown', (event) => {
     const mod = event.ctrlKey || event.metaKey
     if (!mod) return
     // OS key repeat would fire the toggle per tick and flip panels wildly.
     if (event.repeat) return
-
     if (event.key === '`') {
       event.preventDefault()
       toggleTerminal()
-    } else if (event.key.toLowerCase() === 'b') {
+      return
+    }
+    // Ctrl+B / Ctrl+J / Ctrl+N are live readline keys in the terminal input
+    // and ordinary typing aids elsewhere — inside an editable surface the
+    // keystroke belongs to the text, not to the panels.
+    if (isEditableTarget(event.target)) return
+
+    if (event.key.toLowerCase() === 'b') {
       event.preventDefault()
       store.update({ sidebarVisible: !store.get().sidebarVisible })
     } else if (event.key.toLowerCase() === 'j') {
