@@ -214,6 +214,9 @@ async function hideToTray(win: BrowserWindow): Promise<void> {
     if (!confirmed) return
     markBackgroundCloseConfirmed()
   }
+  // The dialog can outlive the window it modalled (quit from the tray or
+  // the File menu while it was open); every use below must survive that.
+  if (win.isDestroyed()) return
   // Hiding a fullscreen window leaves a black rectangle behind on macOS, so
   // leave fullscreen first and hide on the resulting event instead.
   if (win.isFullScreen()) {
@@ -223,9 +226,7 @@ async function hideToTray(win: BrowserWindow): Promise<void> {
     win.setFullScreen(false)
     return
   }
-  if (!win.isDestroyed()) {
-    win.hide()
-  }
+  win.hide()
 }
 
 /* ---------- one-time background-close notice (Windows parity) ---------- */
@@ -252,19 +253,31 @@ function markBackgroundCloseConfirmed(): void {
   }
 }
 
-async function askBackgroundClose(win: BrowserWindow): Promise<boolean> {
-  const result = await dialog.showMessageBox(win, {
-    type: 'info',
-    icon: nativeImage.createFromPath(path.join(RESOURCES, 'icon.png')),
-    title: 'Halis Code',
-    message: 'Close the window?',
-    detail:
-      'Halis Code keeps running in the system tray. ' +
-      'Running tasks continue, and the tray icon brings the window back.',
-    buttons: ['Hide to tray', 'Cancel'],
-    defaultId: 0,
-    cancelId: 1,
-    noLink: true
+function askBackgroundClose(win: BrowserWindow): Promise<boolean> {
+  // A modal whose parent window is destroyed never settles; race the
+  // window's death so hideToTray's pending flag always releases instead
+  // of swallowing every later close.
+  return new Promise<boolean>((resolve) => {
+    const onClosed = (): void => resolve(false)
+    win.once('closed', onClosed)
+    dialog
+      .showMessageBox(win, {
+        type: 'info',
+        icon: nativeImage.createFromPath(path.join(RESOURCES, 'icon.png')),
+        title: 'Halis Code',
+        message: 'Close the window?',
+        detail:
+          'Halis Code keeps running in the system tray. ' +
+          'Running tasks continue, and the tray icon brings the window back.',
+        buttons: ['Hide to tray', 'Cancel'],
+        defaultId: 0,
+        cancelId: 1,
+        noLink: true
+      })
+      .then(
+        (result) => resolve(result.response === 0),
+        () => resolve(false)
+      )
+      .finally(() => win.removeListener('closed', onClosed))
   })
-  return result.response === 0
 }
