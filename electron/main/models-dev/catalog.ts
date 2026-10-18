@@ -1,6 +1,6 @@
 import { BrowserWindow, app } from 'electron'
 import { existsSync, readFileSync } from 'node:fs'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { IpcChannel } from '../../shared/ipc-channels'
 import type {
@@ -197,18 +197,23 @@ async function writeCache(updatedAt: number, catalog?: RawCatalog): Promise<void
   try {
     const dir = app.getPath('userData')
     await mkdir(dir, { recursive: true })
+    // Every write lands in a temp file first: a crash mid-write must not
+    // leave a torn cache that throws away the etag and forces a full refetch.
+    const file = path.join(dir, CACHE_FILE)
+    const tmp = `${file}.tmp`
     if (!catalog && loaded) {
       // A 304 leaves the payload untouched; only the freshness stamp moves.
       // No cache file (snapshot-loaded) means there is nothing to stamp.
-      const file = path.join(dir, CACHE_FILE)
       if (!existsSync(file)) return
       const raw = JSON.parse(await readFile(file, 'utf8')) as CacheFile
-      await writeFile(path.join(dir, CACHE_FILE), JSON.stringify({ ...raw, updatedAt }))
+      await writeFile(tmp, JSON.stringify({ ...raw, updatedAt }))
+      await rename(tmp, file)
       return
     }
     if (!catalog) return
     const entry: CacheFile = { updatedAt, catalog, ...(etag ? { etag } : {}) }
-    await writeFile(path.join(dir, CACHE_FILE), JSON.stringify(entry))
+    await writeFile(tmp, JSON.stringify(entry))
+    await rename(tmp, file)
   } catch (err) {
     console.warn('[models-dev] cache write failed:', err instanceof Error ? err.message : err)
   }

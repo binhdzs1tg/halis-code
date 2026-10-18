@@ -5,7 +5,7 @@
  * defaults instead of trapping the window outside every connected display.
  */
 import { app, screen, type BrowserWindow, type Rectangle } from 'electron'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 interface WindowState {
@@ -76,7 +76,12 @@ export function saveWindowState(win: BrowserWindow): void {
   }
   try {
     mkdirSync(app.getPath('userData'), { recursive: true })
-    writeFileSync(statePath(), `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 })
+    // Temp-then-rename, like every other persisted store: a crash mid-write
+    // must not leave torn JSON that silently discards the last bounds.
+    const file = statePath()
+    const tmp = `${file}.tmp`
+    writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 })
+    renameSync(tmp, file)
   } catch (error) {
     console.warn('shell: window state could not be saved', error)
   }
@@ -110,10 +115,34 @@ export interface RestoredBounds {
 export function windowBoundsOptions(): RestoredBounds {
   const state = loadWindowState()
   if (state.x === null || state.y === null || !positionIsVisible(state)) {
-    return { options: { width: state.width, height: state.height }, maximized: state.maximized }
+    // No reachable position: default placement, with the size still clamped
+    // so a stale oversized document cannot spill off every display.
+    const area = screen.getPrimaryDisplay().workArea
+    return {
+      options: {
+        width: Math.min(state.width, area.width),
+        height: Math.min(state.height, area.height)
+      },
+      maximized: state.maximized
+    }
   }
+  // The display hosting the corner caps the restored size: a resolution or
+  // monitor change since the last run must not leave the window half off-
+  // screen even though its position is still reachable.
+  const cornerX = state.x + 80
+  const cornerY = state.y + 80
+  const host = screen.getAllDisplays().find((display) => {
+    const area = display.workArea
+    return cornerX >= area.x && cornerY >= area.y && cornerX < area.x + area.width && cornerY < area.y + area.height
+  })
+  const area = (host ?? screen.getPrimaryDisplay()).workArea
   return {
-    options: { width: state.width, height: state.height, x: state.x, y: state.y },
+    options: {
+      width: Math.min(state.width, area.width),
+      height: Math.min(state.height, area.height),
+      x: state.x,
+      y: state.y
+    },
     maximized: state.maximized
   }
 }
