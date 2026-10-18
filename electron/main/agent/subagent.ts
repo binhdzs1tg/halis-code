@@ -216,7 +216,10 @@ export async function runTaskTool(input: Record<string, unknown>, ctx: SubagentC
     const message = err instanceof Error ? err.message : String(err)
     return {
       ok: false,
-      output: `The subagent failed: ${message} — retry the task or do the work directly.`
+      output: `The subagent failed: ${message} — retry the task or do the work directly.`,
+      // Files the subagent wrote before the failure are real either way —
+      // the explorer and any open editor must refresh, like the abort path.
+      ...spreadChanged(changedPaths)
     }
   }
 }

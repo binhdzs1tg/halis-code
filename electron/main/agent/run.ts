@@ -296,7 +296,19 @@ async function execute(
       system: buildSystemPrompt(),
       messages,
       signal: controller.signal
-    }).catch(() => null)
+    }).catch((err: unknown) => {
+      // Compaction is best-effort, but a failure here means the history was
+      // already past the pressure point — without this note the eventual
+      // context-length refusal reads as mysterious.
+      const detail = err instanceof Error ? err.message : String(err)
+      const notice: ChatNoticeEvent = {
+        runId,
+        kind: 'info',
+        text: `Automatic context compaction failed (${detail}) — continuing without it.`
+      }
+      emit(IpcChannel.ChatNotice, notice)
+      return null
+    })
     if (compacted) {
       messages = compacted.messages
       const notice: ChatNoticeEvent = {

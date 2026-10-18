@@ -112,6 +112,12 @@ export function estimateTokens(messages: readonly ProviderMessage[]): number {
     chars += message.content.length
     for (const call of message.toolCalls ?? []) chars += JSON.stringify(call.input).length + 40
     for (const result of message.toolResults ?? []) chars += result.output.length + 24
+    // Thinking blocks are replayed verbatim on every Anthropic request;
+    // leaving them out would read the pressure far too low for thinking
+    // models and delay compaction until the API refuses the request.
+    for (const block of message.thinkingBlocks ?? []) {
+      chars += block.thinking.length + block.signature.length + (block.redactedData?.length ?? 0)
+    }
   }
   return Math.ceil(chars / 4)
 }

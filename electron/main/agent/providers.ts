@@ -146,7 +146,10 @@ export async function streamChat(request: ProviderStreamRequest): Promise<Provid
     return await streamOpenAiCompatible(request)
   } catch (err) {
     if (err instanceof ProviderError) throw err
-    if (err instanceof Error && err.name === 'AbortError') {
+    if (err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')) {
+      // AbortSignal.timeout() aborts with a DOMException named TimeoutError,
+      // not AbortError — both mean the request was cut on purpose and must
+      // not come back labeled as a retryable network fault.
       throw new ProviderError('aborted', 'cancelled')
     }
     throw new ProviderError('network', err instanceof Error ? err.message : String(err))
@@ -423,11 +426,16 @@ async function streamAnthropic(request: ProviderStreamRequest): Promise<Provider
 
   const variant = request.variant
   if (variant?.thinking || variant?.budgetTokens) {
-    const requested = variant?.budgetTokens ?? defaultBudget(request.model)
-    const ceiling = Math.max(ANTHROPIC_MIN_BUDGET, request.model.limit.output - 1)
-    body.thinking = {
-      type: 'enabled',
-      budget_tokens: Math.min(requested, ceiling)
+    // Anthropic demands budget_tokens < max_tokens strictly. A tiny output
+    // window cannot host a thinking budget at all — skip thinking instead
+    // of sending a request the API is guaranteed to refuse.
+    const ceiling = request.model.limit.output - 1
+    if (ceiling >= ANTHROPIC_MIN_BUDGET) {
+      const requested = variant?.budgetTokens ?? defaultBudget(request.model)
+      body.thinking = {
+        type: 'enabled',
+        budget_tokens: Math.min(requested, ceiling)
+      }
     }
   }
   Object.assign(body, request.model.modeBody ?? {})
