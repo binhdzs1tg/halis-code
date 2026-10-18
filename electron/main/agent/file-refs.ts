@@ -53,6 +53,10 @@ function readRef(raw: string): FileReference {
     if (!stat.isFile()) {
       return { raw, path: raw, content: null, note: 'not a regular file' }
     }
+    // The pre-read stat is the CAS basis the edit gate compares against;
+    // capturing it after the bytes were read would bless a concurrent
+    // external write instead of failing the gate.
+    const basis = { mtimeMs: stat.mtimeMs, size: stat.size }
     let text = fs.readFileSync(absolute, 'utf8')
     if (text.includes('\u0000')) {
       // A binary file was never shown to the model — it must not count as
@@ -65,7 +69,7 @@ function readRef(raw: string): FileReference {
     if (text.length > MAX_FILE_CHARS) {
       text = `${text.slice(0, MAX_FILE_CHARS)}\n… (truncated at ${MAX_FILE_CHARS} characters — read_file for more)`
     } else {
-      observeRead(absolute)
+      observeRead(absolute, basis)
     }
     return { raw, path: raw, content: text, note: null }
   } catch {
@@ -95,7 +99,9 @@ export function buildFileRefBlock(prompt: string): string | null {
     }
     refs.push(ref)
   }
-  if (refs.every((ref) => !ref.content && !ref.note)) return null
+  // Type discrimination, not truthiness: an empty file reads as content
+  // '' and still counts as a successfully attached reference.
+  if (refs.every((ref) => ref.content === null && !ref.note)) return null
 
   const lines = [
     '<system-reminder>',

@@ -238,6 +238,9 @@ function render(html: string, mode: Mode): string {
   let preText = ''
   let preLanguage = ''
   let inCell = false
+  /** Whether the currently open cell was opened by <th> — the implicit
+   *  close of a sibling-open cell needs it. */
+  let cellHeader = false
 
   const currentList = (): ListFrame | null => lists[lists.length - 1] ?? null
 
@@ -397,7 +400,14 @@ function render(html: string, mode: Mode): string {
     }
     if (preFrame) {
       if (token.kind === 'text') {
-        preText += token.text
+        // Entities decode inside <pre> just like everywhere else — browsers
+        // render &lt; as < in code blocks too.
+        preText += decodeEntities(token.text)
+        continue
+      }
+      if (token.kind === 'tag' && token.name === 'br') {
+        // A <br> is a newline inside the code block, not something to drop.
+        preText += '\n'
         continue
       }
       if (token.kind === 'tag' && token.name === 'code' && !token.closing && preLanguage === '') {
@@ -545,7 +555,22 @@ function render(html: string, mode: Mode): string {
       return
     }
     if (name === 'td' || name === 'th') {
+      // Sloppy markup opens the next cell without closing the previous one;
+      // the open cell's text must land in the row, not vanish.
+      if (inCell) {
+        closeCell(cellHeader)
+        // The open cell's frame simulated its own close just now — drop it
+        // so the row's implicit close does not push a phantom empty cell.
+        for (let i = stack.length - 1; i >= 0; i -= 1) {
+          const frame = stack[i]
+          if (frame && (frame.tag === 'td' || frame.tag === 'th')) {
+            stack.splice(i, 1)
+            break
+          }
+        }
+      }
       inCell = true
+      cellHeader = name === 'th'
       flushInline()
       return
     }
