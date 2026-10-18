@@ -82,6 +82,10 @@ export function openSettingsModal(): void {
       return
     }
     if (event.key === 'Escape') {
+      // A stacked overlay above this modal (the key dialog can open here
+      // while a run fails in the background) takes the Escape instead.
+      const overlays = document.querySelectorAll('.overlay')
+      if (overlays.length > 0 && overlays[overlays.length - 1] !== overlay) return
       event.preventDefault()
       close()
     }

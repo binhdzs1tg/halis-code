@@ -32,6 +32,11 @@ export function openKeyDialog(onSaved?: () => void, onCancelled?: () => void): v
   // and a keydown there never reaches the dialog.
   const onKeydown = (event: KeyboardEvent): void => {
     if (event.key === 'Escape') {
+      // Stacked overlays (this dialog can open above the settings modal or
+      // the model picker) each listen on the document; one Escape must
+      // close only the topmost, or a single keypress dismisses them all.
+      const overlays = document.querySelectorAll('.overlay')
+      if (overlays.length > 0 && overlays[overlays.length - 1] !== overlay) return
       event.preventDefault()
       close()
     }

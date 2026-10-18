@@ -330,6 +330,10 @@ export function openModelDialog(): void {
   // Bound on the document: the variant step hides the search input, and a
   // picker with focus on the body never sends key events through the dialog.
   const onKeydown = (event: KeyboardEvent): void => {
+    // A stacked overlay above this picker (say the key dialog opened by a
+    // failed send) owns the keyboard; the picker must not fight it for keys.
+    const overlays = document.querySelectorAll('.overlay')
+    if (overlays.length > 0 && overlays[overlays.length - 1] !== overlay) return
     // IME navigation/commit keys belong to the search input's composition,
     // not to the dialog's shortcut set.
     if (event.isComposing) return
