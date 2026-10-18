@@ -296,7 +296,10 @@ export class McpConnection {
     if (!child || child.exitCode !== null || child.signalCode !== null) return
     if (process.platform === 'win32') {
       if (child.pid !== undefined) {
-        spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true })
+        const kill = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true })
+        // A missing taskkill must not crash the app on the way out.
+        kill.on('error', () => undefined)
+        kill.unref()
       }
       return
     }

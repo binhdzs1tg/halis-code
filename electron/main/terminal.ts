@@ -120,7 +120,10 @@ function killTree(proc: ChildProcess, force = false): void {
     if (proc.pid === undefined) return
     // A bare kill only reaches cmd.exe; taskkill walks the child tree so
     // grandchildren (npm run build -> node) go down with it.
-    spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { windowsHide: true })
+    const kill = spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { windowsHide: true })
+    // A missing taskkill must not crash the app on the way out.
+    kill.on('error', () => undefined)
+    kill.unref()
     return
   }
   const pid = proc.pid

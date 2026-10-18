@@ -749,7 +749,10 @@ async function runCommandTool(
       if (process.platform === 'win32') {
         if (child.pid !== undefined) {
           // taskkill walks the child tree; a bare kill would not.
-          spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true })
+          const kill = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true })
+          // A missing taskkill must not crash the app on the way out.
+          kill.on('error', () => undefined)
+          kill.unref()
         }
         return
       }
