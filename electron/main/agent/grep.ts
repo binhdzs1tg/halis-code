@@ -18,6 +18,8 @@ const MAX_FILE_SIZE = 512 * 1024
 const MAX_LINE_PREVIEW = 240
 /** A file that takes longer than this to scan abandons the search, partial results intact. */
 const SCAN_IDLE_TIMEOUT_MS = 5_000
+/** Upper bound on walked entries, mirroring the glob walker's tree guard. */
+const MAX_WALKED_ENTRIES = 50_000
 
 /* ---------- pattern helpers (pure; unit-tested in smoke.ts) ---------- */
 
@@ -126,6 +128,10 @@ export async function grepWorkspace(
   }
 
   const targets: Array<{ abs: string; rel: string }> = []
+  // Same pathological-tree guard the glob walk has: a deep or wide tree
+  // must not freeze the main thread synchronously before the worker starts.
+  let visited = 0
+  let walkTruncated = false
   const walk = (dir: string, rel: string): void => {
     let entries: fs.Dirent[]
     try {
@@ -134,6 +140,11 @@ export async function grepWorkspace(
       return
     }
     for (const entry of entries) {
+      if (visited >= MAX_WALKED_ENTRIES) {
+        walkTruncated = true
+        return
+      }
+      visited += 1
       if (entry.name.startsWith('.') || SKIP_DIRS.has(entry.name)) continue
       const childRel = rel ? `${rel}/${entry.name}` : entry.name
       const childAbs = path.join(dir, entry.name)
@@ -158,7 +169,7 @@ export async function grepWorkspace(
   }
   walk(root, scope)
   const outcome = await scanWithWorker(targets, regex, limit)
-  return { hits: outcome.hits, truncated: outcome.truncated || outcome.stopped }
+  return { hits: outcome.hits, truncated: outcome.truncated || outcome.stopped || walkTruncated }
 }
 
 /** The scan runs out-of-process: the pattern is model input, and a
@@ -177,7 +188,10 @@ parentPort.on('message', (job) => {
         const lines = text.split('\\n')
         for (let i = 0; i < lines.length; i += 1) {
           const line = lines[i]
-          if (line !== undefined && regex.test(line)) {
+          // CRLF files keep a trailing carriage return on every line; an
+          // end-anchored pattern would never match against it (ripgrep
+          // strips it too).
+          if (line !== undefined && regex.test(line.endsWith('\\r') ? line.slice(0, -1) : line)) {
             hits.push({ path: target.rel, line: i + 1, text: line.trim().slice(0, ${MAX_LINE_PREVIEW}) })
           }
         }
