@@ -15,19 +15,27 @@ const RISKY_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /\bgit\s+clean\b/i, reason: 'it deletes untracked files' },
   { pattern: /\bmkfs(?:\.\w+)?\b|\bdd\s+(?:[^;&|]*\s)?(?:if|of)=\s*\/dev\//i, reason: 'it can overwrite disk contents' },
   { pattern: /\bfind\b[^;&|]*\s-delete\b/i, reason: 'it deletes files in bulk' },
-  // Anything piped into a shell runs text the upstream command chose, not the user.
-  { pattern: /[^;&|`]*\|\s*(?:ba|z|da)?sh\b/i, reason: 'it pipes command output into a shell' },
+  // Anything piped into a shell or interpreter runs text the upstream
+  // command chose, not the user.
+  { pattern: /[^;&|`]*\|\s*(?:(?:ba|z|da)?sh|python3?|perl|node|ruby|pwsh)\b/i, reason: 'it pipes command output into a shell or interpreter' },
   { pattern: /[^;&|`]*\|\s*xargs\s+(?:ba|z|da)?sh\b/i, reason: 'it pipes command output into a shell' },
-  // 0777 and a=rwx make files world-writable just like 777 does.
-  { pattern: /\bchmod\s+(?:-[a-z]+\s+)*(?:0?777\b|a[=+][rwx]+\b)/i, reason: 'it makes files world-writable' },
+  // Download-then-run without the pipe: fetched file handed straight to a
+  // shell in the same command list.
+  { pattern: /\b(?:curl|wget)\b[^;&|]*(?:&&|;)\s*(?:ba|z|da)?sh\b/i, reason: 'it runs a shell script right after downloading it' },
+  // Process substitution feeding a download straight into an interpreter.
+  { pattern: /<\(\s*(?:curl|wget)\b/i, reason: 'it runs a downloaded script without saving it' },
+  // 0777 makes files world-writable, and so does granting write to all or
+  // others by symbol. Plain a+x / a=rx only add execute and stay common,
+  // safe build idioms.
+  { pattern: /\bchmod\s+(?:-[a-z]+\s+)*(?:0?7777\b|0?777\b|[ug]*[ao][ug]*(?:=|\+)[rwx]*w[rwx]*\b)/i, reason: 'it makes files world-writable' },
   { pattern: /\b(?:npm|yarn|pnpm)\s+(?:publish|unpublish)\b/, reason: 'it publishes to a package registry' },
   { pattern: /\b(?:shutdown|reboot|halt|poweroff)\b/i, reason: 'it stops or restarts the machine' },
   // Redirecting into a real device node can clobber hardware; the null and
   // std-fd sinks are among the most common shell idioms and must not teach
   // users to rubber-stamp the approval dialog.
   { pattern: />\s*\/dev\/(?!null\b|stdout\b|stderr\b)/, reason: 'it writes directly to a device node' },
-  // -9, -SIGKILL and -s KILL all force-kill.
-  { pattern: /\bp?kill(?:all)?\b[^;&|]*\s-(?:9\b|SIGKILL\b|(?:s|e)\s+(?:SIG)?(?:KILL|9)\b)/i, reason: 'it force-kills processes' },
+  // -9, -KILL, -SIGKILL, -s KILL and --signal KILL all force-kill.
+  { pattern: /\bp?kill(?:all)?\b[^;&|]*\s-(?:9\b|(?:SIG)?KILL\b|(?:s|e)\s+(?:SIG)?(?:KILL|9)\b|-signal\s+(?:SIG)?(?:KILL|9)\b)/i, reason: 'it force-kills processes' },
   { pattern: /\btruncate\s+(?:-[a-z]+\s+)*(?:-s\s*0\b|--size\s*=?\s*0\b)/i, reason: 'it empties files' },
   { pattern: /\b(?:drop|truncate)\s+(?:table|database)\b/i, reason: 'it destroys database contents' }
 ]
