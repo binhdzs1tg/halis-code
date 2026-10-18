@@ -355,6 +355,9 @@ export function mountConversation(): HTMLElement {
         document.removeEventListener('keydown', onKey)
         return
       }
+      // An open overlay (settings, model picker) owns the keyboard; one
+      // Escape must close it, not reject the approval underneath it.
+      if (document.querySelector('.overlay')) return
       if (event.key === 'Enter' && !event.isComposing) {
         // Enter in the terminal input or another editable surface is that
         // surface's key — it must never silently approve a risky command.
@@ -472,6 +475,8 @@ export function mountConversation(): HTMLElement {
         document.removeEventListener('keydown', onKey)
         return
       }
+      // Same overlay rule as approvals: a modal owns the keyboard first.
+      if (document.querySelector('.overlay')) return
       if (event.key === 'Enter' && !event.isComposing) {
         // Same contract as approvals: a bubble from any editable surface
         // (this card's own input included) must not submit the answers.
@@ -615,6 +620,16 @@ export function mountConversation(): HTMLElement {
       detail: openSession
     })
   )
+
+  // The sidebar deletes sessions too; when it takes the one on screen, the
+  // id must be dropped or the next save would resurrect the deleted file.
+  window.addEventListener('halis:session-deleted', (event) => {
+    const deleted = (event as CustomEvent<string>).detail
+    if (deleted && deleted === sessionId) {
+      sessionId = null
+      customTitle = null
+    }
+  })
 
   /* ---------- slash commands ---------- */
 
@@ -997,7 +1012,12 @@ export function mountConversation(): HTMLElement {
       const notice = jobNotices.shift()
       if (notice) {
         window.setTimeout(() => {
-          if (sessionId !== atSettle) return
+          if (sessionId !== atSettle || stoppedManually || running) {
+            // The handoff window closed — hold the notice for the next
+            // settle instead of dropping it.
+            jobNotices.unshift(notice)
+            return
+          }
           void send(notice, { silent: true })
         }, 30)
       }
@@ -1007,7 +1027,13 @@ export function mountConversation(): HTMLElement {
     paintQueue()
     if (next) {
       window.setTimeout(() => {
-        if (sessionId !== atSettle) return
+        if (sessionId !== atSettle || stoppedManually || running) {
+          // A session switch or a Stop inside the handoff window puts the
+          // message back in line; it must not vanish.
+          queue.unshift(next)
+          paintQueue()
+          return
+        }
         void send(next)
       }, 30)
     }

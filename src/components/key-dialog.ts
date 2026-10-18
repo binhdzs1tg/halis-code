@@ -102,6 +102,9 @@ export function openKeyDialog(onSaved?: () => void, onCancelled?: () => void): v
   }
 
   const saveKey = async (): Promise<void> => {
+    // Enter and the button can both land here; a second save while one is
+    // in flight would close the dialog twice and double-fire onSaved.
+    if (save.disabled) return
     const value = input.value
     if (!value.trim()) {
       input.focus()

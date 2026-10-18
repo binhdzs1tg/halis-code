@@ -200,6 +200,9 @@ export function mountSidebar(): HTMLElement {
     del.addEventListener('click', (event) => {
       event.stopPropagation()
       void window.halis.deleteSession(meta.id).then(() => {
+        // The conversation watches this so the open session's id is dropped
+        // before its next save can recreate the deleted file.
+        window.dispatchEvent(new CustomEvent<string>('halis:session-deleted', { detail: meta.id }))
         store.update({ sessionsVersion: store.get().sessionsVersion + 1 })
       }).catch(() => undefined)
     })
