@@ -108,6 +108,7 @@ export function mountFileTree(container: HTMLElement): void {
       }
       await restoreExpanded(gen, expanded)
     } catch (err) {
+      if (gen !== renderGen) return
       tree.appendChild(el('div', 'planned', `Cannot read workspace: ${errText(err)}`))
     }
   }
@@ -267,7 +268,8 @@ export function mountFileTree(container: HTMLElement): void {
         cancel()
         return
       }
-      if (event.key !== 'Enter') return
+      // An IME composition commit arrives as Enter — it is not a name yet.
+      if (event.key !== 'Enter' || event.isComposing) return
       event.preventDefault()
       const name = validName(input.value)
       if (!name) {
@@ -315,7 +317,8 @@ export function mountFileTree(container: HTMLElement): void {
         cancel()
         return
       }
-      if (event.key !== 'Enter') return
+      // Same IME rule as create: the commit keystroke is not a rename.
+      if (event.key !== 'Enter' || event.isComposing) return
       event.preventDefault()
       const name = validName(input.value)
       if (!name || name === entry.name) {

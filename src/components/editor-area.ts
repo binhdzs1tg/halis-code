@@ -24,6 +24,11 @@ export function mountEditorArea(): HTMLElement {
       // Paths from the old workspace have no meaning here; keeping their
       // buffers would shadow the new workspace's files of the same name.
       unsaved.clear()
+      // The stale tabs must go too: their paths would silently resolve to
+      // different files in the new workspace.
+      if (state.openFiles.length > 0 || state.openFile !== null) {
+        store.update({ openFiles: [], openFile: null, openFileLine: null })
+      }
       render(area)
       return
     }

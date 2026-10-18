@@ -146,6 +146,7 @@ function buildShell(): void {
   positionHandles()
   store.subscribe(positionHandles)
 
+  let dragging = false
   const drag = (
     handle: HTMLElement,
     pick: () => number,
@@ -153,6 +154,10 @@ function buildShell(): void {
   ): void => {
     handle.addEventListener('pointerdown', (event) => {
       if (event.button !== 0) return
+      // A second pointer (touch palm, another mouse) must not start a
+      // competing drag with its own listener pair.
+      if (dragging) return
+      dragging = true
       event.preventDefault()
       handle.setPointerCapture(event.pointerId)
       const origin = event.clientX
@@ -164,6 +169,7 @@ function buildShell(): void {
         positionHandles()
       }
       const up = (): void => {
+        dragging = false
         handle.removeEventListener('pointermove', move)
         handle.removeEventListener('pointerup', up)
         handle.removeEventListener('pointercancel', up)

@@ -182,7 +182,8 @@ export function mountTerminalPanel(): HTMLElement {
     }
     if (event.key === 'c' && event.ctrlKey) {
       event.preventDefault()
-      stop()
+      // Key repeat must not spam ^C and kill calls while the key is held.
+      if (!event.repeat) stop()
       return
     }
     if (event.key === 'l' && event.ctrlKey) {
@@ -208,6 +209,13 @@ export function mountTerminalPanel(): HTMLElement {
   })
 
   window.halis.onTerminalData((event) => {
+    // The invoke reply that carries the run id can lose the race against a
+    // fast command's first output; while a start is pending, every data
+    // event belongs to the command being started.
+    if (pendingStart && currentRunId === null) {
+      appendText(event.chunk)
+      return
+    }
     if (event.id !== currentRunId) return
     appendText(event.chunk)
   })
