@@ -40,17 +40,19 @@ export function splitBlocks(source: string): Block[] {
     }
   }
 
-  let fence = false
+  let fence = 0
   for (const line of lines) {
-    if (fence) {
+    if (fence > 0) {
       current.push(line)
-      if (/^\s*```\s*$/.test(line)) fence = false
+      const close = /^\s*(`{3,})\s*$/.exec(line)
+      if (close && (close[1]?.length ?? 0) >= fence) fence = 0
       continue
     }
-    if (/^\s*```/.test(line)) {
+    const open = /^\s*(`{3,})/.exec(line)
+    if (open) {
       flush()
       current.push(line)
-      fence = true
+      fence = open[1]?.length ?? 3
       continue
     }
     if (/^#{1,6}\s+/.test(line) || /^(-{3,}|\*{3,}|_{3,})\s*$/.test(line.trim())) {
@@ -65,7 +67,7 @@ export function splitBlocks(source: string): Block[] {
     current.push(line)
   }
   flush()
-  if (fence) {
+  if (fence > 0) {
     // Stream cut off inside an open fence: it is its own block and stays in
     // the tail until it closes.
     flush()

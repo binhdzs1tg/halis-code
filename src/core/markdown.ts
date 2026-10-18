@@ -18,7 +18,7 @@ export function renderMarkdown(source: string): string {
   let paragraph: string[] = []
   let list: { ordered: boolean; items: string[] } | null = null
   let quote: string[] = []
-  let code: { lang: string; lines: string[] } | null = null
+  let code: { lang: string; fence: number; lines: string[] } | null = null
 
   const flushParagraph = (): void => {
     if (paragraph.length > 0) {
@@ -47,8 +47,11 @@ export function renderMarkdown(source: string): string {
 
   for (const line of lines) {
     if (code) {
-      // Only a bare fence line closes a block; anything else is code.
-      if (/^\s*```\s*$/.test(line)) {
+      // A bare fence line at least as long as the opener closes the block;
+      // anything else is code. The length rule is what lets an outer fence
+      // hold an illustration written with three backticks inside.
+      const close = /^\s*(`{3,})\s*$/.exec(line)
+      if (close && (close[1]?.length ?? 0) >= code.fence) {
         out.push(renderCode(code.lang, code.lines, true))
         code = null
       } else {
@@ -56,9 +59,10 @@ export function renderMarkdown(source: string): string {
       }
       continue
     }
-    if (/^\s*```/.test(line)) {
+    const open = /^\s*(`{3,})/.exec(line)
+    if (open) {
       flushAll()
-      code = { lang: line.trim().slice(3).trim(), lines: [] }
+      code = { lang: line.trim().slice(open[1]?.length ?? 3).trim(), fence: open[1]?.length ?? 3, lines: [] }
       continue
     }
 
@@ -146,11 +150,13 @@ function inline(text: string): string {
   })
   return (
     escapeHtml(masked)
-      .replace(/\*\*([^*\n][^*]*?)\*\*/g, '<b>$1</b>')
-      .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+      .replace(/\*\*(?!\s)([^*\n]*?)(?<!\s)\*\*/g, '<b>$1</b>')
+      .replace(/(^|[^*])\*(?!\s)([^*\n]*?)(?<!\s)\*/g, '$1<em>$2</em>')
       .replace(/~~([^~\n]+)~~/g, '<s>$1</s>')
       .replace(
-        /\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g,
+        // A URL may carry balanced single-level parens — wiki-style paths
+        // like /Wiki_(Page) survive; an unbalanced one stays plain text.
+        /\[([^\]\n]+)\]\((https?:\/\/[^\s()]+(?:\([^\s()]*\)[^\s()]*)*)\)/g,
         (_match, label: string, url: string) =>
           `<a href="${url.replace(/\uE000(\d+)\uE001/g, (_inner, index: string) => plain[Number(index)] ?? '')}" target="_blank" rel="noreferrer">${label}</a>`
       )
