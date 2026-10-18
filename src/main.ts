@@ -8,6 +8,7 @@ import './styles/overlays.css'
 import { el } from './app/dom'
 import { store } from './app/store'
 import { loadConfig, saveConfig } from './core/config/config-service'
+import { refreshKeyStatuses } from './core/keys'
 import { installBridgeStub } from './core/bridge-stub'
 
 import { mountCaption } from './components/caption'
@@ -268,6 +269,13 @@ async function boot(): Promise<void> {
         ...(event.from !== undefined ? { from: event.from } : {})
       }
     })
+  })
+
+  // The vault broadcasts every key change; the shared status cache must
+  // follow or the picker and the send gate would answer from stale data
+  // until something else happens to refresh it.
+  window.halis.onKeysChanged(() => {
+    void refreshKeyStatuses()
   })
 
   installKeymap()
