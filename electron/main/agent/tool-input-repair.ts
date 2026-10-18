@@ -183,20 +183,27 @@ function repairObject(
     schema.allOf === undefined
   const valueSchema = isSchema(schema.additionalProperties) ? schema.additionalProperties : null
 
+  /** Assignment routes a "__proto__" key through Object.prototype's
+   *  accessor — the key would vanish and swap the object's prototype;
+   *  defineProperty keeps it a plain own property instead. */
+  const define = (target: Record<string, unknown>, key: string, value: unknown): void => {
+    Object.defineProperty(target, key, { value, writable: true, enumerable: true, configurable: true })
+  }
+
   const out: Record<string, unknown> = {}
   for (const [key, raw] of Object.entries(value)) {
     const property = isSchema(properties[key]) ? properties[key] : null
     if (property) {
       if (!required.has(key) && isPlaceholder(raw, property)) continue
-      out[key] = repairValue(raw, property, root, depth)
+      define(out, key, repairValue(raw, property, root, depth))
       continue
     }
     if (closed) continue
     if (valueSchema) {
-      out[key] = repairValue(raw, valueSchema, root, depth)
+      define(out, key, repairValue(raw, valueSchema, root, depth))
       continue
     }
-    out[key] = raw
+    define(out, key, raw)
   }
   return out
 }

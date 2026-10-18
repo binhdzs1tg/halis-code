@@ -12,6 +12,8 @@ import { spawn } from 'node:child_process'
 import { userInfo } from 'node:os'
 
 const PROBE_TIMEOUT_MS = 10_000
+/** Real `env -0` output is kilobytes; beyond this it is rc noise. */
+const PROBE_OUTPUT_CAP = 8 * 1024 * 1024
 const MARKER = '__HALIS_ENV__'
 
 /** Probe-session keys that say nothing about the user's environment. */
@@ -59,6 +61,9 @@ function probe(shell: string): Promise<Map<string, string> | null> {
     child.stdout.setEncoding('utf8')
     child.stdout.on('data', (chunk: string) => {
       out += chunk
+      // An rc file that prints megabytes is noise, not an environment; cap
+      // the accumulator so a heavy probe cannot balloon memory.
+      if (out.length > PROBE_OUTPUT_CAP) done(null)
     })
     child.on('error', () => done(null))
     child.on('close', (code) => {

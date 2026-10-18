@@ -24,6 +24,7 @@
     "typescript": "7.0.2"
   },
   "allowScripts": {
-    "esbuild@0.28.2": true
+    "esbuild@0.28.2": true,
+    "electron@44.7.0": true
   }
 }
