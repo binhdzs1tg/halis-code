@@ -376,7 +376,7 @@ export async function runTool(
       default:
         // Everything the model sees beyond this list is an MCP tool.
         if (call.name.startsWith(MCP_TOOL_PREFIX)) {
-          return cl(await callMcpTool(call.name, input))
+          return cl(await callMcpTool(call.name, input, signal))
         }
         return { ok: false, output: `Unknown tool "${call.name}".` }
     }
@@ -661,8 +661,18 @@ async function runCommandTool(
 
     // Keep a generous tail for the inline answer; the file keeps everything,
     // and the clamp/spill layer adds a pointer when even this is too much.
+    const holdBack = (): void => {
+      // The disk cannot keep up; hold the child back instead of letting the
+      // file stream buffer the whole output in memory.
+      child.stdout.pause()
+      child.stderr.pause()
+      stream.once('drain', () => {
+        child.stdout.resume()
+        child.stderr.resume()
+      })
+    }
     const append = (chunk: string): void => {
-      if (!streamBroken) stream.write(chunk)
+      if (!streamBroken && !stream.write(chunk)) holdBack()
       if (tailMode) {
         // Past the cap the head is already represented by the dropped
         // marker; shed from a chunk list instead of re-slicing a megabyte

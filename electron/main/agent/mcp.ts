@@ -276,11 +276,12 @@ export class McpConnection {
     return this.tools
   }
 
-  async call(name: string, args: Record<string, unknown>): Promise<{ text: string; isError: boolean }> {
+  async call(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<{ text: string; isError: boolean }> {
     const result = await this.request<{ content?: unknown; isError?: unknown; structuredContent?: unknown }>(
       'tools/call',
       { name, arguments: args },
-      this.config.toolTimeoutMs
+      this.config.toolTimeoutMs,
+      signal
     )
     return flattenMcpContent(result)
   }
@@ -355,6 +356,21 @@ export class McpConnection {
     }
     if (typeof message !== 'object' || message === null) return
     const record = message as { id?: unknown; result?: unknown; error?: { message?: unknown }; method?: unknown }
+    if (record.method !== undefined && (typeof record.id === 'number' || typeof record.id === 'string')) {
+      // A request from the server. Nothing we host lives on this side, but
+      // every request deserves an answer — a spec-compliant server treats
+      // a silent client as dead and drops the connection.
+      const stdin = this.child?.stdin
+      if (stdin && !stdin.destroyed) {
+        const reply = JSON.stringify({
+          jsonrpc: '2.0',
+          id: record.id,
+          error: { code: -32601, message: 'Method not supported' }
+        })
+        stdin.write(`${reply}\n`)
+      }
+      return
+    }
     if (typeof record.id === 'number') {
       const pending = this.pending.get(record.id)
       if (pending) {
@@ -401,27 +417,51 @@ export class McpConnection {
     this.tools = tools
   }
 
-  private request<T>(method: string, params: Record<string, unknown>, timeoutMs: number): Promise<T> {
+  private request<T>(method: string, params: Record<string, unknown>, timeoutMs: number, signal?: AbortSignal): Promise<T> {
     return new Promise((resolve, reject) => {
       const stdin = this.child?.stdin
       if (this.closed || !stdin || stdin.destroyed) {
         reject(new Error(`${this.serverName}: server is not running`))
         return
       }
+      if (signal?.aborted) {
+        reject(new Error(`${this.serverName}: ${method} was cancelled`))
+        return
+      }
       const id = this.nextId
       this.nextId += 1
+      let done = false
+      const onAbort = (): void => {
+        if (done) return
+        done = true
+        clearTimeout(timer)
+        this.pending.delete(id)
+        // Best-effort cancellation per the spec; a server may ignore it.
+        this.notify('notifications/cancelled', { requestId: id })
+        reject(new Error(`${this.serverName}: ${method} was cancelled`))
+      }
       const timer = setTimeout(() => {
+        if (done) return
+        done = true
+        signal?.removeEventListener('abort', onAbort)
         this.pending.delete(id)
         reject(new Error(`${this.serverName}: ${method} timed out after ${Math.round(timeoutMs / 1000)}s`))
       }, timeoutMs)
       timer.unref()
+      signal?.addEventListener('abort', onAbort, { once: true })
       this.pending.set(id, {
         resolve: (value) => {
+          if (done) return
+          done = true
           clearTimeout(timer)
+          signal?.removeEventListener('abort', onAbort)
           resolve(value as T)
         },
         reject: (err) => {
+          if (done) return
+          done = true
           clearTimeout(timer)
+          signal?.removeEventListener('abort', onAbort)
           reject(err)
         },
         timer
@@ -432,17 +472,16 @@ export class McpConnection {
         const pending = this.pending.get(id)
         if (pending) {
           this.pending.delete(id)
-          clearTimeout(timer)
           pending.reject(new Error(`${this.serverName}: could not write to the server (${err.message})`))
         }
       })
     })
   }
 
-  private notify(method: string): void {
+  private notify(method: string, params?: Record<string, unknown>): void {
     const stdin = this.child?.stdin
     if (!stdin || stdin.destroyed) return
-    stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method })}\n`)
+    stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method, ...(params ? { params } : {}) })}\n`)
   }
 }
 
@@ -595,14 +634,15 @@ export function stopAllMcpServers(): void {
 /** Call one MCP tool by its full mcp__server__tool name. */
 export async function callMcpTool(
   name: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  signal?: AbortSignal
 ): Promise<{ ok: boolean; output: string }> {
   const entry = toolIndex.get(name)
   if (!entry || entry.connection.isClosed) {
     return { ok: false, output: `MCP tool "${name}" is not available — its server may have stopped.` }
   }
   try {
-    const { text, isError } = await entry.connection.call(entry.tool.name, input)
+    const { text, isError } = await entry.connection.call(entry.tool.name, input, signal)
     if (isError) return { ok: false, output: text || 'The tool reported an error.' }
     return { ok: true, output: text || '(no output)' }
   } catch (err) {
