@@ -65,8 +65,10 @@ function runSync(cmd: string, args: string[], cwd: string): void {
   }
 }
 
-function isGitDir(dir: string): boolean {
-  return fs.existsSync(join(dir, '.git'))
+/** Mirrors git's own scope: a dir inside any worktree resolves upward, so
+ * only git itself can say whether getGitInfo may legitimately answer. */
+function insideWorkTree(dir: string): boolean {
+  return spawnSync('git', ['rev-parse', '--is-inside-work-tree'], { cwd: dir, encoding: 'utf8' }).status === 0
 }
 
 /* ---------- diff ---------- */
@@ -95,7 +97,7 @@ check('first call is quiet', guard.record('read_file', { path: 'a.ts' }) === nul
 check('second call is quiet', guard.record('read_file', { path: 'a.ts' }) === null)
 check('third call nudges', guard.record('read_file', { path: 'a.ts' }) !== null)
 check('different args reset the chain', guard.record('read_file', { path: 'b.ts' }) === null)
-check('key order does not matter', guard.record('read_file', { path: 'b.ts' }) === null)
+check('repeat stays quiet below the threshold', guard.record('read_file', { path: 'b.ts' }) === null)
 const fifth = guard.record('read_file', { path: 'b.ts' })
 check('threshold 3 nudges again', fifth !== null)
 check('threshold 4 stays quiet', guard.record('read_file', { path: 'b.ts' }) === null)
@@ -106,6 +108,12 @@ const eighth = guard.record('read_file', { path: 'b.ts' })
 check('threshold 8 escalates with count', eighth?.includes('8 times in a row') === true)
 guard.reset()
 check('reset clears the chain', guard.record('read_file', { path: 'a.ts' }) === null)
+// Real permutation: with insertion-order serialization the two shapes
+// would count as different calls and the third would stay quiet.
+const permuted =
+  guard.record('read_file', { a: 1, path: 'k.ts' }) === null &&
+  guard.record('read_file', { path: 'k.ts', a: 1 }) === null
+check('key order does not matter', permuted && guard.record('read_file', { a: 1, path: 'k.ts' }) !== null)
 
 /* ---------- file refs ---------- */
 const refs = extractFileRefs('Look at @src/main.ts and @"folder with space/x.ts" plus src/plain.ts')
@@ -527,7 +535,7 @@ async function gitChecks(): Promise<void> {
     gitInfo !== null && gitInfo.branch.length > 0 && gitInfo.branch !== 'HEAD' && /^[0-9a-f]{7,}$/.test(gitInfo.commit)
   )
   clearGitInfoCache()
-  check('non-repositories report no git info', (await getGitInfo(os.tmpdir())) === null || isGitDir(os.tmpdir()))
+  check('non-repositories report no git info', (await getGitInfo(os.tmpdir())) === null || insideWorkTree(os.tmpdir()))
 }
 
 /* ---------- risky command assessment ---------- */
