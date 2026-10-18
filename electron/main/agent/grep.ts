@@ -186,6 +186,10 @@ parentPort.on('message', (job) => {
       const text = readFileSync(target.abs, 'utf8')
       if (!text.includes('\\u0000')) {
         const lines = text.split('\\n')
+        // The empty entry after a final newline is not a line: read_file
+        // does not count it either, and reporting a blank "last line" the
+        // model cannot read back only confuses pagination.
+        if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
         for (let i = 0; i < lines.length; i += 1) {
           const line = lines[i]
           // CRLF files keep a trailing carriage return on every line; an
