@@ -282,9 +282,11 @@ export function applyUpdate(path: string, chunks: UpdateFileChunk[], original: s
     lines.splice(start, remove, ...insert)
   }
   // Patches always normalize to a trailing newline — the smoke suite
-  // asserts this convention.
-  if (lines[lines.length - 1] !== '') lines.push('')
-  return joinBom(lines.join('\n'), source.bom)
+  // asserts this convention. The parse step popped the phantom empty line
+  // the split produced, so any remaining empty element is a genuine blank
+  // line and the newline has to go back on unconditionally; keying off the
+  // last element would instead drop a real trailing blank line.
+  return joinBom(lines.length === 0 ? '' : `${lines.join('\n')}\n`, source.bom)
 }
 
 function computeReplacements(
