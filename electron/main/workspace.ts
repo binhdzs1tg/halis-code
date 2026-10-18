@@ -202,6 +202,9 @@ export function resolveForDelete(relPath: string): string {
 const MAX_SEARCH_HITS = 200
 const MAX_SEARCH_FILE_SIZE = 512 * 1024
 const MAX_SEARCH_DEPTH = 12
+/** Total bytes read per query: past it the search reports truncated instead
+ *  of freezing the main thread for minutes on a huge tree. */
+const MAX_SEARCH_BYTES = 32 * 1024 * 1024
 
 export function searchWorkspace(
   query: string,
@@ -215,6 +218,7 @@ export function searchWorkspace(
 
   const hits: SearchHit[] = []
   let truncated = false
+  let scannedBytes = 0
 
   const walk = (dir: string, rel: string, depth: number): void => {
     if (truncated || depth > MAX_SEARCH_DEPTH) return
@@ -243,6 +247,10 @@ export function searchWorkspace(
         continue
       }
       if (stat.size > MAX_SEARCH_FILE_SIZE) continue
+      if (scannedBytes >= MAX_SEARCH_BYTES) {
+        truncated = true
+        return
+      }
 
       let text: string
       try {
@@ -250,6 +258,7 @@ export function searchWorkspace(
       } catch {
         continue
       }
+      scannedBytes += text.length
       if (text.includes('\u0000')) continue // binary in disguise
 
       const lines = text.split('\n')
