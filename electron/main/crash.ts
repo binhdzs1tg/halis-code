@@ -18,13 +18,17 @@ const REPORTS_RETAINED = 10
 const ERROR_SECTION_MAX_CHARS = 256 * 1024
 
 /** The exact generated file name syntax; pruning touches only files that match it. */
-const REPORT_NAME = /^crash-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-main\.log$/u
+const REPORT_NAME = /^crash-[\dT-]+Z(?:-\d+)?-main\.log$/u
 
 /** Whether the failure surfaced before the window was up. */
 type Phase = 'startup' | 'running'
 
+/** Disambiguates reports written in the same millisecond. */
+let reportSeq = 0
+
 function reportFileName(time: Date): string {
-  return `crash-${time.toISOString().replaceAll(/[:.]/gu, '-')}-main.log`
+  reportSeq += 1
+  return `crash-${time.toISOString().replaceAll(/[:.]/gu, '-')}-${reportSeq}-main.log`
 }
 
 function renderReport(phase: Phase, error: unknown): string {
@@ -150,10 +154,17 @@ export function installCrashHandlers(): void {
   })
   process.on('unhandledRejection', (reason) => {
     // The app stays alive for rejections, so the guard must release too —
-    // a later fatal error still deserves its own report.
+    // a later fatal error still deserves its own report. The guard is taken
+    // here, before the async handler runs, or two rejections in the same
+    // tick would both slip past it.
+    if (handling) {
+      console.error('[halis] unhandled rejection (one report at a time):', reason)
+      return
+    }
+    handling = true
     void handleFatal('unhandledRejection', reason)
       .catch(() => undefined)
-      .then(() => {
+      .finally(() => {
         handling = false
       })
   })
