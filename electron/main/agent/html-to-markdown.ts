@@ -248,6 +248,13 @@ for (const heading of Object.keys(HEADINGS)) {
   // Any heading start tag closes an open heading, whatever its level.
   SIBLING_CLOSES[heading] = { match: new Set(Object.keys(HEADINGS)), through: INLINE_FRAMES }
 }
+for (const group of ['thead', 'tbody', 'tfoot']) {
+  // A row-group start tag closes the row still open above it (HTML5 makes
+  // </tr>/</td>/</th> optional before the next group); without this the
+  // group frame would shield the tr/td rules and the open row's text
+  // would be dropped.
+  SIBLING_CLOSES[group] = { match: new Set(['tr']), shield: new Set(['table']) }
+}
 
 export function htmlToMarkdown(html: string): string {
   return render(html, 'markdown')

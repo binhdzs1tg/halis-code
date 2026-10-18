@@ -221,6 +221,16 @@ check(
   htmlToMarkdown('<table><tr><td>a<table><tr><td>x<tr><td>y</table><td>b</table>') ===
     '| x |\n| y |\n\n| a | b |'
 )
+// Row-group starts close the row above them; a second tbody must not
+// swallow the first group's rows.
+check(
+  'consecutive tbody groups keep rows',
+  htmlToMarkdown('<table><tbody><tr><td>a<tbody><tr><td>b</table>') === '| a |\n| b |'
+)
+check(
+  'thead then tbody keeps the header',
+  htmlToMarkdown('<table><thead><tr><th>H<tbody><tr><td>d</table>') === '| H |\n| --- |\n| d |'
+)
 
 /* ---------- patch format ---------- */
 const addPatch = [
