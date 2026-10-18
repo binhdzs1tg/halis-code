@@ -105,21 +105,39 @@ export function pruneToolResults(messages: ProviderMessage[]): boolean {
   return pruned
 }
 
+/** CJK ranges: ~1 token per character in real tokenizers, so they must not
+ *  ride the 4-chars-per-token Latin average — a CJK-heavy conversation would
+ *  blow past the provider's context long before pressure math noticed. */
+const CJK_PATTERN = /[\u2E80-\u9FFF\uF900-\uFAFF\uFF00-\uFFEF\u3000-\u303F]/g
+
 /** Rough token estimate; ~4 characters per token is close enough for pressure math. */
 export function estimateTokens(messages: readonly ProviderMessage[]): number {
   let chars = 0
+  const parts: string[] = []
   for (const message of messages) {
     chars += message.content.length
+    parts.push(message.content)
     for (const call of message.toolCalls ?? []) chars += JSON.stringify(call.input).length + 40
-    for (const result of message.toolResults ?? []) chars += result.output.length + 24
+    for (const result of message.toolResults ?? []) {
+      chars += result.output.length + 24
+      parts.push(result.output)
+    }
     // Thinking blocks are replayed verbatim on every Anthropic request;
     // leaving them out would read the pressure far too low for thinking
     // models and delay compaction until the API refuses the request.
     for (const block of message.thinkingBlocks ?? []) {
       chars += block.thinking.length + block.signature.length + (block.redactedData?.length ?? 0)
+      parts.push(block.thinking)
     }
   }
-  return Math.ceil(chars / 4)
+  // CJK text tokenizes near one token per character — charging it the Latin
+  // 4-chars average read pressure far too low and let CJK conversations hit
+  // the provider's context limit before compaction ever triggered.
+  let cjk = 0
+  for (const part of parts) {
+    cjk += part.match(CJK_PATTERN)?.length ?? 0
+  }
+  return Math.ceil((chars - cjk) / 4 + cjk)
 }
 
 function hasToolResults(message: ProviderMessage): boolean {
