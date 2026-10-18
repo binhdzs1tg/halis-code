@@ -26,5 +26,11 @@ export function loadConfig(): HalisConfig {
 
 export function saveConfig(patch: Partial<HalisConfig>): void {
   const next = { ...loadConfig(), ...patch }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+  } catch (err) {
+    // Quota or privacy mode: the app keeps running on the in-memory value,
+    // only the "last workspace" convenience is lost.
+    console.warn('config: could not persist', err)
+  }
 }

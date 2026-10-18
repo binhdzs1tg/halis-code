@@ -112,8 +112,11 @@ function isShape(value: unknown): value is ModelSelection {
 }
 
 function savePrefs(): void {
-  if (prefsCache) {
+  if (!prefsCache) return
+  try {
     localStorage.setItem(PREFS_KEY, JSON.stringify(prefsCache))
+  } catch {
+    // Quota or privacy mode: prefs stay in memory for this session only.
   }
 }
 

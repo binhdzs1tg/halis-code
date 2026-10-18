@@ -90,9 +90,14 @@ class Store {
   private apply(patch: Partial<AppState>): void {
     const prev = this.state
     this.state = { ...prev, ...patch }
-    // Snapshot: listeners may subscribe/unsubscribe during the pass.
+    // Snapshot: listeners may subscribe/unsubscribe during the pass. A
+    // throwing listener must not steal the update from the ones after it.
     for (const listener of [...this.listeners]) {
-      listener(this.state, prev)
+      try {
+        listener(this.state, prev)
+      } catch (err) {
+        console.error('store: listener failed', err)
+      }
     }
   }
 
