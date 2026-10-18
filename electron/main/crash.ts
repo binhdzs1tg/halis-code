@@ -97,7 +97,7 @@ let handling = false
  */
 function shutdownBeforeExit(): void {
   try {
-    shutdownTerminals()
+    shutdownTerminals(true)
   } catch {
     // dying anyway
   }

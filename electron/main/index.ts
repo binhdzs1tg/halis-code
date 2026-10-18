@@ -83,8 +83,9 @@ if (!gotLock) {
   app.on('will-quit', () => {
     // Orphaned shells outlive the window otherwise; the quit dialog promised
     // quitting would interrupt them — the job spawns are detached, so they
-    // need an explicit kill just like the terminals do.
-    shutdownTerminals()
+    // need an explicit kill just like the terminals do. Force matters here:
+    // the graceful escalation is an unref'd timer and quit outruns it.
+    shutdownTerminals(true)
     stopAllJobs()
     stopAllMcpServers()
     destroyTray()

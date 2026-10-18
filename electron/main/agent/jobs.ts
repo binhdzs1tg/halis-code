@@ -228,6 +228,10 @@ export function startBackgroundJob(command: string, root: string, timeoutMs: num
   let streamBroken = false
   stream.on('error', () => {
     streamBroken = true
+    // A destroyed stream never drains; pipes held back by an earlier
+    // write would wedge the job (no close, no notice) until it is killed.
+    child.stdout?.resume()
+    child.stderr?.resume()
   })
   child.stdout?.setEncoding('utf8')
   child.stderr?.setEncoding('utf8')
@@ -260,8 +264,10 @@ export function startBackgroundJob(command: string, root: string, timeoutMs: num
   return { job, child }
 }
 
-/** Kill a job's whole process tree, escalating after a grace period. */
-export function killJob(id: string): boolean {
+/** Kill a job's whole process tree, escalating after a grace period.
+ *  `force` skips the TERM grace — the quit path uses it, since the app is
+ *  about to leave and an unref'd escalation timer would never fire. */
+export function killJob(id: string, force = false): boolean {
   const job = jobs.get(id)
   if (!job || job.status !== 'running') return false
   killRequested.add(id)
@@ -277,12 +283,14 @@ export function killJob(id: string): boolean {
     child.kill()
     return true
   }
+  const signal = force ? 'SIGKILL' : 'SIGTERM'
   try {
-    process.kill(-child.pid, 'SIGTERM')
+    process.kill(-child.pid, signal)
   } catch {
     child.kill()
     return true
   }
+  if (force) return true
   const pid = child.pid
   const escalation = setTimeout(() => {
     try {
@@ -301,10 +309,12 @@ export function jobStatus(id: string): ShellJob | null {
 }
 
 /** Kill every running job; called on quit — the spawns are detached, so
- *  without this the shells would outlive the app with no way to stop them. */
+ *  without this the shells would outlive the app with no way to stop them.
+ *  Force is required: the graceful escalation is an unref'd timer, and the
+ *  app exits before it could ever fire, letting TERM-resistant trees win. */
 export function stopAllJobs(): void {
   for (const id of [...jobs.keys()]) {
-    killJob(id)
+    killJob(id, true)
   }
 }
 

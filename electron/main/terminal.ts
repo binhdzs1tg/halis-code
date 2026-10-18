@@ -112,8 +112,10 @@ export function run(command: string, win: BrowserWindow | null): string {
 
 /** Signal the whole process tree of a spawned shell, escalating to SIGKILL
  *  after a grace period — a `trap '' TERM` inherits into every child and
- *  would otherwise wedge the terminal slot until the app quits. */
-function killTree(proc: ChildProcess): void {
+ *  would otherwise wedge the terminal slot until the app quits. `force`
+ *  sends SIGKILL right away: the quit path uses it, because the unref'd
+ *  escalation timer would never get the chance to fire. */
+function killTree(proc: ChildProcess, force = false): void {
   if (process.platform === 'win32') {
     if (proc.pid === undefined) return
     // A bare kill only reaches cmd.exe; taskkill walks the child tree so
@@ -124,7 +126,7 @@ function killTree(proc: ChildProcess): void {
   const pid = proc.pid
   if (pid !== undefined) {
     try {
-      process.kill(-pid, 'SIGTERM')
+      process.kill(-pid, force ? 'SIGKILL' : 'SIGTERM')
     } catch {
       // group already gone; the direct kill below is a no-op then
       try {
@@ -134,6 +136,7 @@ function killTree(proc: ChildProcess): void {
   } else {
     proc.kill()
   }
+  if (force) return
   const escalation = setTimeout(() => {
     if (proc.exitCode !== null || proc.signalCode !== null) return
     if (pid !== undefined) {
@@ -161,9 +164,12 @@ export function kill(): boolean {
   return true
 }
 
-/** Kill anything still running; called on quit so nothing outlives the app. */
-export function shutdown(): void {
-  if (child) killTree(child)
+/** Kill anything still running. Called both from the window-closed path
+ *  (the app usually keeps running, so the graceful escalation still gets
+ *  its turn) and from quit/crash, which pass force — an unref'd timer
+ *  never fires once the process is leaving. */
+export function shutdown(force = false): void {
+  if (child) killTree(child, force)
 }
 
 /** True while a command is in flight; the quit confirmation reports it as active work. */
