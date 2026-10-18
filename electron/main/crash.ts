@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import { inspect } from 'node:util'
 import { app, BrowserWindow, dialog } from 'electron'
 import { shutdown as shutdownTerminals } from './terminal'
+import { stopAllJobs } from './agent/jobs'
 import { stopAllMcpServers } from './agent/mcp'
 
 /** Reports kept after pruning, newest first by file name. */
@@ -91,13 +92,18 @@ async function pruneReports(directory: string): Promise<void> {
 let handling = false
 
 /**
- * app.exit skips will-quit, so the terminal shell and the MCP servers would
- * outlive the app on the crash path; give them the same treatment the
- * normal quit path does.
+ * app.exit skips will-quit, so the terminal shell, the detached background
+ * jobs and the MCP servers would outlive the app on the crash path; give
+ * them the same treatment the normal quit path does.
  */
 function shutdownBeforeExit(): void {
   try {
     shutdownTerminals(true)
+  } catch {
+    // dying anyway
+  }
+  try {
+    stopAllJobs()
   } catch {
     // dying anyway
   }
@@ -154,14 +160,13 @@ export function installCrashHandlers(): void {
   })
   process.on('unhandledRejection', (reason) => {
     // The app stays alive for rejections, so the guard must release too —
-    // a later fatal error still deserves its own report. The guard is taken
-    // here, before the async handler runs, or two rejections in the same
-    // tick would both slip past it.
+    // a later fatal error still deserves its own report. handleFatal takes
+    // the guard itself, synchronously on call, so two rejections in the
+    // same tick still collide here instead of both writing reports.
     if (handling) {
       console.error('[halis] unhandled rejection (one report at a time):', reason)
       return
     }
-    handling = true
     void handleFatal('unhandledRejection', reason)
       .catch(() => undefined)
       .finally(() => {
