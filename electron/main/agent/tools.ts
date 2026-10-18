@@ -573,6 +573,15 @@ async function searchTool(input: Record<string, unknown>): Promise<ToolOutcome> 
 
   const { hits, truncated } = searchWorkspace(query, { scope, caseSensitive })
   if (hits.length === 0) {
+    // An honest "no matches" needs the walk to have finished: a capped scan
+    // must say so, or the model concludes the text is absent from files it
+    // never saw.
+    if (truncated) {
+      return {
+        ok: true,
+        output: `No matches for "${query}", but the search stopped early — some files were not scanned. Narrow the scope or use grep with an include filter.`
+      }
+    }
     return { ok: true, output: `No matches for "${query}".` }
   }
   const lines = hits.map((hit) => `${hit.path}:${hit.line}: ${hit.text}`)
@@ -648,6 +657,11 @@ async function runCommandTool(
     let streamBroken = false
     stream.on('error', () => {
       streamBroken = true
+      // A stream that dies mid-flight never emits 'drain', so pipes paused
+      // by an earlier holdBack would sit blocked until the command times
+      // out; resume them and let the output degrade to the inline tail.
+      child.stdout?.resume()
+      child.stderr?.resume()
     })
     // If this command is promoted into a job, its settle notice must wait
     // for this stream's final flush before reading the file.
