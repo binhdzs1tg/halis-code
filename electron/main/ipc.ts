@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import path from 'node:path'
 import { IpcChannel } from '../shared/ipc-channels'
 import type { AppInfo, WorkspaceEntry, WorkspaceEntryKind } from '../shared/types'
 import {
@@ -251,16 +252,19 @@ export function registerIpcHandlers(): void {
     if (typeof suggestedName !== 'string' || typeof content !== 'string') {
       throw new Error('conversation:export expects (name, content) strings')
     }
+    // Only a file name may pre-fill the dialog — a path-shaped suggestion
+    // would point it at a directory the renderer chose.
     const win = senderWindow(event)
+    const defaultPath = path.basename(suggestedName)
     const result = win
       ? await dialog.showSaveDialog(win, {
           title: 'Export conversation',
-          defaultPath: suggestedName,
+          defaultPath,
           filters: [{ name: 'Markdown', extensions: ['md'] }]
         })
       : await dialog.showSaveDialog({
           title: 'Export conversation',
-          defaultPath: suggestedName,
+          defaultPath,
           filters: [{ name: 'Markdown', extensions: ['md'] }]
         })
     if (result.canceled || !result.filePath) {
@@ -279,8 +283,13 @@ export function registerIpcHandlers(): void {
     if (typeof providerId !== 'string' || typeof value !== 'string') {
       throw new Error('keys:set expects (providerId, value) strings')
     }
-    await keyStore.set(providerId, value)
+    // Unknown ids would live in the vault file forever, matching no
+    // provider; refuse them instead of storing unreachable entries.
     const { providers } = await modelsCatalog.list()
+    if (!providers.some((provider) => provider.id === providerId)) {
+      throw new Error(`Unknown provider "${providerId}" — refresh the model list and try again.`)
+    }
+    await keyStore.set(providerId, value)
     return keyStore.statuses(providers)
   })
 

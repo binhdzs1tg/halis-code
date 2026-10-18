@@ -45,6 +45,15 @@ export function createMainWindow(): BrowserWindow {
 
   win.setMenuBarVisibility(false)
 
+  // The renderer needs no powerful permissions; Electron's default is to
+  // approve what nothing asked for, so everything except the sanitized
+  // clipboard write the Copy buttons rely on is refused up front.
+  const session = win.webContents.session
+  session.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(permission === 'clipboard-sanitized-write')
+  })
+  session.setPermissionCheckHandler((_wc, permission) => permission === 'clipboard-sanitized-write')
+
   // Renderer console errors, crashed render processes and failed loads all
   // land in the crash-report pipeline instead of vanishing silently.
   attachWindowDiagnostics(win)
@@ -176,9 +185,20 @@ export function showMainWindow(): void {
 // Keep the old name working for the second-instance handler.
 export const focusMainWindow = showMainWindow
 
+let hidePromptPending = false
+
 async function hideToTray(win: BrowserWindow): Promise<void> {
   if (!backgroundCloseConfirmed()) {
-    const confirmed = await askBackgroundClose(win)
+    // A second close event while the dialog is open would stack another
+    // dialog; let it ride along with the decision already in flight.
+    if (hidePromptPending) return
+    hidePromptPending = true
+    let confirmed = false
+    try {
+      confirmed = await askBackgroundClose(win)
+    } finally {
+      hidePromptPending = false
+    }
     if (!confirmed) return
     markBackgroundCloseConfirmed()
   }

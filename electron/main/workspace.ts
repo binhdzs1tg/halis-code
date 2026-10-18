@@ -144,8 +144,15 @@ export function readFileContent(relPath: string): string {
   return content
 }
 
+/** Read cap, mirrored on write so a runaway renderer cannot stream a
+ *  gigabyte string into the main process or fill the disk in one call. */
+const MAX_WRITE_CHARS = 4 * 1024 * 1024
+
 /** Create missing parents and write a file inside the workspace. */
 export function writeFileContent(relPath: string, content: string): void {
+  if (content.length > MAX_WRITE_CHARS) {
+    throw new Error(`Refusing to write ${content.length} characters — the editor caps writes at ${MAX_WRITE_CHARS}.`)
+  }
   const target = resolveInWorkspace(relPath)
   fs.mkdirSync(path.dirname(target), { recursive: true })
   fs.writeFileSync(target, content, 'utf8')
