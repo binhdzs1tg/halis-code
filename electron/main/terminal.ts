@@ -110,7 +110,9 @@ export function run(command: string, win: BrowserWindow | null): string {
   return id
 }
 
-/** Signal the whole process tree of a spawned shell. */
+/** Signal the whole process tree of a spawned shell, escalating to SIGKILL
+ *  after a grace period — a `trap '' TERM` inherits into every child and
+ *  would otherwise wedge the terminal slot until the app quits. */
 function killTree(proc: ChildProcess): void {
   if (process.platform === 'win32') {
     if (proc.pid === undefined) return
@@ -119,15 +121,37 @@ function killTree(proc: ChildProcess): void {
     spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { windowsHide: true })
     return
   }
-  if (proc.pid !== undefined) {
+  const pid = proc.pid
+  if (pid !== undefined) {
     try {
-      process.kill(-proc.pid, 'SIGTERM')
-      return
+      process.kill(-pid, 'SIGTERM')
     } catch {
       // group already gone; the direct kill below is a no-op then
+      try {
+        proc.kill()
+      } catch {}
     }
+  } else {
+    proc.kill()
   }
-  proc.kill()
+  const escalation = setTimeout(() => {
+    if (proc.exitCode !== null || proc.signalCode !== null) return
+    if (pid !== undefined) {
+      try {
+        process.kill(-pid, 'SIGKILL')
+      } catch {
+        try {
+          proc.kill('SIGKILL')
+        } catch {}
+      }
+    } else {
+      try {
+        proc.kill('SIGKILL')
+      } catch {}
+    }
+  }, 3_000)
+  escalation.unref()
+  proc.once('close', () => clearTimeout(escalation))
 }
 
 /** Kill the running command; returns false when nothing is running. */
