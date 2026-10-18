@@ -656,7 +656,8 @@ function render(html: string, mode: Mode): string {
       inCell = false
       if (table) {
         // A colspan pads the row so the pipe columns still line up.
-        const span = Math.max(1, Math.trunc(Number(frame.attrs['colspan'] ?? '1')) || 1)
+        // The cap keeps a hostile attribute from ballooning the row.
+        const span = Math.min(64, Math.max(1, Math.trunc(Number(frame.attrs['colspan'] ?? '1')) || 1))
         table.colspanPad.push(span - 1)
       }
       closeCell(name === 'th')
