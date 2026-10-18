@@ -470,7 +470,9 @@ async function readFileTool(input: Record<string, unknown>): Promise<ToolOutcome
   const content = path.isAbsolute(relPath)
     ? readSpill(relPath) ?? rejectAbsolute()
     : readWorkspaceFile(relPath, true)
-  const lines = content.split('\n')
+  // split('\n') leaves a phantom empty entry after the final newline; it is
+  // not a line the model can ever read, so pagination must not count it.
+  const lines = content.endsWith('\n') ? content.slice(0, -1).split('\n') : content.split('\n')
   if (offset > lines.length) {
     return {
       ok: false,
@@ -514,7 +516,8 @@ async function writeFileTool(input: Record<string, unknown>): Promise<ToolOutcom
   fs.mkdirSync(path.dirname(target), { recursive: true })
   fs.writeFileSync(target, content, 'utf8')
   recordWrite(target)
-  const lineCount = content.split('\n').length
+  // Same convention as read_file: a trailing newline does not make a line.
+  const lineCount = (content.endsWith('\n') ? content.slice(0, -1) : content).split('\n').length
   return {
     ok: true,
     output: `Wrote ${lineCount} line${lineCount === 1 ? '' : 's'} to ${relPath}.`,
