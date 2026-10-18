@@ -579,10 +579,12 @@ body[data-halis-dark-theme] .tree-error {
 
 .terminal-panel .tab-hint {
   flex: 1;
+  /* font-size/line-height must follow the font shorthand, or the shorthand
+     resets them from behind. */
+  font: var(--hal-font-markdown-code-block);
   font-size: 11px;
   line-height: 16px;
   color: var(--hal-alias-label-tertiary);
-  font: var(--hal-font-markdown-code-block);
 }
 
 .term-body {

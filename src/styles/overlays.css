@@ -197,7 +197,7 @@
   padding: 5px 10px;
   border-radius: var(--hal-radius-sm);
   background: var(--hal-alias-tooltip-bg);
-  color: var(--hal-alias-tooltip-label, #fff);
+  color: #fff;
   font-size: 12px;
   line-height: 18px;
   pointer-events: none;
@@ -404,73 +404,6 @@ body[data-halis-dark-theme] .hal-tooltip {
   font: var(--hal-font-markdown-code);
   font-size: 11px;
   color: var(--hal-alias-label-secondary);
-}
-
-.key-list {
-  display: flex;
-  flex-direction: column;
-}
-
-.key-entry {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 44px;
-  padding: 6px 16px;
-}
-
-.key-entry + .key-entry {
-  border-top: 0.5px solid var(--hal-alias-border-l1);
-}
-
-.key-provider {
-  flex: 1;
-  min-width: 0;
-  font-size: 14px;
-  color: var(--hal-alias-label-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.key-badge {
-  flex: none;
-  padding: 1px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  line-height: 18px;
-  font-weight: 500;
-}
-
-.key-badge.vault {
-  background: var(--hal-alias-state-business-tertiary);
-  color: var(--hal-alias-state-business-primary);
-}
-
-.key-badge.env {
-  background: var(--hal-static-green-100);
-  color: rgb(35, 90, 55);
-}
-
-body[data-halis-dark-theme] .key-badge.env {
-  background: var(--hal-static-green-500-a12);
-  color: var(--hal-static-green-400);
-}
-
-.key-remove-btn {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: var(--hal-radius-xs);
-  color: var(--hal-alias-label-tertiary);
-}
-
-.key-remove-btn:hover {
-  color: var(--hal-alias-state-error-primary);
-  background: var(--hal-alias-interactive-bg-hover-danger);
 }
 
 /* ---- Model picker dialog -------------------------------------------------------- */

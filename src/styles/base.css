@@ -301,7 +301,7 @@ body {
   --hal-hovercard-bg: var(--hal-static-neutral-bluish-850);
 
   /* Chat width axis. */
-  --hal-chat-content-width: clamp(560px, calc(var(--hal-conversation-column-width, 900px) * 0.72), 920px);
+  --hal-chat-content-width: clamp(560px, calc(900px * 0.72), 920px);
   --hal-composer-card-max-width: calc(var(--hal-chat-content-width) + 32px);
   --hal-composer-side-clearance: 16px;
   --hal-composer-dock-inset: 8px;

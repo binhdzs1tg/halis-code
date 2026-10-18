@@ -321,7 +321,9 @@ body.is-mac .top-strip + .logo-row {
   background: var(--hal-alias-interactive-bg-hover);
 }
 
-.search-input {
+/* Scoped to the sidebar: the workspace rail ships its own .search-input
+   (workspace.css) that must not inherit the expand-on-demand opacity. */
+.sidebar .search-input {
   flex: 1;
   min-width: 0;
   border: none;
@@ -334,11 +336,11 @@ body.is-mac .top-strip + .logo-row {
   transition: opacity 120ms var(--ds-ease-in-out);
 }
 
-.search[data-expanded] .search-input {
+.sidebar .search[data-expanded] .search-input {
   opacity: 1;
 }
 
-.search-input::placeholder {
+.sidebar .search-input::placeholder {
   color: var(--hal-alias-label-tertiary);
 }
 
@@ -527,7 +529,9 @@ body.is-mac .top-strip + .logo-row {
   color: var(--hal-alias-label-tertiary);
 }
 
-.settings-row {
+/* Scoped to the sidebar: the settings modal defines its own .settings-row
+   (overlays.css) and must not pick up the rail's negative margins. */
+.sidebar .settings-row {
   flex: none;
   display: flex;
   align-items: center;

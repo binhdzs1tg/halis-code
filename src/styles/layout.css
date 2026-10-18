@@ -18,7 +18,7 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  height: var(--hal-caption-height, 40px);
+  height: 40px;
   padding: 0 0 0 12px;
   -webkit-app-region: drag;
   background: var(--hal-specific-sidebar-fill);
@@ -108,7 +108,9 @@ body.is-mac .frame {
   border-right: 0.5px solid var(--hal-alias-border-l3);
 }
 
-.shell[data-sidebar-collapsed] .sidebar-col {
+/* The shell toggles data-sidebar-open / data-rail-open (main.ts); the
+   collapsed look is the absence of those attributes. */
+.shell:not([data-sidebar-open]) .sidebar-col {
   border-right-color: transparent;
 }
 
@@ -132,7 +134,7 @@ body.is-mac .frame {
   border-left: 0.5px solid var(--hal-alias-border-l3);
 }
 
-.shell[data-rail-collapsed] .rail-col {
+.shell:not([data-rail-open]) .rail-col {
   border-left-color: transparent;
 }
 

@@ -1405,7 +1405,7 @@ body[data-halis-dark-theme] .tok-lit {
 }
 
 .send-button.stop {
-  background: var(--hal-alias-button-contrast-fill, var(--hal-alias-brand-primary));
+  background: var(--hal-alias-brand-primary);
   color: var(--hal-alias-label-primary-inverted);
 }
 
@@ -1565,6 +1565,15 @@ body[data-halis-dark-theme] .tok-lit {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 12px;
+}
+
+/* The dock's decision buttons: consistent width so Deny/Allow do not
+   reshuffle as their labels change; .btn already carries the fills. */
+.approval-deny,
+.approval-allow,
+.question-skip,
+.question-submit {
+  min-width: 96px;
 }
 
 /* Question card rides the dock like the approval card. */
