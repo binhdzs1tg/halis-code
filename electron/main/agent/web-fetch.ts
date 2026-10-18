@@ -234,8 +234,11 @@ async function readBounded(session: FetchSession): Promise<{ bytes: Uint8Array; 
         total += value.length
         if (total <= MAX_BODY_BYTES) {
           chunks.push(value)
-        } else if (!truncated) {
+        } else {
+          // Stop draining a body that blew the cap — a decompression bomb
+          // would otherwise keep the tool busy until the timeout.
           truncated = true
+          break
         }
       }
     }
@@ -288,7 +291,7 @@ async function requirePublicHost(hostname: string): Promise<void> {
   }
 }
 
-async function guardPrivateNetwork(hostname: string): Promise<void> {
+export async function guardPrivateNetwork(hostname: string): Promise<void> {
   const literal = hostname.replace(/^\[|\]$/g, '')
   if (isPrivateAddress(literal)) {
     throw new Error(`Refusing to fetch private network address ${hostname}.`)
@@ -330,6 +333,8 @@ function isPrivateIpv4(address: string): boolean {
   if (a === 169 && b === 254) return true
   // Carrier-grade NAT — many intranet edges live behind 100.64.0.0/10.
   if (a === 100 && b >= 64 && b <= 127) return true
+  // Multicast, reserved and the broadcast address — no public host lives here.
+  if (a >= 224) return true
   return false
 }
 

@@ -3,6 +3,7 @@
  * needs no key, which keeps the tool useful out of the box. Swap in a
  * keyed provider later by editing fetchSearchResults only.
  */
+import { guardPrivateNetwork } from './web-fetch'
 import { htmlToText } from './html-to-markdown'
 import type { ToolOutcome } from './tools'
 
@@ -110,17 +111,43 @@ async function fetchSearchResults(query: string, maxResults: number, signal: Abo
 }
 
 /** One deadline covers headers AND body, and the run signal stays wired
- *  through the body read so a cancel cannot be ignored. */
+ *  through the body read so a cancel cannot be ignored. Redirects are
+ *  walked by hand so every hop passes the private-network guard, matching
+ *  how web_fetch treats the pages it pulls. */
+const MAX_SEARCH_REDIRECTS = 5
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
+
 async function fetchText(url: string, signal: AbortSignal): Promise<{ ok: boolean; status: number; text: string }> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS)
   const onAbort = (): void => controller.abort()
   signal.addEventListener('abort', onAbort, { once: true })
   try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: { 'User-Agent': BROWSER_UA, Accept: 'text/html,application/json' }
-    })
+    let current = new URL(url)
+    let response: Response
+    let redirects = 0
+    for (;;) {
+      await guardPrivateNetwork(current.hostname).catch((err: unknown) => {
+        throw new Error(err instanceof Error ? err.message : String(err))
+      })
+      response = await fetch(current, {
+        redirect: 'manual',
+        signal: controller.signal,
+        headers: { 'User-Agent': BROWSER_UA, Accept: 'text/html,application/json' }
+      })
+      if (!REDIRECT_STATUSES.has(response.status)) break
+      void response.body?.cancel().catch(() => {})
+      const location = response.headers.get('location')
+      if (location === null || redirects >= MAX_SEARCH_REDIRECTS) {
+        return { ok: false, status: response.status, text: '' }
+      }
+      redirects += 1
+      const next = new URL(location, current)
+      if (next.protocol !== 'http:' && next.protocol !== 'https:') {
+        return { ok: false, status: response.status, text: '' }
+      }
+      current = next
+    }
     const text = await readBoundedText(response)
     return { ok: response.ok, status: response.status, text }
   } finally {
@@ -209,8 +236,12 @@ function parseInstantAnswer(json: string): SearchResult[] {
 function collectResults(html: string, anchorPattern: RegExp, snippetPattern: RegExp): SearchResult[] {
   const results: SearchResult[] = []
   const seen = new Set<string>()
-  const anchors = matchAll(html, anchorPattern)
-  const snippets = matchAll(html, snippetPattern)
+  // A hostile page could carry tens of thousands of half-formed anchors;
+  // the caps keep the scan linear and short. Twenty results is far more
+  // than the tool ever reports back.
+  const anchors = matchAll(html, anchorPattern, 256)
+  const snippets = matchAll(html, snippetPattern, 256)
+  let snippetCursor = 0
   for (let i = 0; i < anchors.length; i += 1) {
     const anchor = anchors[i]
     if (!anchor) continue
@@ -219,16 +250,18 @@ function collectResults(html: string, anchorPattern: RegExp, snippetPattern: Reg
     if (!/^https?:\/\//i.test(url) || seen.has(url)) continue
     seen.add(url)
     // Pair positionally in the document: the snippet cell that follows this
-    // anchor and precedes the next one. Zipping two parallel lists would
-    // hand every later result the previous result's snippet as soon as one
-    // result ships without a cell.
+    // anchor and precedes the next one. Snippets are in document order, so
+    // a single advancing cursor walks them once instead of rescanning.
     const matchStart = anchor.index ?? 0
     const nextStart = i + 1 < anchors.length ? anchors[i + 1]?.index ?? html.length : html.length
     let snippetText = ''
-    for (const snippet of snippets) {
-      const at = snippet.index ?? -1
-      if (at > matchStart && at < nextStart) {
-        snippetText = snippet[1] ?? ''
+    for (let s = snippetCursor; s < snippets.length; s += 1) {
+      const snippet = snippets[s]
+      const at = snippet?.index ?? -1
+      if (at >= nextStart) break
+      snippetCursor = s + 1
+      if (at > matchStart) {
+        snippetText = snippet?.[1] ?? ''
         break
       }
     }
@@ -236,17 +269,19 @@ function collectResults(html: string, anchorPattern: RegExp, snippetPattern: Reg
     const snippet = htmlToText(snippetText).trim()
     if (title.length === 0) continue
     results.push({ title, url, snippet })
+    if (results.length >= 20) break
   }
   return results
 }
 
-function matchAll(text: string, pattern: RegExp): RegExpExecArray[] {
+function matchAll(text: string, pattern: RegExp, limit: number): RegExpExecArray[] {
   const out: RegExpExecArray[] = []
   const regex = new RegExp(pattern.source, pattern.flags)
   for (;;) {
     const match = regex.exec(text)
     if (!match) break
     out.push(match)
+    if (out.length >= limit) break
   }
   return out
 }
