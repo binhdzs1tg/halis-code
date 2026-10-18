@@ -40,7 +40,6 @@ export function installBridgeStub(): void {
     onTerminalExit: listener,
 
     getModels: unavailable,
-    refreshModels: unavailable,
     onModelsUpdated: listener,
 
     sendChat: unavailable,

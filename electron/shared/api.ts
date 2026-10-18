@@ -64,8 +64,6 @@ export interface HalisApi {
 
   /** Full models.dev catalog (providers + models), normalized. */
   getModels(): Promise<ModelCatalog>
-  /** Re-fetch the catalog from upstream immediately. */
-  refreshModels(): Promise<ModelCatalog>
   /** Fired on the renderer whenever the catalog changes in the main process. */
   onModelsUpdated(listener: () => void): () => void
 

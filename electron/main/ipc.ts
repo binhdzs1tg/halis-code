@@ -202,10 +202,6 @@ export function registerIpcHandlers(): void {
     return modelsCatalog.list()
   })
 
-  handle(IpcChannel.ModelsRefresh, () => {
-    return modelsCatalog.refresh(true)
-  })
-
   handle(IpcChannel.ChatSend, (event, request: unknown) => {
     return startRun(request, senderWindow(event))
   })

@@ -64,7 +64,6 @@ const api: HalisApi = {
   },
 
   getModels: () => ipcRenderer.invoke(IpcChannel.ModelsList),
-  refreshModels: () => ipcRenderer.invoke(IpcChannel.ModelsRefresh),
   onModelsUpdated: (listener) => {
     const handler = (): void => listener()
     ipcRenderer.on(IpcChannel.ModelsUpdated, handler)

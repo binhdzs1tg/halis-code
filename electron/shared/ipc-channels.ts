@@ -14,7 +14,6 @@ export const IpcChannel = {
   FileRename: 'file:rename',
   FileDelete: 'file:delete',
   ModelsList: 'models:list',
-  ModelsRefresh: 'models:refresh',
   ModelsUpdated: 'models:updated',
   ChatSend: 'chat:send',
   ChatCancel: 'chat:cancel',
