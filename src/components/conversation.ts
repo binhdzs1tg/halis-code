@@ -135,6 +135,12 @@ export function mountConversation(): HTMLElement {
   let loadGen = 0
 
   const persist = async (): Promise<void> => {
+    // A chat that was never saved and holds nothing but system notes is a
+    // gate refusal, not a conversation — saving it would litter the sidebar
+    // with phantom "Chat" sessions. Chats that already have an id keep
+    // saving (compaction leaves only system messages, and that state must
+    // land on disk).
+    if (sessionId === null && !messages.some((message) => message.role !== 'system')) return
     if (messages.length === 0) return
     try {
       const meta = await window.halis.saveSession({
