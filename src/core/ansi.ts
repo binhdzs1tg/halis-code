@@ -245,6 +245,25 @@ export class AnsiWriter {
         else i = st + 2
         continue
       }
+      if (next === 'P' || next === 'X' || next === '^' || next === '_') {
+        // DCS/SOS/PM/APC: run to the string terminator (ESC backslash).
+        // Falling through to the two-byte consume would leave the body
+        // parked in the terminal as visible text.
+        const st = data.indexOf(`${ESC}\\`, i + 2)
+        if (st === -1) {
+          flush()
+          const rest = data.slice(i)
+          if (rest.length > MAX_PENDING_ESCAPE) {
+            this.pending = ''
+            return
+          }
+          this.pending = rest
+          return
+        }
+        flush()
+        i = st + 2
+        continue
+      }
       // A chunk ending right at ESC: hold it like the CSI/OSC cases hold
       // their open sequences, or the next chunk's continuation leaks as
       // visible text ("[31mRED") instead of color.
@@ -338,6 +357,9 @@ export function stripAnsi(text: string): string {
   return text
     .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
     .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+    // DCS/SOS/PM/APC run to a string terminator; an unterminated one is
+    // dropped whole so its payload never surfaces as text.
+    .replace(/\x1b[PX^_][^\x1b]*(?:\x1b\\)?/g, '')
     // ESC + intermediates + final byte, e.g. "ESC ( B" — the generic rule
     // below would leave the final byte behind as text.
     .replace(/\x1b[ -/]+[\x30-\x7e]/g, '')
