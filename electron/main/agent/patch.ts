@@ -57,6 +57,13 @@ export async function runPatchTool(input: Record<string, unknown>): Promise<Tool
   }
   const hunks = parsePatch(patchText)
 
+  /** A canonical key so "a.ts" and "./a.ts" (or a case-only spelling on a
+   *  case-insensitive filesystem) count as the same file. */
+  const touchKey = (relPath: string): string => {
+    const abs = path.resolve(root, relPath)
+    return process.platform === 'win32' || process.platform === 'darwin' ? abs.toLowerCase() : abs
+  }
+
   // Plan every change before touching the disk so a bad patch fails whole,
   // not half-applied.
   const planned: PlannedChange[] = []
@@ -64,13 +71,15 @@ export async function runPatchTool(input: Record<string, unknown>): Promise<Tool
   for (const hunk of hunks) {
     for (const target of [hunk.path, hunk.type === 'update' ? hunk.movePath : undefined]) {
       if (target === undefined) continue
-      if (path.isAbsolute(target) || target.split('/').includes('..')) {
+      // path.relative covers "/", "\\" (Windows) and drive-letter escapes.
+      const rel = path.relative(root, path.resolve(root, target))
+      if (rel.length === 0 || rel.startsWith('..') || path.isAbsolute(rel)) {
         throw new Error(`Patch path "${target}" must stay inside the workspace.`)
       }
-      if (touched.has(target)) {
+      if (touched.has(touchKey(target))) {
         throw new Error(`Patch touches "${target}" more than once.`)
       }
-      touched.add(target)
+      touched.add(touchKey(target))
     }
     const absolute = resolveInWorkspace(hunk.path)
     const exists = fs.existsSync(absolute) && fs.statSync(absolute).isFile()
@@ -171,6 +180,15 @@ export async function runPatchTool(input: Record<string, unknown>): Promise<Tool
       try {
         const target = resolveInWorkspace(change.finalPath)
         if (change.hunk.type === 'add') {
+          fs.rmSync(target, { force: true })
+          recordWrite(target)
+        } else if (change.before !== null && change.finalPath !== change.hunk.path) {
+          // A move: the original path lost its file to the trash and the
+          // destination did not exist before — restore one, drop the other.
+          const origin = resolveInWorkspace(change.hunk.path)
+          fs.mkdirSync(path.dirname(origin), { recursive: true })
+          fs.writeFileSync(origin, change.before, 'utf8')
+          recordWrite(origin)
           fs.rmSync(target, { force: true })
           recordWrite(target)
         } else if (change.before !== null) {

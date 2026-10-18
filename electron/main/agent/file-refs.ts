@@ -60,10 +60,12 @@ function readRef(raw: string): FileReference {
       return { raw, path: raw, content: null, note: 'binary file' }
     }
     // A referenced file the model has now seen counts as read for the
-    // edit gate — the attachment showed the same bytes.
-    observeRead(absolute)
+    // edit gate — but only the part the attachment actually showed. A
+    // truncated read does not cover the unseen rest of the file.
     if (text.length > MAX_FILE_CHARS) {
       text = `${text.slice(0, MAX_FILE_CHARS)}\n… (truncated at ${MAX_FILE_CHARS} characters — read_file for more)`
+    } else {
+      observeRead(absolute)
     }
     return { raw, path: raw, content: text, note: null }
   } catch {

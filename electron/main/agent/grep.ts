@@ -110,7 +110,9 @@ export async function grepWorkspace(
     // Same size discipline as the walk: a worker reading a multi-GB file
     // into one string is a memory bomb, not a search.
     if (rootStat.size > MAX_FILE_SIZE) {
-      return { hits: [], truncated: false }
+      // Skipped, not empty: an honest "no matches" would let the model
+      // conclude a pattern is absent from a file it never scanned.
+      return { hits: [], truncated: true }
     }
     if (
       include &&
@@ -285,6 +287,12 @@ export async function grepTool(input: Record<string, unknown>): Promise<ToolOutc
     limit: clampInt(input.limit, DEFAULT_LIMIT, MAX_LIMIT)
   })
   if (hits.length === 0) {
+    if (truncated) {
+      return {
+        ok: true,
+        output: `No matches for /${pattern}/${scope ? ` in ${scope}` : ''}, but some files were skipped as too large — narrow the scope or use read_file.`
+      }
+    }
     return { ok: true, output: `No matches for /${pattern}/${scope ? ` in ${scope}` : ''}.` }
   }
   // Grouped by file so a dozen hits in one file read as one block, not
