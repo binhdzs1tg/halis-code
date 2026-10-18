@@ -82,7 +82,11 @@ export function createMainWindow(): BrowserWindow {
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http://') || url.startsWith('https://')) {
-      void shell.openExternal(url)
+      void shell.openExternal(url).catch((err) => {
+        // No default browser (routine on bare Linux): a rejection here must
+        // not surface as a crash-worded fatal dialog via unhandledRejection.
+        console.warn('shell: could not open external url', url, err)
+      })
     }
     return { action: 'deny' }
   })
@@ -109,7 +113,9 @@ export function createMainWindow(): BrowserWindow {
     if (url === selfUrl || (devOrigin && urlOrigin === devOrigin)) return
     event.preventDefault()
     if (url.startsWith('http://') || url.startsWith('https://')) {
-      void shell.openExternal(url)
+      void shell.openExternal(url).catch((err) => {
+        console.warn('shell: could not open external url', url, err)
+      })
     }
   })
 
@@ -162,9 +168,15 @@ export function createMainWindow(): BrowserWindow {
   // Dev server hook for later hot-reload tooling.
   const devUrl = process.env.HALIS_DEV_URL
   if (devUrl) {
-    void win.loadURL(devUrl)
+    void win.loadURL(devUrl).catch((err) => {
+      // did-fail-load already offers reload/quit; the rejection itself is
+      // not another crash.
+      console.warn('shell: dev url failed to load', devUrl, err)
+    })
   } else {
-    void win.loadFile(path.join(DIST, 'renderer', 'index.html'))
+    void win.loadFile(path.join(DIST, 'renderer', 'index.html')).catch((err) => {
+      console.warn('shell: renderer failed to load', err)
+    })
   }
 
   return win

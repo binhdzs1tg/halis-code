@@ -48,7 +48,10 @@ export function attachContextMenu(win: BrowserWindow): void {
         {
           label: 'Open link in browser',
           click: (): void => {
-            void shell.openExternal(params.linkURL)
+            void shell.openExternal(params.linkURL).catch((err) => {
+              // Missing default browser must not read as an app crash.
+              console.warn('shell: could not open external url', params.linkURL, err)
+            })
           }
         },
         {
