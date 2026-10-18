@@ -72,8 +72,9 @@ export async function runPatchTool(input: Record<string, unknown>): Promise<Tool
     for (const target of [hunk.path, hunk.type === 'update' ? hunk.movePath : undefined]) {
       if (target === undefined) continue
       // path.relative covers "/", "\\" (Windows) and drive-letter escapes.
+      // Only a real parent hop counts: "..keep" is a legal file name.
       const rel = path.relative(root, path.resolve(root, target))
-      if (rel.length === 0 || rel.startsWith('..') || path.isAbsolute(rel)) {
+      if (rel.length === 0 || rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) {
         throw new Error(`Patch path "${target}" must stay inside the workspace.`)
       }
       if (touched.has(touchKey(target))) {
