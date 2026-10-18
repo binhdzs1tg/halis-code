@@ -127,6 +127,9 @@ export function mountConversation(): HTMLElement {
 
   // The conversation currently on screen; null until its first save.
   let sessionId: string | null = null
+  /** Bumped whenever the on-screen chat is replaced (new chat or opened
+   *  session); background-job notices compare against it. */
+  let chatGen = 0
   // Generation token for session loads: two loads in flight resolve in
   // arrival order, and the stale one must not paint over the newer.
   let loadGen = 0
@@ -258,6 +261,10 @@ export function mountConversation(): HTMLElement {
   // Notices that arrived while a run was in flight; they ride along with
   // the next outgoing prompt so the model learns what settled meanwhile.
   const jobNotices: string[] = []
+  /** Generation of the chat a run that could have spawned jobs settled in;
+   *  notices only auto-resume that chat. Generation, not session id: a
+   *  first-turn chat still has a null id until its first persist. */
+  let jobChatGen = -1
 
   const jobNoticePrompt = (event: JobNoticeEvent): string => {
     const fate =
@@ -283,8 +290,11 @@ export function mountConversation(): HTMLElement {
     appendSystemNote(`Background command ${fate}: ${event.command}`)
     const prompt = jobNoticePrompt(event)
     // A manual stop puts the user back in charge — the notice waits for
-    // their next message instead of restarting the agent on its own.
-    if (running || stoppedManually) {
+    // their next message instead of restarting the agent on its own. And a
+    // notice may only resume the chat the run that spawned the job lived
+    // in: auto-sending into whatever chat is currently open would start a
+    // surprise run and contaminate an unrelated session.
+    if (running || stoppedManually || chatGen !== jobChatGen) {
       jobNotices.push(prompt)
       return
     }
@@ -564,9 +574,17 @@ export function mountConversation(): HTMLElement {
       return
     }
     if (messages.length === 0) return
+    // Invalidate any session load in flight before the async persist: an
+    // openSession resolving later must lose to the newer intent, not paint
+    // its session over the fresh chat.
+    loadGen += 1
+    chatGen += 1
     await persist()
     sessionId = null
     customTitle = null
+    // A fresh chat has no interrupted run behind it; the flag must not leak
+    // into its first turn.
+    stoppedManually = false
     messages.splice(0, messages.length)
     queue.splice(0, queue.length)
     jobNotices.splice(0, jobNotices.length)
@@ -585,6 +603,7 @@ export function mountConversation(): HTMLElement {
     }
     if (!id) return
     const gen = ++loadGen
+    chatGen += 1
     try {
       const session = await window.halis.loadSession(id)
       // A second click or a run that started while this load was in flight
@@ -808,12 +827,17 @@ export function mountConversation(): HTMLElement {
     composer.setRunning(true)
     store.update({ agentStatus: 'thinking' })
     showRunningRow()
+    // Jobs this run starts belong to the chat it runs in. The previous
+    // generation rides along too: notices piled up by an earlier chat wait
+    // for their own chat instead of attaching to this one's first prompt.
+    const rideGen = jobChatGen
+    jobChatGen = chatGen
 
     const history = [...messages]
     // Notices that piled up during a run travel with this prompt; the user's
     // bubble stays clean of runtime plumbing.
     let outgoing = text
-    if (!opts?.silent && jobNotices.length > 0) {
+    if (!opts?.silent && jobNotices.length > 0 && chatGen === rideGen) {
       outgoing = `${text}\n\n${jobNotices.join('\n\n')}`
       jobNotices.length = 0
     }
@@ -929,10 +953,19 @@ export function mountConversation(): HTMLElement {
           }
         }
       )
-      assistant.content = full
-      if (traces.length > 0) assistant.tools = [...traces]
-      if (liveTodos.length > 0) assistant.todos = [...liveTodos]
-      node.replaceWith(renderMessage(assistant))
+      // A cancel that landed before anything streamed resolves with empty
+      // text and no tools — drop the placeholder instead of painting an
+      // empty bubble the user can only wonder at.
+      if (full.trim().length === 0 && traces.length === 0 && liveTodos.length === 0) {
+        node.remove()
+        const placeholder = messages.indexOf(assistant)
+        if (placeholder !== -1) messages.splice(placeholder, 1)
+      } else {
+        assistant.content = full
+        if (traces.length > 0) assistant.tools = [...traces]
+        if (liveTodos.length > 0) assistant.todos = [...liveTodos]
+        node.replaceWith(renderMessage(assistant))
+      }
       const firstExchange =
         !customTitle && messages.filter((message) => message.role === 'user').length === 1
       // The queue drains only after persistence settles: a brand-new chat
@@ -1012,7 +1045,9 @@ export function mountConversation(): HTMLElement {
       const notice = jobNotices.shift()
       if (notice) {
         window.setTimeout(() => {
-          if (sessionId !== atSettle || stoppedManually || running) {
+          // Same ownership rule handleJobNotice applies: a queued notice
+          // resumes only the chat the job-spawning run lived in.
+          if (sessionId !== atSettle || stoppedManually || running || chatGen !== jobChatGen) {
             // The handoff window closed — hold the notice for the next
             // settle instead of dropping it.
             jobNotices.unshift(notice)

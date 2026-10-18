@@ -53,6 +53,8 @@ export class AgentService {
   private activeRunId: string | null = null
   /** Set synchronously before the sendChat await closes the race window. */
   private starting = false
+  /** A cancel clicked while `starting` — fires the moment a run id exists. */
+  private cancelPending = false
 
   get running(): boolean {
     return this.activeRunId !== null || this.starting
@@ -62,6 +64,7 @@ export class AgentService {
     if (this.activeRunId || this.starting) {
       throw new AgentError('busy', 'The agent is already answering — stop it first', '')
     }
+    this.cancelPending = false
     this.starting = true
     let runId: string
     try {
@@ -73,6 +76,11 @@ export class AgentService {
       this.starting = false
     }
     this.activeRunId = runId
+    // Stop was pressed during the sendChat roundtrip: the run starts dead.
+    if (this.cancelPending) {
+      this.cancelPending = false
+      window.halis.cancelChat(runId)
+    }
 
     return await new Promise<string>((resolve, reject) => {
       let text = ''
@@ -128,6 +136,9 @@ export class AgentService {
   cancel(): void {
     if (this.activeRunId) {
       window.halis.cancelChat(this.activeRunId)
+    } else if (this.starting) {
+      // No run id exists yet; remember the stop so it lands as soon as one does.
+      this.cancelPending = true
     }
   }
 
