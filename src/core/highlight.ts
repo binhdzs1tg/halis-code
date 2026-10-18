@@ -35,7 +35,9 @@ function wordRule(words: string[], cls: string): Rule {
 const RULES_JS: Rule[] = [
   { re: /\/\/[^\n]*/y, cls: 'com' },
   { re: /\/\*[\s\S]*?(?:\*\/|$)/y, cls: 'com' },
-  { re: /(["'`])(?:\\[\s\S]|(?!\1)[^\\])*?\1/y, cls: 'str' },
+  // Backtick templates may span lines; a quote character may not — two
+  // orphaned quotes on different lines must not color the code between them.
+  { re: /`(?:\\[\s\S]|[^\\])*?`|"(?:\\.|[^"\\\n])*?"|'(?:\\.|[^'\\\n])*?'/y, cls: 'str' },
   wordRule(KEYWORDS_JS, 'kw'),
   { re: /\b\d[\d_]*(?:\.\d+)?(?:e[+-]?\d+)?\b/iy, cls: 'num', noMidRun: 'word' },
   // Bounded so one giant identifier (minified blobs, hashes) cannot make the
@@ -44,15 +46,15 @@ const RULES_JS: Rule[] = [
 ]
 
 const RULES_JSON: Rule[] = [
-  { re: /"(?:\\.|[^"\\])*"(?=\s*:)/y, cls: 'prop', needs: ':' },
-  { re: /"(?:\\.|[^"\\])*"/y, cls: 'str' },
+  { re: /"(?:\\.|[^"\\\n])*"(?=\s*:)/y, cls: 'prop', needs: ':' },
+  { re: /"(?:\\.|[^"\\\n])*"/y, cls: 'str' },
   wordRule(['true', 'false', 'null'], 'lit'),
   { re: /-?\b\d+(?:\.\d+)?(?:e[+-]?\d+)?\b/iy, cls: 'num', noMidRun: 'word' }
 ]
 
 const RULES_BASH: Rule[] = [
   { re: /#[^\n]*/y, cls: 'com' },
-  { re: /"(?:\\.|[^"\\])*"|'[^']*'/y, cls: 'str' },
+  { re: /"(?:\\.|[^"\\\n])*"|'[^'\n]*'/y, cls: 'str' },
   { re: /\$\{?[\w@#?*]+\}?/y, cls: 'lit' },
   wordRule(
     ['if', 'then', 'else', 'elif', 'fi', 'for', 'while', 'do', 'done', 'case', 'esac',
