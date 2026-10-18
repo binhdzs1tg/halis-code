@@ -27,6 +27,66 @@ export function mountFileTree(container: HTMLElement): void {
   // Bumps on every render; an older async render that finishes late must
   // not paint stale entries on top of the fresh listing.
   let renderGen = 0
+  /** What the user is editing right now, so an agent-triggered re-render
+   *  (workspace:changed fires constantly mid-run) can rebuild the input
+   *  instead of silently destroying everything typed so far. */
+  let editing: {
+    kind: 'create' | 'rename'
+    /** Rename: path of the row; create: parent path or null for root. */
+    anchor: string | null
+    entryKind: WorkspaceEntryKind
+    /** Rename: the name being replaced. */
+    originalName: string | null
+    value: string
+    /** Present once snapshotEditing captured a live input. */
+    caretStart?: number
+    caretEnd?: number
+  } | null = null
+  /** Workspace root the edit started in; a root switch invalidates it. */
+  let editingRoot: string | null = null
+
+  /** Live editing snapshot taken just before a re-render clears the tree. */
+  function snapshotEditing(): typeof editing {
+    if (!editing) return null
+    const input = tree.querySelector<HTMLInputElement>('.tree-name-input')
+    if (!input || !input.isConnected) return { ...editing }
+    return {
+      ...editing,
+      value: input.value,
+      caretStart: input.selectionStart ?? input.value.length,
+      caretEnd: input.selectionEnd ?? input.value.length
+    }
+  }
+
+  /** Rebuild the create/rename row a re-render wiped out. */
+  function restoreEditing(snapshot: NonNullable<typeof editing>): void {
+    editing = null
+    if (snapshot.kind === 'create') {
+      const parent = snapshot.anchor
+        ? ({
+            name: snapshot.anchor.split('/').pop() ?? snapshot.anchor,
+            path: snapshot.anchor,
+            kind: 'directory'
+          } as WorkspaceEntry)
+        : null
+      beginCreate(snapshot.entryKind, parent)
+    } else {
+      beginRename({
+        name: snapshot.originalName ?? '',
+        path: snapshot.anchor ?? '',
+        kind: snapshot.entryKind
+      })
+    }
+    const input = tree.querySelector<HTMLInputElement>('.tree-name-input')
+    if (!input) return
+    input.value = snapshot.value
+    // Restore the caret exactly where the re-render interrupted it — a
+    // blanket select-all would make the next keystroke wipe the typed text.
+    input.setSelectionRange(
+      snapshot.caretStart ?? snapshot.value.length,
+      snapshot.caretEnd ?? snapshot.value.length
+    )
+  }
 
   function showError(message: string): void {
     errorNote.textContent = message
@@ -91,14 +151,21 @@ export function mountFileTree(container: HTMLElement): void {
   async function renderRoot(): Promise<void> {
     const gen = (renderGen += 1)
     const expanded = collectExpanded()
-    clear(tree)
     const root = store.get().workspaceRoot
+    // A root switch invalidates the edit — its path points into the old
+    // tree; drop it instead of resurrecting it on a later switch back.
+    if (editing && editingRoot !== root) editing = null
+    // Workspace switches make any in-progress edit stale; a same-root
+    // refresh gets the edit rebuilt.
+    const pendingEdit = editing && editingRoot === root ? snapshotEditing() : null
+    clear(tree)
     if (!root) return
 
     try {
       const entries = await window.halis.readDir('')
       if (gen !== renderGen) return
       if (entries.length === 0) {
+        if (pendingEdit) restoreEditing(pendingEdit)
         const empty = el('div', 'tree-empty', 'This folder is empty.\nUse the buttons above to create files.')
         tree.appendChild(empty)
         return
@@ -106,6 +173,7 @@ export function mountFileTree(container: HTMLElement): void {
       for (const entry of entries) {
         tree.appendChild(renderEntry(entry, 0))
       }
+      if (pendingEdit) restoreEditing(pendingEdit)
       await restoreExpanded(gen, expanded)
     } catch (err) {
       if (gen !== renderGen) return
@@ -258,8 +326,17 @@ export function mountFileTree(container: HTMLElement): void {
     }
     input.focus()
 
+    // Tracked so a re-render (workspace:changed arrives constantly while
+    // the agent works) rebuilds the row instead of destroying the input.
+    editing = { kind: 'create', anchor: parent?.path ?? null, entryKind: kind, originalName: null, value: '' }
+    editingRoot = store.get().workspaceRoot
+
     const cancel = (): void => {
+      // A re-render already detached this row and rebuilt it elsewhere;
+      // only the live row's cancel may drop the tracking.
+      if (!row.isConnected) return
       row.remove()
+      editing = null
     }
 
     input.addEventListener('keydown', (event) => {
@@ -280,8 +357,11 @@ export function mountFileTree(container: HTMLElement): void {
       window.halis
         .createEntry(relPath, kind)
         .then(() => {
+          // The create reply always loses to the workspace:changed render
+          // that already detached this row — clear the tracking before the
+          // guarded cancel, or a phantom create input re-opens.
+          editing = null
           cancel()
-          // tree re-renders through workspace:changed
         })
         .catch((err) => {
           showError(errText(err))
@@ -307,8 +387,21 @@ export function mountFileTree(container: HTMLElement): void {
     input.focus()
     input.select()
 
+    // Clicks inside the input must not reach the row's own click handler —
+    // rows are buttons, and a caret reposition would open the file (or
+    // toggle the folder) mid-rename.
+    input.addEventListener('click', (event) => event.stopPropagation())
+
+    // Tracked so a re-render rebuilds the input instead of killing the rename.
+    editing = { kind: 'rename', anchor: entry.path, entryKind: entry.kind, originalName: entry.name, value: entry.name }
+    editingRoot = store.get().workspaceRoot
+
     const cancel = (): void => {
+      // Same detached-row rule as create: a re-render already rebuilt this
+      // input elsewhere, so the stale cancel must not clear its tracking.
+      if (!input.isConnected) return
       input.replaceWith(el('span', 'label', entry.name))
+      editing = null
     }
 
     input.addEventListener('keydown', (event) => {
@@ -331,7 +424,10 @@ export function mountFileTree(container: HTMLElement): void {
       const to = parent ? `${parent}/${name}` : name
       window.halis
         .renameEntry(entry.path, to)
-        .then(cancel)
+        .then(() => {
+          editing = null
+          cancel()
+        })
         .catch((err) => {
           showError(errText(err))
           cancel()
