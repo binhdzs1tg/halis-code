@@ -1,13 +1,16 @@
 {
-  "name": "@halis/cli",
+  "name": "halis-code",
   "version": "0.2.0",
-  "description": "Halis Code in the terminal",
-  "private": true,
+  "description": "Halis Code in the terminal — a coding agent TUI built on Ink",
   "license": "UNLICENSED",
   "type": "module",
   "bin": {
     "halis": "bin/halis.js"
   },
+  "files": [
+    "bin",
+    "README.md"
+  ],
   "engines": {
     "node": ">=20"
   },
@@ -18,16 +21,11 @@
     "start": "node bin/halis.js",
     "mock": "node scripts/mock-provider.mjs"
   },
-  "dependencies": {
+  "devDependencies": {
     "@halis/core": "*",
+    "@types/react": "^19.3.0",
+    "esbuild": "^0.28.2",
     "ink": "^8.0.0",
     "react": "^19.3.1"
-  },
-  "devDependencies": {
-    "@types/react": "^19.3.0",
-    "esbuild": "^0.28.2"
-  },
-  "allowScripts": {
-    "esbuild@0.28.2": true
   }
 }

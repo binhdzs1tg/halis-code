@@ -10,7 +10,7 @@ Monorepo, npm workspaces:
   `electron/main/agent/`, renderer in `src/`.
 - `packages/core` — agent loop, file tools, model catalog, provider client
   (`@halis/core`). Pure Node, no Electron imports.
-- `packages/cli` — terminal UI (`@halis/cli`, bin `halis`), built with Ink
+- `packages/cli` — terminal UI (`halis-code` on npm, bin `halis`), built with Ink
   and bundled by esbuild into `bin/halis.js`. Consumes `@halis/core`
   directly from source through tsconfig paths and an esbuild alias.
 
