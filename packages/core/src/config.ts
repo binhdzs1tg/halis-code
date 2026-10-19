@@ -30,8 +30,11 @@ export interface ConfigFile {
   provider?: string
   baseUrl?: string
   model?: string
+  variant?: string
   maxTurns?: number
   compactAt?: number
+  /** 'default' asks per bash call, 'auto' only for risky ones, 'yolo' never asks. */
+  permissions?: 'default' | 'auto' | 'yolo'
 }
 
 export interface ResolvedConfig {
@@ -40,14 +43,18 @@ export interface ResolvedConfig {
   baseUrl: string
   apiKey?: string
   model: string
+  variant?: string
   maxTurns: number
   compactAt: number
   demo: boolean
   keyEnv: string | null
+  permissions: 'default' | 'auto' | 'yolo'
+  /** provider/model when the model field carries one. */
+  spec?: string
 }
 
 export function configPath(): string {
-  return process.env.HALIS_CONFIG ?? path.join(os.homedir(), '.halis', 'config.json')
+  return process.env.HALIS_CONFIG ?? path.join(process.env.HALIS_HOME ?? os.homedir(), '.halis', 'config.json')
 }
 
 export function loadConfigFile(): ConfigFile {
@@ -64,7 +71,12 @@ export function resolveConfig(): ResolvedConfig {
   const preset = PRESETS[provider] ?? PRESETS[DEFAULT_PRESET]
   if (!preset) throw new Error(`unknown provider preset: ${provider}`)
   const baseUrl = envOr('HALIS_BASE_URL', file.baseUrl ?? preset.baseUrl)
-  const model = envOr('HALIS_MODEL', file.model ?? preset.model)
+  const rawModel = envOr('HALIS_MODEL', file.model ?? preset.model)
+  // A spec like provider/model#variant rides along; the catalog resolver in
+  // @halis/core turns it into a real endpoint when the cli loads its catalog.
+  const spec = rawModel.includes('/') || rawModel.includes('#') ? rawModel : undefined
+  const model = rawModel
+  const variant = file.variant ? envOr('HALIS_VARIANT', file.variant) : undefined
   const keyEnv = preset.keyEnv ?? 'HALIS_API_KEY'
 
   let apiKey = process.env.HALIS_API_KEY?.trim() || undefined
@@ -73,16 +85,22 @@ export function resolveConfig(): ResolvedConfig {
 
   const demo = !apiKey && provider !== 'ollama' && !baseUrl.includes('localhost') && !baseUrl.includes('127.0.0.1')
   const compactAt = file.compactAt ?? DEFAULT_COMPACT_AT
+  const permissionsRaw = process.env.HALIS_PERMISSIONS?.trim() || file.permissions || 'default'
+  const permissions: ResolvedConfig['permissions'] =
+    permissionsRaw === 'yolo' || permissionsRaw === 'auto' ? permissionsRaw : 'default'
   return {
     provider,
     label: preset.label,
     baseUrl,
     ...(apiKey ? { apiKey } : {}),
     model,
+    ...(variant ? { variant } : {}),
+    ...(spec ? { spec } : {}),
     maxTurns: file.maxTurns ?? DEFAULT_MAX_TURNS,
     compactAt,
     demo,
     keyEnv,
+    permissions,
   }
 }
 

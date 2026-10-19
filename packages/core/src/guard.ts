@@ -9,6 +9,10 @@
 /** Escalating nudge points; each level is only reminded once per chain. */
 const THRESHOLDS = [3, 5, 8] as const
 
+/** Identical calls past this point end the run — no reminder keeps helping
+ *  by now, and every further round costs tokens for the same answer. */
+export const BREAK_AT = 12
+
 /** Arguments shown in the detailed reminder, head-truncated. */
 const PREVIEW_CHARS = 500
 
@@ -41,6 +45,11 @@ export class RepeatGuard {
     this.key = null
     this.count = 0
     this.reminded.clear()
+  }
+
+  /** True while the current chain is at or past the hard-stop point. */
+  exceeded(): boolean {
+    return this.count >= BREAK_AT
   }
 
   /**

@@ -1,9 +1,17 @@
 import { build, context } from 'esbuild'
+import { mkdirSync, copyFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 const watchMode = process.argv.includes('--watch')
 
 const here = (p) => fileURLToPath(new URL(p, import.meta.url))
+
+// The bundled agent resolves the shipped models.dev snapshot next to itself.
+// Source-level runs (typecheck, smoke) read it straight from packages/core.
+function stageSnapshot() {
+  mkdirSync(here('./bin/models-dev'), { recursive: true })
+  copyFileSync(here('../core/assets/models-dev-snapshot.json'), here('./bin/models-dev/snapshot.json'))
+}
 
 const options = {
   entryPoints: [here('./src/main.tsx')],
@@ -29,10 +37,12 @@ const options = {
 }
 
 if (watchMode) {
+  stageSnapshot()
   const ctx = await context(options)
   await ctx.watch()
   console.log('watching for changes...')
 } else {
   await build(options)
+  stageSnapshot()
   console.log('build done -> bin/halis.js')
 }

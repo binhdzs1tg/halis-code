@@ -5,7 +5,7 @@ const TIMEOUT_MS = 15_000
 const MAX_BYTES = 2_000_000
 
 /** Hosts a fetch tool must never touch: loopback, link-local and RFC1918 space. */
-function isBlockedHost(hostname: string): boolean {
+export function isBlockedHost(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, '')
   if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.internal') || host.endsWith('.local')) {
     return true

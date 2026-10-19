@@ -1,6 +1,7 @@
 import { DEFAULT_COMPACT_AT, estimateTokens } from './config.js'
 import { compactTranscript } from './compact.js'
 import { RepeatGuard } from './guard.js'
+import { fitToolOutput } from './spill.js'
 import { streamChat } from './provider.js'
 import type { AgentRunOptions, ToolResult } from './types.js'
 
@@ -13,8 +14,11 @@ import type { AgentRunOptions, ToolResult } from './types.js'
  * Guardrails that keep long sessions honest:
  * - usage events report the provider's token counts each turn;
  * - the transcript compacts itself once it crosses the token budget;
- * - identical repeat calls earn an escalating reminder next to their result;
- * - declined calls are fed back instead of being silently skipped.
+ * - identical repeat calls earn an escalating reminder, then a hard stop;
+ * - declined calls are fed back instead of being silently skipped;
+ * - oversized tool results spill to disk behind a readable preview;
+ * - an abort or failure mid-batch still closes every pending tool call with
+ *   a synthetic result, so the transcript never carries a dangling tool_use.
  */
 export async function runAgent(opts: AgentRunOptions): Promise<void> {
   const { onEvent, signal } = opts
@@ -62,6 +66,12 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
         signal,
         wantUsage: true,
         onDelta: (text) => onEvent({ type: 'text-delta', text }),
+        ...(opts.provider.protocol ? { protocol: opts.provider.protocol } : {}),
+        ...(opts.provider.providerId ? { providerId: opts.provider.providerId } : {}),
+        ...(opts.provider.variant ? { variant: opts.provider.variant } : {}),
+        ...(opts.provider.maxTokens !== undefined ? { maxTokens: opts.provider.maxTokens } : {}),
+        ...(opts.provider.extraHeaders ? { extraHeaders: opts.provider.extraHeaders } : {}),
+        ...(opts.provider.extraBody ? { extraBody: opts.provider.extraBody } : {}),
         ...(opts.provider.apiKey ? { apiKey: opts.provider.apiKey } : {}),
       })
       if (res.usage) onEvent({ type: 'usage', input: res.usage.input, output: res.usage.output })
@@ -70,6 +80,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
         role: 'assistant',
         content: res.text,
         ...(res.toolCalls.length > 0 ? { toolCalls: res.toolCalls } : {}),
+        ...(res.thinkingBlocks && res.thinkingBlocks.length > 0 ? { thinkingBlocks: res.thinkingBlocks } : {}),
       }
       opts.messages.push(assistant)
 
@@ -78,6 +89,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
         return
       }
 
+      let stopped = false
       for (const call of res.toolCalls) {
         const started = Date.now()
         onEvent({ type: 'tool-start', call })
@@ -85,7 +97,9 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
         let allowed = true
         if (opts.approve) allowed = await opts.approve(call)
         let outcome: { output: string; ok: boolean }
-        if (!allowed) {
+        if (signal.aborted) {
+          outcome = { output: 'the run was interrupted before this call executed', ok: false }
+        } else if (!allowed) {
           outcome = { output: 'the user declined this call — continue without it or explain what you need', ok: false }
         } else {
           const tool = opts.tools.find((t) => t.spec.name === call.name)
@@ -95,6 +109,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
                 signal,
                 readFiles: opts.readFiles,
                 ...(opts.setTodos ? { setTodos: opts.setTodos } : {}),
+                ...(opts.askUser ? { askUser: opts.askUser } : {}),
               })
             : { output: `error: unknown tool "${call.name}"`, ok: false }
         }
@@ -103,11 +118,39 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
         const result: ToolResult = {
           callId: call.id,
           name: call.name,
-          output: reminder ? `${outcome.output}\n\n${reminder}` : outcome.output,
+          output: fitToolOutput(call.name, call.id, reminder ? `${outcome.output}\n\n${reminder}` : outcome.output),
           ok: outcome.ok,
         }
         onEvent({ type: 'tool-end', call, result, ms: Date.now() - started })
         opts.messages.push({ role: 'tool', toolCallId: call.id, content: result.output })
+
+        if (guard.exceeded()) {
+          onEvent({
+            type: 'notice',
+            text: 'the same tool call kept repeating — ending the run here instead of burning more tokens',
+          })
+          onEvent({ type: 'done', reason: 'repeat' })
+          return
+        }
+        if (signal.aborted) {
+          stopped = true
+          break
+        }
+      }
+
+      if (stopped) {
+        // Close every call that never ran, so the transcript never carries a
+        // tool_use without its result — the next request would be invalid.
+        for (const pending of res.toolCalls) {
+          if (opts.messages.some((m) => m.role === 'tool' && m.toolCallId === pending.id)) continue
+          opts.messages.push({
+            role: 'tool',
+            toolCallId: pending.id,
+            content: 'the run was interrupted before this call executed',
+          })
+        }
+        onEvent({ type: 'done', reason: 'aborted' })
+        return
       }
     }
   } catch (err) {
