@@ -53,7 +53,14 @@ export interface CompactOptions {
   messages: ChatMessage[]
   /** Token estimate that must be exceeded before anything happens. */
   compactAt: number
-  provider: { baseUrl: string; apiKey?: string; model: string }
+  provider: {
+    baseUrl: string
+    apiKey?: string
+    model: string
+    protocol?: 'openai' | 'anthropic'
+    providerId?: string
+    maxTokens?: number
+  }
   signal: AbortSignal
 }
 
@@ -90,7 +97,7 @@ export async function compactTranscript(opts: CompactOptions): Promise<number> {
 
 async function summarize(
   prefix: ChatMessage[],
-  provider: { baseUrl: string; apiKey?: string; model: string },
+  provider: CompactOptions['provider'],
   signal: AbortSignal,
 ): Promise<string> {
   const transcript = renderForSummary(prefix)
@@ -100,6 +107,9 @@ async function summarize(
     system: SUMMARY_SYSTEM,
     messages: [{ role: 'user', content: transcript }],
     signal,
+    ...(provider.protocol ? { protocol: provider.protocol } : {}),
+    ...(provider.providerId ? { providerId: provider.providerId } : {}),
+    ...(provider.maxTokens !== undefined ? { maxTokens: provider.maxTokens } : {}),
     ...(provider.apiKey ? { apiKey: provider.apiKey } : {}),
   })
   const text = res.text.trim()

@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import type {
   ModelCatalog,
   ModelCost,
@@ -204,11 +204,22 @@ async function writeCache(updatedAt: number, catalog?: RawCatalog): Promise<void
  * directory up from `src/catalog/`. `HALIS_MODELS_SNAPSHOT` wins over both.
  */
 function snapshotUrls(): URL[] {
-  if (process.env.HALIS_MODELS_SNAPSHOT) return [new URL(`file://${process.env.HALIS_MODELS_SNAPSHOT}`)]
-  return [
-    new URL('./models-dev/snapshot.json', import.meta.url),
-    new URL('../../assets/models-dev-snapshot.json', import.meta.url)
-  ]
+  if (process.env.HALIS_MODELS_SNAPSHOT) return [pathToFileURL(process.env.HALIS_MODELS_SNAPSHOT)]
+  const urls: URL[] = []
+  // The cli build stages the snapshot next to the bundle; source-level runs
+  // find it one directory up from src/catalog/. Either base can be missing
+  // in odd embedders, so each stays independently guarded.
+  try {
+    urls.push(new URL('./models-dev/snapshot.json', import.meta.url))
+  } catch {
+    // no resolvable module base here
+  }
+  try {
+    urls.push(new URL('../../assets/models-dev-snapshot.json', import.meta.url))
+  } catch {
+    // same
+  }
+  return urls
 }
 
 function readBundledSnapshot(): RawCatalog | null {

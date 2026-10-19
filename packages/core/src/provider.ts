@@ -313,13 +313,16 @@ async function* readSse(response: Response): AsyncGenerator<SseEvent> {
         const line = buffer.slice(0, newlineAt).replace(/\r$/, '')
         buffer = buffer.slice(newlineAt + 1)
         newlineAt = buffer.indexOf('\n')
-        if (line.startsWith('event:')) {
+        if (line === '') {
+          // Blank line = event terminator per the SSE spec; this is the
+          // only point where a complete event may be handed on.
+          const event = take()
+          if (event) yield event
+        } else if (line.startsWith('event:')) {
           eventName = line.slice(6).trim()
         } else if (line.startsWith('data:')) {
           dataLines.push(line.slice(5).trimStart())
         }
-        const event = take()
-        if (event) yield event
       }
     }
     const tail = take()

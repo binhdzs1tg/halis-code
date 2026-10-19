@@ -72,27 +72,20 @@ export function searchCatalog(catalog: ModelCatalog, query: string, limit = 20):
 
 /**
  * A popular, cheap first pick per well-known provider — the picker shows
- * these before the alphabetical flood when no query is typed.
+ * these before the alphabetical flood when no query is typed. Entries that
+ * drift out of the catalog fall back to the newest tool-calling models.
  */
 const FAVORITE_MODEL_IDS: Record<string, string[]> = {
   zai: ['glm-4.7', 'glm-4.7-flash', 'glm-4.6'],
   anthropic: ['claude-sonnet-4-5', 'claude-opus-4-5', 'claude-haiku-4-5'],
-  openai: ['gpt-5.1-codex', 'gpt-5.1', 'gpt-5-mini', 'gpt-4o'],
-  'openai-chatgpt': ['gpt-5.1-codex'],
-  deepseek: ['deepseek-chat', 'deepseek-reasoner'],
-  moonshot: ['kimi-k2-thinking', 'kimi-k2-0905-preview', 'kimi-k2-turbo-preview'],
-  moonshotai: ['kimi-k2-thinking'],
-  google: ['gemini-3-pro-preview', 'gemini-2.5-pro', 'gemini-2.5-flash'],
-  'google-vertex': ['gemini-2.5-pro'],
-  xai: ['grok-4', 'grok-code-fast-1', 'grok-3'],
-  groq: ['llama-3.3-70b-versatile'],
-  mistral: ['mistral-large-latest', 'devstral-medium-latest'],
-  openrouter: ['anthropic/claude-sonnet-4.5', 'openai/gpt-5.1'],
-  qwen: ['qwen3-coder-plus', 'qwen3-coder-flash'],
-  'qwen-oss': ['qwen3-coder-480b'],
-  minimax: ['MiniMax-M2'],
-  ollama: ['qwen3-coder'],
-  'github-copilot': ['gpt-5.1-codex']
+  openai: ['gpt-6.1-sol', 'gpt-6.1-sol-fast', 'gpt-6-sol'],
+  'openai-chatgpt': ['gpt-6.1-sol'],
+  deepseek: ['deepseek-v4-pro', 'deepseek-flash'],
+  moonshotai: ['kimi-k3', 'kimi-k2.7-code'],
+  google: ['gemini-4-argon', 'gemini-3.8-flash'],
+  'google-vertex': ['gemini-4-argon'],
+  xai: ['grok-4.7', 'grok-build-0.1'],
+  minimax: ['MiniMax-M2']
 }
 
 /**
@@ -122,16 +115,14 @@ const FAVORITE_PROVIDER_IDS = [
   'openai-chatgpt',
   'google',
   'deepseek',
-  'moonshot',
   'moonshotai',
   'xai',
-  'qwen',
+  'alibaba-coding-plan',
+  'alibaba',
   'minimax',
   'groq',
   'mistral',
   'openrouter',
-  'ollama',
-  'lmstudio',
   'azure'
 ]
 
@@ -146,8 +137,8 @@ export function favoriteProviders(catalog: ModelCatalog): ProviderEntry[] {
 }
 
 /** Endpoint resolution that also reports the failure mode as text. */
-export function describeEndpoint(provider: ProviderEntry, model: ModelEntry): string {
-  const resolution = resolveEndpoint(provider, model.providerApi ?? provider.api)
+export function describeEndpoint(provider: ProviderEntry, _model?: ModelEntry): string {
+  const resolution = resolveEndpoint(provider, _model?.providerApi ?? provider.api)
   if (resolution.kind === 'ok') return resolution.endpoint.base
   if (resolution.kind === 'missing-env') return `unreachable — set ${resolution.variable}`
   return 'unreachable — no api base known for this provider'

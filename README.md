@@ -11,8 +11,8 @@ This repository is a monorepo:
 apps/desktop    the Electron desktop app (sidebar, workspace rail, editor,
                 terminal, streaming chat, tool cards)
 packages/cli    the terminal UI — bin: halis
-packages/core   agent loop, file tools and provider client, shared by the
-                terminal side and reusable elsewhere
+packages/core   agent loop, file tools, model catalog and provider client,
+                shared by the terminal side and reusable elsewhere
 ```
 
 ## The terminal UI
@@ -21,15 +21,16 @@ packages/core   agent loop, file tools and provider client, shared by the
 programmer: a bordered composer with a command palette, a live spinner
 while the model thinks, tool cards with durations and output previews,
 bash approvals before anything destructive runs, and a status line with
-model and token usage straight from the provider. The primary color is
-blue and the mascot — the Halis penguin — sits in the corner of the
-welcome screen, redrawn pixel by pixel from the brand art with truecolor
-half-blocks.
+model, context usage and session cost straight from the catalog. The
+primary color is blue and the mascot — the Halis penguin — sits in the
+corner of the welcome screen, redrawn pixel by pixel from the brand art
+with truecolor half-blocks.
 
 The session rides the same guardrails the product promises: the
 transcript compacts itself into a summary before the context window
-fills, identical repeat calls earn an escalating warning instead of
-looping forever, and the conversation is checkpointed to
+fills, identical repeat calls earn escalating warnings and then a hard
+stop, oversized tool output spills to a readable file instead of
+truncating silently, and the conversation is checkpointed to
 `~/.halis/sessions` after every turn, so `halis -c` picks it back up
 after a restart.
 
@@ -42,39 +43,76 @@ npm run build -w @halis/cli
 
 node packages/cli/bin/halis.js            # interactive session
 node packages/cli/bin/halis.js -p "summarize this repo"
+node packages/cli/bin/halis.js -p --json "fix the test"   # jsonl event stream
 node packages/cli/bin/halis.js -c          # continue the last session here
-node packages/cli/bin/halis.js mascot     # the penguin, full size
+node packages/cli/bin/halis.js sessions    # list stored sessions
+node packages/cli/bin/halis.js mascot      # the penguin, full size
 ```
 
 Or link it once with `npm link -w @halis/cli` and just run `halis`.
 
 ### Slash commands
 
-| command     | what it does                              |
-| ----------- | ----------------------------------------- |
-| `/help`     | list every command                        |
-| `/model`    | show or switch the model                  |
-| `/provider` | switch provider preset                    |
-| `/mascot`   | say hi to the penguin                     |
-| `/init`     | write an `AGENTS.md` for the current repo |
-| `/status`   | config, key and session info              |
-| `/clear`    | drop the conversation context             |
-| `/exit`     | quit                                      |
+| command     | what it does                                        |
+| ----------- | --------------------------------------------------- |
+| `/help`     | list every command                                  |
+| `/model`    | pick a model from the catalog (search + variants)   |
+| `/models`   | the same picker, alias                              |
+| `/provider` | switch provider preset (zai, deepseek, groq, …)     |
+| `/diff`     | git diff of the working tree                        |
+| `/compact`  | compact the transcript now                          |
+| `/resume`   | pick an earlier session to load                     |
+| `/title`    | rename this session (auto-titled after turn one)    |
+| `/export`   | write the transcript to markdown                    |
+| `/usage`    | token totals and estimated cost                     |
+| `/skills`   | list installed skills                               |
+| `/yolo`     | toggle command approvals off (careful)              |
+| `/doctor`   | check config, key, catalog and endpoint             |
+| `/init`     | write an `AGENTS.md` for the current repo           |
+| `/status`   | config, key and session info                        |
+| `/mascot`   | say hi to the penguin                               |
+| `/clear`    | drop the conversation context                       |
+| `/exit`     | quit (or ctrl+c twice)                              |
 
 ![the command palette filtering on /pro](packages/cli/docs/commands.png)
 
-### Providers
+### Providers and models
 
-The CLI speaks the OpenAI chat-completions wire format with streaming and
-tool calls. Providers ship as presets: `zai` (default, GLM 4.7 Flash),
-`deepseek`, `moonshot`, `groq`, `openai`, `openrouter`, `ollama`. Point it
-at anything compatible with `HALIS_BASE_URL` + `HALIS_API_KEY` + `HALIS_MODEL`,
-or persist choices in `~/.halis/config.json`. Without a key the CLI runs in
-a clearly labeled demo mode so the interface is still explorable.
+The whole models.dev catalog ships in the box: 200+ providers and 8000+
+models, bundled as a snapshot and refreshed in the background with an
+ETag-cached revalidation. `/model` opens a searchable picker; the CLI
+takes the same spec anywhere a model is asked for:
 
-The agent's toolkit is `ls`, `read`, `write`, `edit`, `glob`, `grep`,
-`bash`, `web_fetch` (plain-text page fetcher that refuses private
-addresses) and `todo_write` (the plan card you see above).
+```sh
+halis -m anthropic/claude-sonnet-4-5#high      # provider/model plus reasoning variant
+halis -m glm-4.7-flash                          # bare ids search the favorites first
+halis --yolo "run the whole migration"          # no approval prompts
+```
+
+Both wire protocols are supported: OpenAI-style chat completions for
+most providers and Anthropic messages with thinking blocks for the
+Anthropic family, chosen from the catalog data instead of a hand-listed
+table. Keys come from each provider's documented environment variable
+(`ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, …) or plain `HALIS_API_KEY`.
+The classic presets (`zai`, `deepseek`, `moonshot`, `groq`, `openai`,
+`openrouter`, `ollama`) still work through `/provider` and
+`HALIS_BASE_URL` + `HALIS_MODEL` for anything self-hosted. Without a
+key the CLI runs in a clearly labeled demo mode so the interface is
+still explorable.
+
+### The agent's toolkit
+
+`ls`, `read`, `write`, `edit`, `glob`, `grep`, `bash` (with
+`run_in_background` and timeout promotion to background jobs),
+`job_output` and `job_kill` for those jobs, `web_fetch` (plain-text page
+fetcher that refuses private addresses), `web_search` (keyless,
+DuckDuckGo-backed), `todo_write` (the plan card you see above), `skill`
+(progressive-disclosure skills from `.halis/skills/*/SKILL.md`),
+`ask_user` (a question card when a decision is genuinely yours) and
+`task` (a subagent that explores with its own context and reports back).
+
+Type `!command` in the composer to run something in your own shell,
+without the model in the middle.
 
 ### Developing without a key
 
@@ -123,9 +161,12 @@ apps/desktop/
   src/                    renderer: sidebar, conversation, workspace rail
   scripts/                build + smoke tests
 packages/core/
-  src/                    types, agent loop, provider, prompt, config, tools
+  src/                    types, agent loop, provider (both wire protocols),
+                          catalog, prompt, config, spill, guard, tools
+  assets/                 the bundled models.dev snapshot
 packages/cli/
-  src/                    ink app, composer, command palette, mascot renderer
+  src/                    ink app, composer, model picker, command palette,
+                          session store, mascot renderer
   build.mjs               esbuild bundling into bin/halis.js
 ```
 
