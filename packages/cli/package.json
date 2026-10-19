@@ -1,0 +1,32 @@
+{
+  "name": "@halis/cli",
+  "version": "0.1.0",
+  "description": "Halis Code in the terminal",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "bin": {
+    "halis": "bin/halis.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node build.mjs --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node bin/halis.js"
+  },
+  "dependencies": {
+    "@halis/core": "*",
+    "ink": "^8.0.0",
+    "react": "^19.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "esbuild": "^0.28.2"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}
