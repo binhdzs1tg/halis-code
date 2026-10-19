@@ -1,30 +1,25 @@
 {
   "name": "halis-code",
   "version": "0.1.0",
-  "description": "Halis Code - desktop coding agent",
-  "main": "dist/main/index.js",
   "private": true,
+  "description": "Halis Code — coding agent for the desktop and the terminal",
   "license": "UNLICENSED",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
-    "build": "node scripts/build.mjs",
-    "dev": "node scripts/build.mjs && electron .",
-    "start": "electron .",
-    "watch": "node scripts/build.mjs --watch",
-    "sync-models": "node scripts/sync-models.mjs",
-    "smoke": "esbuild scripts/smoke.ts --bundle --platform=node --format=cjs --outfile=dist/smoke.cjs --log-level=error && node dist/smoke.cjs"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "build": "npm run build -w @halis/cli && npm run build -w @halis/desktop",
+    "dev:desktop": "npm run dev -w @halis/desktop",
+    "dev:cli": "npm run dev -w @halis/cli",
+    "cli": "node packages/cli/bin/halis.js"
   },
   "devDependencies": {
-    "@types/node": "^24.10.1",
-    "electron": "^44.7.0",
-    "esbuild": "^0.28.2",
-    "typescript": "7.0.2"
-  },
-  "allowScripts": {
-    "esbuild@0.28.2": true,
-    "electron@44.7.0": true
+    "@types/node": "^24.19.2",
+    "typescript": "^7.0.2"
   }
 }
