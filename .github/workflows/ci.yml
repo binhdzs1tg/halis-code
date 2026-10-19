@@ -1,0 +1,48 @@
+name: ci
+
+# Every push and pull request: typecheck and both smoke suites on the three
+# platforms the product ships on. The smoke tests are quote-free and
+# platform-aware on purpose — they run against cmd.exe on windows and the
+# login shell on unix, so a cross-platform regression fails here before it
+# ships, not in a user's terminal.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+        env:
+          # the smoke suites run in plain node; the electron binary would be
+          # dead weight here
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Core smoke
+        run: npm run smoke -w @halis/core
+
+      - name: Desktop smoke
+        run: npm run smoke -w @halis/desktop
