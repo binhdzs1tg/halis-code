@@ -6,7 +6,7 @@
   "homepage": "https://github.com/binhdzs1tg/halis-code",
   "desktopName": "halis-code.desktop",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
   "author": "binhdzs1tg",
   "engines": {
     "node": ">=20"

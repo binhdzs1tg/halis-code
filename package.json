@@ -2,8 +2,8 @@
   "name": "@halis/monorepo",
   "version": "0.1.0",
   "private": true,
-  "description": "Halis Code — coding agent for the desktop and the terminal",
-  "license": "UNLICENSED",
+  "description": "Halis Code \u2014 coding agent for the desktop and the terminal",
+  "license": "MIT",
   "workspaces": [
     "apps/*",
     "packages/*"

@@ -1,8 +1,8 @@
 {
   "name": "halis-code",
   "version": "0.2.0",
-  "description": "Halis Code in the terminal — a coding agent TUI built on Ink",
-  "license": "UNLICENSED",
+  "description": "Halis Code in the terminal \u2014 a coding agent TUI built on Ink",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "halis": "bin/halis.js"

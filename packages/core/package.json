@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "description": "Agent loop, file tools and provider client for Halis Code",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=20"
