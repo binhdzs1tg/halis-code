@@ -1,0 +1,68 @@
+name: npm publish
+
+# Runs when a release is published. Sets the package version from the tag
+# (v0.2.0 -> 0.2.0), builds the cli bundle and publishes it to npm.
+#
+# Auth works two ways:
+#   - NPM_TOKEN repo secret (set up already) -> publish with token + provenance
+#   - no secret -> publish over OIDC trusted publishing (npm >= 11.5). To use
+#     it, delete the NPM_TOKEN secret and add a trusted publisher for this
+#     repo + workflow on npmjs.com (package settings). The publish step
+#     itself needs no changes.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: publish halis-code to npm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      # trusted publishing needs npm >= 11.5, node 22 ships an older one
+      - name: Update npm
+        run: npm install -g npm@latest
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+
+      - name: Version from the release tag
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VER="${TAG#v}"
+          if [[ ! "$VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::warning::tag '$TAG' is not a semver — keeping the version already in package.json"
+            exit 0
+          fi
+          node -e "
+            const fs = require('fs');
+            const f = 'packages/cli/package.json';
+            const p = JSON.parse(fs.readFileSync(f, 'utf8'));
+            p.version = '$VER';
+            fs.writeFileSync(f, JSON.stringify(p, null, 2) + '\n');
+            console.log('halis-code ' + p.version);
+          "
+          sed -i "s/export const VERSION = .*/export const VERSION = '$VER'/" packages/cli/src/version.ts
+
+      - name: Build
+        run: npm run build -w halis-code
+
+      - name: Publish
+        run: npm publish --provenance
+        working-directory: packages/cli
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

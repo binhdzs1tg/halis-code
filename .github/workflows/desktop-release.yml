@@ -1,0 +1,87 @@
+name: desktop release
+
+# Runs when a release is published (and on demand for a dry run). Builds the
+# Electron app on all three platforms in parallel and attaches the installers
+# to the release: dmg (mac, arm64 + x64), deb + AppImage (linux), exe (windows).
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+        env:
+          # electron-builder fetches its own electron zips, the binary in
+          # node_modules would be dead weight
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+
+      - name: Version from the release tag
+        if: github.event_name == 'release'
+        shell: bash
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          VER="${TAG#v}"
+          if [[ ! "$VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::warning::tag '$TAG' is not a semver — keeping the version already in package.json"
+            exit 0
+          fi
+          node -e "
+            const fs = require('fs');
+            const f = 'apps/desktop/package.json';
+            const p = JSON.parse(fs.readFileSync(f, 'utf8'));
+            p.version = '$VER';
+            fs.writeFileSync(f, JSON.stringify(p, null, 2) + '\n');
+            console.log('@halis/desktop ' + p.version);
+          "
+
+      - name: Build
+        run: npm run build -w @halis/desktop
+
+      - name: Package
+        run: npx electron-builder --publish never
+        working-directory: apps/desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Upload artifacts (manual runs)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: halis-code-desktop-${{ matrix.os }}
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.deb
+            apps/desktop/release/*.AppImage
+          if-no-files-found: error
+
+      - name: Attach to the release
+        if: github.event_name == 'release'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          shopt -s nullglob
+          files=(apps/desktop/release/*.dmg apps/desktop/release/*.exe apps/desktop/release/*.deb apps/desktop/release/*.AppImage)
+          gh release upload "${{ github.event.release.tag_name }}" "${files[@]}" --clobber --repo "${{ github.repository }}"

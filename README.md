@@ -36,10 +36,19 @@ after a restart.
 
 ![a halis session mid-run](packages/cli/docs/tui.png)
 
+Install from npm (the cli bundles everything it needs):
+
+```sh
+npm install -g halis-code
+halis
+```
+
+Or run it straight from a clone of the repo:
+
 ```sh
 # from the repo root
-npm install -w @halis/core -w @halis/cli
-npm run build -w @halis/cli
+npm install -w halis-code
+npm run build -w halis-code
 
 node packages/cli/bin/halis.js            # interactive session
 node packages/cli/bin/halis.js -p "summarize this repo"
@@ -49,7 +58,7 @@ node packages/cli/bin/halis.js sessions    # list stored sessions
 node packages/cli/bin/halis.js mascot      # the penguin, full size
 ```
 
-Or link it once with `npm link -w @halis/cli` and just run `halis`.
+Or link it once with `npm link -w halis-code` and just run `halis`.
 
 ### Slash commands
 
@@ -120,7 +129,7 @@ A scripted OpenAI-compatible provider ships with the cli, so the tui can
 be exercised end to end — tools, plan cards, usage tokens and all:
 
 ```sh
-npm run mock -w @halis/cli                                    # listens on :8787
+npm run mock -w halis-code                                     # listens on :8787
 HALIS_BASE_URL=http://localhost:8787/v1 HALIS_API_KEY=mock \
   node packages/cli/bin/halis.js
 ```
@@ -182,3 +191,19 @@ npm run dev:desktop    # watch + launch the desktop app
 npm run smoke -w @halis/core      # the terminal-side loop against a scripted provider
 npm run smoke -w @halis/desktop   # algorithm smoke tests
 ```
+
+## Releases
+
+Cutting a release is one step: publish a GitHub release with a semver tag
+(`v0.3.0`). Two workflows pick it up and run in parallel:
+
+- **npm publish** — sets `halis-code` to the tag's version, builds the
+  bundle and publishes to npm with provenance. Auth goes through the
+  `NPM_TOKEN` secret, or OIDC trusted publishing once the package has a
+  trusted publisher configured on npmjs.com.
+- **desktop release** — builds the Electron app on macOS, Linux and Windows
+  at the same time and attaches the installers to the release: `.dmg`
+  (arm64 + x64), `.deb` + `.AppImage`, and the NSIS `.exe` setup.
+
+The desktop workflow also runs on demand from the Actions tab (`Run
+workflow`) when you want a packaging dry run without cutting a release.
