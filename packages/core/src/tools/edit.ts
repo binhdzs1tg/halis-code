@@ -3,6 +3,17 @@ import path from 'node:path'
 import type { Tool, ToolContext, ToolOutcome } from '../types.js'
 import { countOccurrences } from '../util.js'
 
+/** Line endings the file uses, so a replacement written with \n does not
+ *  mixed-end a CRLF file (and a CRLF paste does not mixed-end an LF file).
+ *  Mirrors the desktop's edit tier: the match context decides, a single
+ *  stray \r does not. */
+function adaptEndings(content: string, text: string): string {
+  if (!text.includes('\n')) return text
+  if (content.includes('\r\n')) return text.replace(/\r?\n/g, '\r\n')
+  if (!content.includes('\r')) return text.replace(/\r?\n/g, '\n')
+  return text
+}
+
 export const editTool: Tool = {
   spec: {
     name: 'edit',
@@ -39,7 +50,22 @@ export const editTool: Tool = {
       return { output: `error: file not found: ${file}`, ok: false }
     }
 
-    const hits = countOccurrences(text, oldString)
+    // Exact match first; when that fails and the file uses CRLF, retry with
+    // the old string's newlines folded the way the file stores them — the
+    // model reads lines with the carriage returns stripped, so its
+    // old_string carries \n even on a \r\n file.
+    let needle = oldString
+    let hits = countOccurrences(text, needle)
+    if (hits === 0) {
+      const folded = adaptEndings(text, oldString)
+      if (folded !== oldString) {
+        const foldedHits = countOccurrences(text, folded)
+        if (foldedHits > 0) {
+          needle = folded
+          hits = foldedHits
+        }
+      }
+    }
     if (hits === 0) {
       return { output: 'error: old_string not found in the file — copy it exactly from a fresh read', ok: false }
     }
@@ -52,7 +78,8 @@ export const editTool: Tool = {
       }
     }
 
-    const updated = replaceAll ? text.split(oldString).join(newString) : text.replace(oldString, newString)
+    const replacement = adaptEndings(text, newString)
+    const updated = replaceAll ? text.split(needle).join(replacement) : text.replace(needle, replacement)
     await writeFile(file, updated, 'utf8')
 
     const added = newString === '' ? 0 : newString.split('\n').length

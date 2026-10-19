@@ -37,8 +37,11 @@ export async function* walk(root: string, signal?: AbortSignal): AsyncGenerator<
   }
 }
 
-/** Compile a glob pattern (*, **, ?) into a RegExp over POSIX-style paths. */
-export function globToRegExp(pattern: string): RegExp {
+/** Compile a glob pattern (*, **, ?) into a RegExp over POSIX-style paths.
+ *  Pass ignoreCase where the filesystem under the search does not care
+ *  about case (windows always, macos by default) so README.md finds
+ *  readme.md the way the platform's own tools would. */
+export function globToRegExp(pattern: string, options: { ignoreCase?: boolean } = {}): RegExp {
   let re = ''
   for (let i = 0; i < pattern.length; i++) {
     const ch = pattern[i]
@@ -60,7 +63,13 @@ export function globToRegExp(pattern: string): RegExp {
       re += ch
     }
   }
-  return new RegExp(`(?:^|/)${re}$`)
+  return new RegExp(`(?:^|/)${re}$`, options.ignoreCase === true ? 'i' : '')
+}
+
+/** True where the filesystem matches names without caring about case —
+ *  windows always, macos by default (case-preserving HFS+/APFS). */
+export function fsIgnoresCase(platform: NodeJS.Platform = process.platform): boolean {
+  return platform === 'win32' || platform === 'darwin'
 }
 
 export function headTail(text: string, head: number, tail: number): string {

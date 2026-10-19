@@ -1,6 +1,6 @@
 import path from 'node:path'
 import type { Tool, ToolContext, ToolOutcome } from '../types.js'
-import { globToRegExp, walk } from '../util.js'
+import { fsIgnoresCase, globToRegExp, walk } from '../util.js'
 
 const MAX_RESULTS = 200
 
@@ -23,7 +23,7 @@ export const globTool: Tool = {
     const pattern = typeof input.pattern === 'string' ? input.pattern : ''
     if (!pattern.trim()) return { output: 'error: pattern is required', ok: false }
     const base = path.resolve(ctx.cwd, typeof input.path === 'string' && input.path.trim() ? input.path : '.')
-    const re = globToRegExp(pattern)
+    const re = globToRegExp(pattern, { ignoreCase: fsIgnoresCase() })
     const matches: string[] = []
     for await (const file of walk(base, ctx.signal)) {
       const rel = path.relative(base, file).split(path.sep).join('/')

@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { Tool, ToolContext, ToolOutcome } from '../types.js'
-import { globToRegExp, truncateLine, walk } from '../util.js'
+import { fsIgnoresCase, globToRegExp, truncateLine, walk } from '../util.js'
 
 const MAX_MATCHES = 200
 const CONTEXT_WIDTH = 240
@@ -32,7 +32,10 @@ export const grepTool: Tool = {
     } catch (err) {
       return { output: `error: invalid pattern: ${String(err)}`, ok: false }
     }
-    const includeRe = typeof input.include === 'string' && input.include.trim() ? globToRegExp(input.include) : null
+    const includeRe =
+      typeof input.include === 'string' && input.include.trim()
+        ? globToRegExp(input.include, { ignoreCase: fsIgnoresCase() })
+        : null
     const base = path.resolve(ctx.cwd, typeof input.path === 'string' && input.path.trim() ? input.path : '.')
 
     const out: string[] = []
@@ -47,7 +50,9 @@ export const grepTool: Tool = {
       } catch {
         continue
       }
-      const lines = text.split('\n')
+      // CRLF files: the carriage return would ride along on every line and
+      // break $ anchors.
+      const lines = text.split(/\r?\n/)
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i]
         if (line === undefined) continue

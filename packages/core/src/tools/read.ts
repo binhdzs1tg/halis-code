@@ -40,7 +40,9 @@ export const readTool: Tool = {
       return { output: `binary file, ${info.size} bytes — not shown`, ok: true }
     }
 
-    const lines = bytes.toString('utf8').split('\n')
+    // CRLF files read clean: the carriage returns would pollute every line
+    // the model quotes back through the edit tool.
+    const lines = bytes.toString('utf8').split(/\r?\n/)
     if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
     const total = lines.length
     const offsetRaw = typeof input.offset === 'number' ? input.offset : 1

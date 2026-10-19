@@ -73,6 +73,7 @@ export {
   countOccurrences,
   fileExists,
   formatSize,
+  fsIgnoresCase,
   globToRegExp,
   headTail,
   truncateLine,

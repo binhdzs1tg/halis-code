@@ -5,12 +5,20 @@
 import assert from 'node:assert/strict'
 import http from 'node:http'
 import { once } from 'node:events'
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { AddressInfo } from 'node:net'
 import { RepeatGuard } from '../src/guard.js'
 import { safeCut } from '../src/compact.js'
 import { streamChat } from '../src/provider.js'
 import { fitToolOutput, isSpillPath, readSpill } from '../src/spill.js'
+import { resolveShell } from '../src/shell.js'
+import { killJob, listJobs } from '../src/tools/background.js'
+import { bashTool } from '../src/tools/bash.js'
+import { editTool } from '../src/tools/edit.js'
+import { readTool } from '../src/tools/read.js'
+import { fsIgnoresCase, globToRegExp } from '../src/util.js'
 import {
   runAgent,
   defaultTools,
@@ -531,6 +539,123 @@ async function main(): Promise<void> {
     assert.equal(results[0]?.url, 'https://example.com/a')
     assert.equal(results[0]?.title, 'Example A')
     assert.equal(results[0]?.snippet, 'the & snippet')
+  })
+
+  await test('shell resolution adapts to the platform', () => {
+    const win = resolveShell('win32', {})
+    if (win.style !== 'cmdline') throw new Error('windows must spawn through the shell option')
+    assert.equal(win.shell, 'cmd.exe')
+    assert.equal(win.label, 'cmd')
+
+    const comspec = resolveShell('win32', { ComSpec: 'C:\\Windows\\system32\\cmd.exe' })
+    if (comspec.style !== 'cmdline') throw new Error('ComSpec belongs on the cmdline style')
+    assert.equal(comspec.shell, 'C:\\Windows\\system32\\cmd.exe')
+
+    const mac = resolveShell('darwin', { SHELL: '/bin/zsh' })
+    if (mac.style !== 'argv') throw new Error('unix shells spawn argv style')
+    assert.equal(mac.program, '/bin/zsh')
+    assert.deepEqual(mac.args, ['-c'])
+    assert.equal(mac.label, 'zsh')
+
+    const forced = resolveShell('linux', { HALIS_SHELL: '/usr/local/bin/fish' })
+    if (forced.style !== 'argv') throw new Error('a forced shell always spawns argv style on unix')
+    assert.equal(forced.program, '/usr/local/bin/fish')
+    assert.equal(forced.label, 'fish')
+
+    const gitBash = resolveShell('win32', { HALIS_SHELL: 'C:\\Program Files\\Git\\bin\\bash.exe' })
+    if (gitBash.style !== 'argv') throw new Error('git bash takes -c like any posix shell')
+    assert.equal(gitBash.program, 'C:\\Program Files\\Git\\bin\\bash.exe')
+    assert.deepEqual(gitBash.args, ['-c'])
+    assert.equal(gitBash.label, 'bash')
+
+    const pwsh = resolveShell('win32', { HALIS_SHELL: 'C:\\Program Files\\PowerShell\\7\\pwsh.exe' })
+    if (pwsh.style !== 'argv') throw new Error('pwsh takes -Command')
+    assert.deepEqual(pwsh.args, ['-NoProfile', '-NonInteractive', '-Command'])
+
+    const bare = resolveShell('linux', {})
+    if (bare.style !== 'argv') throw new Error('unix without env still spawns argv style')
+    assert.deepEqual(bare.args, ['-c'])
+    assert.ok(bare.program.length > 0, 'a login shell or /bin/bash always stands in')
+  })
+
+  await test('the bash tool runs through the resolved shell', async () => {
+    const res = await bashTool.run(
+      // no quotes anywhere: every shell on the three platforms parses this
+      { command: 'node -p 40+2' },
+      { cwd: process.cwd(), signal: NO_SIGNAL, readFiles: new Set<string>() },
+    )
+    assert.equal(res.ok, true)
+    assert.ok(res.output.includes('42'), `unexpected output: ${res.output}`)
+  })
+
+  await test('a timed-out command is promoted to a background job, not killed', async () => {
+    // quote-free wait commands: node -e quoting through cmd.exe is exactly
+    // the mess this avoids
+    const hang = process.platform === 'win32' ? 'ping -n 6 127.0.0.1' : 'sleep 5'
+    const res = await bashTool.run(
+      { command: hang, timeout_ms: 1000 },
+      { cwd: process.cwd(), signal: NO_SIGNAL, readFiles: new Set<string>() },
+    )
+    assert.equal(res.ok, false)
+    assert.ok(res.output.includes('background job'), `unexpected output: ${res.output}`)
+    const id = res.output.match(/job (sh-[0-9a-f]+)/)?.[1]
+    assert.ok(id, 'the notice carries the job id')
+    assert.ok(listJobs().some((j) => j.id === id), 'the promoted job is listed')
+    assert.equal(killJob(id), true)
+  })
+
+  await test('edit folds line endings to what the file already uses', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'halis-crlf-'))
+    const file = path.join(dir, 'notes.md')
+    await writeFile(file, 'alpha\r\nbeta\r\ngamma\r\n', 'utf8')
+    const ctx = { cwd: dir, signal: NO_SIGNAL, readFiles: new Set<string>([file]) }
+
+    // old_string written with plain \n must still find its \r\n home
+    const folded = await editTool.run(
+      { file_path: file, old_string: 'beta\ngamma', new_string: 'two\nthree' },
+      ctx,
+    )
+    assert.equal(folded.ok, true, folded.output)
+    assert.equal(await readFile(file, 'utf8'), 'alpha\r\ntwo\r\nthree\r\n')
+
+    // a single-line swap keeps the file's endings untouched
+    const single = await editTool.run({ file_path: file, old_string: 'alpha', new_string: 'one' }, ctx)
+    assert.equal(single.ok, true, single.output)
+
+    // a crlf paste does not mixed-end an lf file
+    const lfFile = path.join(dir, 'lf.md')
+    await writeFile(lfFile, 'one\ntwo\n', 'utf8')
+    const lf = await editTool.run(
+      { file_path: lfFile, old_string: 'one', new_string: 'X\r\nY' },
+      { cwd: dir, signal: NO_SIGNAL, readFiles: new Set<string>([lfFile]) },
+    )
+    assert.equal(lf.ok, true, lf.output)
+    assert.equal(await readFile(lfFile, 'utf8'), 'X\nY\ntwo\n')
+  })
+
+  await test('read strips carriage returns from crlf files', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'halis-read-'))
+    const file = path.join(dir, 'crlf.txt')
+    await writeFile(file, 'first line\r\nsecond line\r\n', 'utf8')
+    const res = await readTool.run(
+      { file_path: file },
+      { cwd: dir, signal: NO_SIGNAL, readFiles: new Set<string>() },
+    )
+    assert.equal(res.ok, true)
+    assert.ok(res.output.includes('first line'))
+    assert.ok(res.output.includes('second line'))
+    assert.ok(!res.output.includes('\r'), 'no carriage returns ride along on lines')
+  })
+
+  await test('globs follow the filesystem case sensitivity', () => {
+    const relaxed = globToRegExp('README.md', { ignoreCase: true })
+    assert.ok(relaxed.test('readme.md'))
+    assert.ok(relaxed.test('src/Readme.Md'))
+    const strict = globToRegExp('README.md')
+    assert.ok(!strict.test('readme.md'))
+    assert.equal(fsIgnoresCase('win32'), true)
+    assert.equal(fsIgnoresCase('darwin'), true)
+    assert.equal(fsIgnoresCase('linux'), false)
   })
 
   console.log(failures.length === 0 ? `\nall ${passed} tests passed` : `\n${failures.length} failed, ${passed} passed`)
