@@ -21,9 +21,19 @@ packages/core   agent loop, file tools and provider client, shared by the
 programmer: a bordered composer with a command palette, a live spinner
 while the model thinks, tool cards with durations and output previews,
 bash approvals before anything destructive runs, and a status line with
-model and token usage. The primary color is blue and the mascot — the
-Halis penguin — sits in the corner of the welcome screen, redrawn pixel
-by pixel from the brand art with truecolor half-blocks.
+model and token usage straight from the provider. The primary color is
+blue and the mascot — the Halis penguin — sits in the corner of the
+welcome screen, redrawn pixel by pixel from the brand art with truecolor
+half-blocks.
+
+The session rides the same guardrails the product promises: the
+transcript compacts itself into a summary before the context window
+fills, identical repeat calls earn an escalating warning instead of
+looping forever, and the conversation is checkpointed to
+`~/.halis/sessions` after every turn, so `halis -c` picks it back up
+after a restart.
+
+![a halis session mid-run](packages/cli/docs/tui.png)
 
 ```sh
 # from the repo root
@@ -32,6 +42,7 @@ npm run build -w @halis/cli
 
 node packages/cli/bin/halis.js            # interactive session
 node packages/cli/bin/halis.js -p "summarize this repo"
+node packages/cli/bin/halis.js -c          # continue the last session here
 node packages/cli/bin/halis.js mascot     # the penguin, full size
 ```
 
@@ -50,6 +61,8 @@ Or link it once with `npm link -w @halis/cli` and just run `halis`.
 | `/clear`    | drop the conversation context             |
 | `/exit`     | quit                                      |
 
+![the command palette filtering on /pro](packages/cli/docs/commands.png)
+
 ### Providers
 
 The CLI speaks the OpenAI chat-completions wire format with streaming and
@@ -58,6 +71,21 @@ tool calls. Providers ship as presets: `zai` (default, GLM 4.7 Flash),
 at anything compatible with `HALIS_BASE_URL` + `HALIS_API_KEY` + `HALIS_MODEL`,
 or persist choices in `~/.halis/config.json`. Without a key the CLI runs in
 a clearly labeled demo mode so the interface is still explorable.
+
+The agent's toolkit is `ls`, `read`, `write`, `edit`, `glob`, `grep`,
+`bash`, `web_fetch` (plain-text page fetcher that refuses private
+addresses) and `todo_write` (the plan card you see above).
+
+### Developing without a key
+
+A scripted OpenAI-compatible provider ships with the cli, so the tui can
+be exercised end to end — tools, plan cards, usage tokens and all:
+
+```sh
+npm run mock -w @halis/cli                                    # listens on :8787
+HALIS_BASE_URL=http://localhost:8787/v1 HALIS_API_KEY=mock \
+  node packages/cli/bin/halis.js
+```
 
 ## The desktop app
 
@@ -110,5 +138,6 @@ npm run typecheck      # all workspaces
 npm run build          # core -> cli -> desktop
 npm run dev:cli        # watch mode for the terminal ui
 npm run dev:desktop    # watch + launch the desktop app
+npm run smoke -w @halis/core      # the terminal-side loop against a scripted provider
 npm run smoke -w @halis/desktop   # algorithm smoke tests
 ```

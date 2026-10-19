@@ -27,6 +27,10 @@ From the repo root:
   parsing, edit matching, tool input repair, spill, the read-before-edit
   gate, git info, background jobs, subagents, the mcp client). Run it after
   touching anything under `apps/desktop/electron/main/agent/`.
+- `npm run smoke -w @halis/core` — the terminal-side loop against a
+  scripted local provider (repeat guard, compaction cut points, usage
+  parsing, the tool wiring). Run it after touching `packages/core` or
+  anything in `packages/cli` that feeds the loop.
 
 ## Conventions
 
