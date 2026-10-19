@@ -1,98 +1,114 @@
 # Halis Code
 
-Halis Code is a desktop coding agent built on Electron. It pairs a
-session-list sidebar, a centered conversation and a workspace rail
-(files, search, editor, terminal) with a streaming chat agent that
-reads, edits and runs code in the open folder. The interface and the
-agent runtime — compaction, guards, approvals, skills — are designed
-from the ground up for a single-user desktop app.
+Halis Code is a coding agent that lives where you work: a desktop app on
+Electron and a terminal UI that share one idea — a streaming agent that
+reads, edits and runs code in your project, with the guardrails (compaction,
+approvals, repeat-call guards) already built in.
 
-## Highlights
+This repository is a monorepo:
+
+```
+apps/desktop    the Electron desktop app (sidebar, workspace rail, editor,
+                terminal, streaming chat, tool cards)
+packages/cli    the terminal UI — bin: halis
+packages/core   agent loop, file tools and provider client, shared by the
+                terminal side and reusable elsewhere
+```
+
+## The terminal UI
+
+`halis` opens a session that behaves like a terminal-first pair
+programmer: a bordered composer with a command palette, a live spinner
+while the model thinks, tool cards with durations and output previews,
+bash approvals before anything destructive runs, and a status line with
+model and token usage. The primary color is blue and the mascot — the
+Halis penguin — sits in the corner of the welcome screen, redrawn pixel
+by pixel from the brand art with truecolor half-blocks.
+
+```sh
+# from the repo root
+npm install -w @halis/core -w @halis/cli
+npm run build -w @halis/cli
+
+node packages/cli/bin/halis.js            # interactive session
+node packages/cli/bin/halis.js -p "summarize this repo"
+node packages/cli/bin/halis.js mascot     # the penguin, full size
+```
+
+Or link it once with `npm link -w @halis/cli` and just run `halis`.
+
+### Slash commands
+
+| command     | what it does                              |
+| ----------- | ----------------------------------------- |
+| `/help`     | list every command                        |
+| `/model`    | show or switch the model                  |
+| `/provider` | switch provider preset                    |
+| `/mascot`   | say hi to the penguin                     |
+| `/init`     | write an `AGENTS.md` for the current repo |
+| `/status`   | config, key and session info              |
+| `/clear`    | drop the conversation context             |
+| `/exit`     | quit                                      |
+
+### Providers
+
+The CLI speaks the OpenAI chat-completions wire format with streaming and
+tool calls. Providers ship as presets: `zai` (default, GLM 4.7 Flash),
+`deepseek`, `moonshot`, `groq`, `openai`, `openrouter`, `ollama`. Point it
+at anything compatible with `HALIS_BASE_URL` + `HALIS_API_KEY` + `HALIS_MODEL`,
+or persist choices in `~/.halis/config.json`. Without a key the CLI runs in
+a clearly labeled demo mode so the interface is still explorable.
+
+## The desktop app
+
+The Electron app pairs a session-list sidebar and a centered conversation
+with a workspace rail (files, search, editor, terminal). Highlights:
 
 - **Streaming agent** with tool use (`list_dir`, `read_file`, `write_file`,
   `edit_file`, `search`, `glob`, `grep`, `web_fetch`, `web_search`,
   `patch`, `ask_user`, `run_command`, `todo_write`, `skill`), live tool
-  cards, plan todos and a message queue while a run is in flight. The tool
-  set covers the everyday loop: glob finds files by pattern, grep regexes
-  across them, patch applies multi-file edits, the web tools reach outside the workspace, and ask_user puts a
-  question card in the chat when a decision truly needs the human.
-- **Model catalog from models.dev**: 230+ providers and 8,000+ models ship
-  in a bundled snapshot, refreshed in the background with ETag-cached
-  revalidation. Wire protocols resolve from catalog data — Anthropic-SDK
-  providers speak messages, everyone else chat completions — and
-  per-provider quirks (token cap field, thinking body shape) live in one
-  compat table.
+  cards, plan todos and a message queue while a run is in flight.
+- **Model catalog from models.dev**: 230+ providers and 8,000+ models in a
+  bundled snapshot, refreshed in the background with ETag-cached
+  revalidation.
 - **Context compaction** at 80% of the model's window with a 16% verbatim
-  tail, tool-pair-safe cut points, a shrink check and an 8-section
-  checkpoint summary. Oversized old
-  tool results are pruned deterministically first (head 4k / tail 1k), and
-  `/compact` folds a conversation into a checkpoint on demand.
-- **Repeat-call guard**: identical calls with identical arguments trigger
-  escalating reminders at 3, 5 and 8 repetitions. Denied calls count too.
-- **Workspace instructions**: `AGENTS.md` / `CLAUDE.md` (plus
-  `*.local.md` overlays) are loaded into the system prompt inside a
-  `<system-reminder>` frame, with a 64 KiB budget and explicit omission
-  notes when files do not fit.
-- **Skills**: put a folder with a `SKILL.md` under `.halis/skills/` and the
-  model sees its one-line summary; the full body loads only when the
-  `skill` tool asks for it — progressive disclosure keeps the prompt small.
-- **Command approvals**: commands that look destructive (recursive
-  deletes, sudo, force pushes, pipes into `sh`, …) ask the user first.
-  Decisions are one-shot and fail closed; "Full access" turns the gate off
-  (Settings → Agent). `@path` tokens in a message attach the referenced
-  files, and slash commands (`/new`, `/model`, `/compact`,
-  `/export`, `/help`) live in the composer.
-- **Provider resilience**: transient failures (429/5xx, flaky networks)
-  retry with bounded exponential backoff and jitter; sampled time context
-  keeps long turns honest about wall-clock time.
-- **Real diff cards**: file edits carry computed hunks (context included)
-  from the main process, persisted on the session so replay shows the same
-  card the live run did.
+  tail, tool-pair-safe cut points and an 8-section checkpoint summary.
+- **Repeat-call guard**, command approvals, workspace instructions
+  (`AGENTS.md` / `CLAUDE.md`) and progressive-disclosure skills.
 
-## Screenshots
-
-| | |
-| --- | --- |
-| ![Startup splash](docs/screenshots/01-startup-splash.png) <br>**Startup splash** | ![First-run home](docs/screenshots/02-welcome-home.png) <br>**First-run home** |
-| ![Workspace explorer](docs/screenshots/03-workspace-explorer.png) <br>**Workspace explorer** | ![Expanded folders](docs/screenshots/04-explorer-expanded.png) <br>**Expanded folders** |
-| ![Editor](docs/screenshots/05-editor.png) <br>**Editor** | ![Editor tabs](docs/screenshots/06-editor-tabs.png) <br>**Editor tabs** |
-| ![Workspace search](docs/screenshots/07-workspace-search.png) <br>**Workspace search** | ![Built-in terminal](docs/screenshots/08-terminal.png) <br>**Built-in terminal** |
-| ![Settings](docs/screenshots/09-settings.png) <br>**Settings** | ![Model picker](docs/screenshots/10-model-picker.png) <br>**Model picker** |
-| ![Model search](docs/screenshots/11-model-picker-search.png) <br>**Model search** | ![Reasoning variants](docs/screenshots/12-model-variants.png) <br>**Reasoning variants** |
-| ![Slash commands](docs/screenshots/13-slash-commands.png) <br>**Slash commands** | ![Streaming answer](docs/screenshots/14-agent-streaming.png) <br>**Streaming answer** |
-| ![Plan and tool cards](docs/screenshots/15-tool-cards.png) <br>**Plan + tool cards** | ![Command approval](docs/screenshots/16-approval-card.png) <br>**Command approval** |
-| ![Provider key dialog](docs/screenshots/17-key-dialog.png) <br>**Provider key dialog** | ![Dark theme](docs/screenshots/18-dark-theme.png) <br>**Dark theme** |
-| ![Focus mode](docs/screenshots/19-focus-mode.png) <br>**Focus mode** | ![Session history](docs/screenshots/20-session-history.png) <br>**Session history** |
-
-## Getting started
+Screenshots live in `apps/desktop/docs/screenshots`.
 
 ```sh
-npm install
-npm run dev        # build + launch Electron
+npm install          # everything, including electron
+npm run dev:desktop  # build + launch electron
 ```
-
-Other scripts: `npm run typecheck`, `npm run build`, `npm run watch`,
-`npm start` (launch the built app without rebuilding),
-`npm run sync-models` (refresh the bundled models.dev snapshot),
-`npm run smoke` (algorithm smoke tests).
-
-Pick a model from the models.dev catalog through the composer's model
-pill. Halis boots with **GLM 4.7 Flash** (Z.ai, free tier) as the default —
-strong and free, so a single key unlocks the first chat. The first time
-you pick a model whose provider needs a key, Halis pops a dialog asking
-for it — the key stays in the local vault and never leaves the machine.
-Local servers like LM Studio run without any key at all. Open a folder,
-and start talking.
 
 ## Layout
 
 ```
-electron/main/          main process: windows, ipc, sessions, agent runtime
-electron/main/agent/    run loop, providers, tools, compaction, guard,
-                        approvals, instructions, skills, file refs, diffs
-electron/preload/       context bridge
-electron/shared/        ipc channels, api contract, types
-src/                    renderer: sidebar, conversation, workspace rail,
-                        composer, markdown, catalog
-scripts/                build + smoke tests
+apps/desktop/
+  electron/main/          main process: windows, ipc, sessions, agent runtime
+  electron/main/agent/    run loop, providers, tools, compaction, guard,
+                          approvals, instructions, skills, file refs, diffs
+  electron/preload/       context bridge
+  electron/shared/        ipc channels, api contract, types
+  src/                    renderer: sidebar, conversation, workspace rail
+  scripts/                build + smoke tests
+packages/core/
+  src/                    types, agent loop, provider, prompt, config, tools
+packages/cli/
+  src/                    ink app, composer, command palette, mascot renderer
+  build.mjs               esbuild bundling into bin/halis.js
+```
+
+## Development
+
+TypeScript 7 everywhere, strict. From the root:
+
+```sh
+npm run typecheck      # all workspaces
+npm run build          # core -> cli -> desktop
+npm run dev:cli        # watch mode for the terminal ui
+npm run dev:desktop    # watch + launch the desktop app
+npm run smoke -w @halis/desktop   # algorithm smoke tests
 ```
