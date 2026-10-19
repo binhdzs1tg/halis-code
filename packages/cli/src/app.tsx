@@ -15,6 +15,9 @@ import {
   runAgent,
   saveConfig,
   setJobSink,
+  shellLabel,
+  spawnShellCommand,
+  killTree,
   streamChat,
   withTaskTool,
   listSkills,
@@ -27,7 +30,6 @@ import {
   type TodoItem,
   type ToolCall,
 } from '@halis/core'
-import { spawn } from 'node:child_process'
 import { writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -514,18 +516,19 @@ export function App({
   const runLocalShell = useCallback(
     async (command: string) => {
       runningRef.current = true
-      push({ kind: 'tool', call: { id: 'local', name: '!bash', input: { command } }, output: '', ok: true, ms: 0 })
-      setLive({ text: '', tool: '!bash' })
+      const shell = `!${shellLabel()}`
+      push({ kind: 'tool', call: { id: 'local', name: shell, input: { command } }, output: '', ok: true, ms: 0 })
+      setLive({ text: '', tool: shell })
       const started = Date.now()
       const output = await new Promise<string>((resolve) => {
-        const child = spawn('bash', ['-c', command], {
+        const child = spawnShellCommand(command, {
           cwd,
           env: { ...process.env, NO_COLOR: '1', TERM: 'dumb', PAGER: 'cat' },
           stdio: ['ignore', 'pipe', 'pipe'],
         })
         let out = ''
         const timer = setTimeout(() => {
-          child.kill('SIGTERM')
+          killTree(child)
         }, 120_000)
         child.stdout?.on('data', (chunk: Buffer) => {
           out += chunk.toString()
@@ -546,7 +549,7 @@ export function App({
       })
       push({
         kind: 'tool',
-        call: { id: 'local', name: '!bash', input: { command } },
+        call: { id: 'local', name: shell, input: { command } },
         output: output.replace(/^exit \d+\n/, ''),
         ok: output.startsWith('exit 0'),
         ms: Date.now() - started,

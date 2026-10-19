@@ -1,7 +1,8 @@
-import { spawn } from 'node:child_process'
+import type { ChildProcess } from 'node:child_process'
 import type { Tool, ToolContext, ToolOutcome } from '../types.js'
 import { headTail } from '../util.js'
-import { COMMAND_ENV, promoteToJob, startBackgroundJob } from './background.js'
+import { killTree, spawnShellCommand } from '../shell.js'
+import { COMMAND_ENV, promoteToJob, startBackgroundJob, type JobHandle } from './background.js'
 
 const DEFAULT_TIMEOUT = 30_000
 const MAX_TIMEOUT = 600_000
@@ -11,8 +12,8 @@ interface ShellResult {
   stderr: string
   code: number | null
   timedOut: boolean
-  /** The live child, kept only until the run finishes normally. */
-  child: ReturnType<typeof spawn> | null
+  /** The promoted handle when the command outlived its timeout, else null. */
+  promoted: JobHandle | null
 }
 
 function runShell(
@@ -22,7 +23,7 @@ function runShell(
   signal: AbortSignal,
 ): Promise<ShellResult> {
   return new Promise((resolve) => {
-    const child = spawn('bash', ['-c', command], {
+    const child: ChildProcess = spawnShellCommand(command, {
       cwd,
       env: { ...process.env, ...COMMAND_ENV },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -30,20 +31,25 @@ function runShell(
     let stdout = ''
     let stderr = ''
     let timedOut = false
+    let promoted: JobHandle | null = null
     let settled = false
-
-    const timer = setTimeout(() => {
-      timedOut = true
-      child.kill('SIGTERM')
-      setTimeout(() => child.kill('SIGKILL'), 2000).unref()
-    }, timeoutMs)
 
     const finish = (code: number | null) => {
       if (settled) return
       settled = true
       clearTimeout(timer)
-      resolve({ stdout, stderr, code, timedOut, child })
+      signal.removeEventListener('abort', onAbort)
+      resolve({ stdout, stderr, code, timedOut, promoted })
     }
+
+    const timer = setTimeout(() => {
+      // Promote instead of killing: the work is not thrown away, the job
+      // reports back when it settles, and the output collected so far still
+      // goes inline so the model can react to it.
+      timedOut = true
+      promoted = promoteToJob(command, child)
+      finish(null)
+    }, timeoutMs)
 
     child.stdout?.on('data', (chunk: Buffer) => {
       stdout += chunk.toString()
@@ -62,8 +68,8 @@ function runShell(
 
     const onAbort = () => {
       timedOut = false
-      child.kill('SIGTERM')
-      setTimeout(() => child.kill('SIGKILL'), 2000).unref()
+      killTree(child)
+      finish(null)
     }
     signal.addEventListener('abort', onAbort, { once: true })
     child.on('close', () => signal.removeEventListener('abort', onAbort))
@@ -75,6 +81,8 @@ export const bashTool: Tool = {
     name: 'bash',
     description:
       'Run a shell command in the working directory and see its output. ' +
+      'The platform shell runs it — the user login shell on macOS and Linux, ' +
+      'cmd.exe on Windows — so use syntax that shell understands. ' +
       'Use for builds, tests, git, package managers and quick inspections. ' +
       'Long-running work (dev servers, watchers, big builds) wants run_in_background: ' +
       'the call returns immediately with a job id, output goes to a file, and job_output ' +
@@ -115,25 +123,22 @@ export const bashTool: Tool = {
 
     const rawTimeout = typeof input.timeout_ms === 'number' ? input.timeout_ms : DEFAULT_TIMEOUT
     const timeoutMs = Math.min(Math.max(rawTimeout, 1000), MAX_TIMEOUT)
-    const { stdout, stderr, code, timedOut, child } = await runShell(command, ctx.cwd, timeoutMs, ctx.signal)
+    const { stdout, stderr, code, timedOut, promoted } = await runShell(command, ctx.cwd, timeoutMs, ctx.signal)
     const parts: string[] = []
     if (stdout.trim()) parts.push(stdout.replace(/\n+$/, ''))
     if (stderr.trim()) parts.push(`stderr:\n${stderr.replace(/\n+$/, '')}`)
     let body = parts.join('\n') || '(no output)'
     body = headTail(body, 12_000, 3_000)
 
-    if (timedOut) {
-      // A command still alive after SIGTERM went through: keep it running as
-      // a job so the work is not thrown away, and tell the model where to look.
-      if (child && !child.killed) {
-        const job = promoteToJob(command, child)
-        return {
-          output:
-            `timed out after ${Math.round(timeoutMs / 1000)}s — the command is still running as background job ${job.id}\n` +
-            `output file: ${job.outputFile}\njob_output with its id shows progress.`,
-          ok: false,
-        }
+    if (promoted) {
+      return {
+        output:
+          `timed out after ${Math.round(timeoutMs / 1000)}s — the command is still running as background job ${promoted.id}\n` +
+          `output file: ${promoted.outputFile}\njob_output with its id shows progress.`,
+        ok: false,
       }
+    }
+    if (timedOut) {
       return { output: `${body}\nerror: timed out after ${Math.round(timeoutMs / 1000)}s`, ok: false }
     }
     return { output: `exit ${code ?? '?'}\n${body}`, ok: code === 0 }

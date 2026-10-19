@@ -5,11 +5,12 @@
  * their timeout are promoted into a job instead of being killed — a build
  * that needed two more minutes should finish, not die.
  */
-import { spawn, type ChildProcess } from 'node:child_process'
+import type { ChildProcess } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { randomBytes } from 'node:crypto'
+import { killTree, spawnShellCommand } from '../shell.js'
 
 /** Model-friendly env, shared with the foreground runner. */
 export const COMMAND_ENV: Record<string, string> = {
@@ -102,7 +103,7 @@ export function startBackgroundJob(command: string, cwd: string): { id: string; 
   const outputFile = path.join(jobsDir(), `${id}.out`)
   let child: ChildProcess
   try {
-    child = spawn('bash', ['-c', command], {
+    child = spawnShellCommand(command, {
       cwd,
       env: { ...process.env, ...COMMAND_ENV },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -191,14 +192,13 @@ export function listJobs(): ShellJob[] {
   return [...jobs.values()].sort((a, b) => a.startedAt - b.startedAt)
 }
 
-/** Kill one job's process group; resolves true when something was running. */
+/** Kill one job's process tree; resolves true when something was running. */
 export function killJob(id: string): boolean {
   const job = jobs.get(id)
   if (!job) return false
   const child = children.get(id)
   if (child) {
-    child.kill('SIGTERM')
-    setTimeout(() => child.kill('SIGKILL'), 2000).unref()
+    killTree(child)
   } else if (job.status === 'running') {
     job.status = 'killed'
     job.finishedAt = Date.now()
@@ -250,7 +250,7 @@ export function jobOutput(id: string, offsetChars?: number): string {
 
 /** Test seam: forget every job and its children. */
 export function resetJobsForTests(): void {
-  for (const child of children.values()) child.kill('SIGKILL')
+  for (const child of children.values()) killTree(child, true)
   children.clear()
   for (const stream of streams.values()) stream.destroy()
   streams.clear()

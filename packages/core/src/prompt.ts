@@ -4,6 +4,7 @@ import { readFile, stat } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
+import { shellLabel } from './shell.js'
 import { skillCatalogBlock } from './tools/skill.js'
 
 const INSTRUCTION_FILES = ['AGENTS.md', 'AGENTS.override.md', 'CLAUDE.md', 'HALIS.md']
@@ -36,6 +37,7 @@ function projectRoot(cwd: string): string {
 export async function buildSystemPrompt(ctx: PromptContext): Promise<string> {
   const platform = ctx.platform ?? process.platform
   const now = ctx.now ?? new Date()
+  const shell = shellLabel(platform)
   const lines = [
     "You are Halis Code, a coding agent that works in the user's terminal.",
     '',
@@ -46,6 +48,12 @@ export async function buildSystemPrompt(ctx: PromptContext): Promise<string> {
     '- Always read a file before editing or overwriting it; the edit and write tools enforce this.',
     '- Prefer the dedicated tools over shell tricks: read/write/edit/glob/grep/ls exist so you',
     '  get clean, structured output. Use bash for builds, tests, git and anything else.',
+    ...(platform === 'win32'
+      ? [
+          '- The bash tool runs commands through cmd.exe: use Windows syntax (dir, type,',
+          '  %VAR%, &&), not POSIX. Node, git and npm are on PATH like any other build tool.',
+        ]
+      : []),
     '- Long-running work (servers, watchers, slow builds) goes through run_in_background on bash;',
     '  a foreground command that outlives its timeout is promoted to a background job, not killed.',
     '- Run the test suite or a build when your change deserves it, and report what you ran.',
@@ -55,6 +63,7 @@ export async function buildSystemPrompt(ctx: PromptContext): Promise<string> {
     '# Environment',
     `- working directory: ${ctx.cwd}`,
     `- platform: ${platform} (${os.arch()})`,
+    `- shell: ${shell}`,
     `- date: ${now.toISOString().slice(0, 10)}`,
   ]
 
