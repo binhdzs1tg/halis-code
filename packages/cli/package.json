@@ -16,6 +16,7 @@
     "dev": "node build.mjs --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "node bin/halis.js",
+    "mock": "node scripts/mock-provider.mjs"
   },
   "dependencies": {
     "@halis/core": "*",
