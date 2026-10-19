@@ -84,6 +84,16 @@ export async function compactTranscript(opts: CompactOptions): Promise<number> {
   const cut = safeCut(messages, messages.length - tailStart)
   if (cut <= 0) return 0
 
+  // Old tool results are the bulk of a long session and the summary does
+  // not need their full text — bound them before the summarizer sees them,
+  // so the summary call itself stays cheap (the deepseek harness trick).
+  for (let i = 0; i < cut; i++) {
+    const message = messages[i]
+    if (message && message.role === 'tool' && message.content.length > PRUNE_AT) {
+      messages[i] = { ...message, content: pruneToolText(message.content) }
+    }
+  }
+
   const summary = await summarize(messages.slice(0, cut), provider, signal)
   messages.splice(0, cut, {
     role: 'user',
@@ -93,6 +103,16 @@ export async function compactTranscript(opts: CompactOptions): Promise<number> {
       're-read anything you need exactly, then continue the task.',
   })
   return cut
+}
+
+/** Old tool results beyond this size get the head/tail fold. */
+const PRUNE_AT = 8_192
+
+/** Keep the first and last stretch of a fat tool result; the middle goes. */
+function pruneToolText(text: string): string {
+  const head = text.slice(0, 4_096)
+  const tail = text.slice(-1_024)
+  return `${head}\n[… ${(text.length - 5_120).toLocaleString('en-US')} characters pruned for the summary …]\n${tail}`
 }
 
 async function summarize(
