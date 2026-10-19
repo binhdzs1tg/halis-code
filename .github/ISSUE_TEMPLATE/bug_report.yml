@@ -1,0 +1,59 @@
+name: Bug report
+description: Something behaved wrong on your machine
+labels: [bug]
+body:
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where did it happen?
+      options:
+        - Terminal (halis cli)
+        - Desktop app
+        - Both
+      default: 0
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: The error message, the last thing the agent did, anything the ui showed. A screenshot works too.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: How can we reproduce it?
+      description: Steps, or the prompt and the tool call that went wrong.
+    validations:
+      required: true
+
+  - type: input
+    id: versions
+    attributes:
+      label: Version and platform
+      description: "`halis --version` in the terminal, or the desktop app version — plus your OS."
+      placeholder: halis 0.2.0, macOS 15 (arm64)
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Provider and model
+      description: Which provider/model was running, the approvals mode if relevant. Never paste api keys — we do not need them.
+      placeholder: "deepseek/deepseek-chat, approvals: auto"
+
+  - type: markdown
+    attributes:
+      value: |
+        Thanks. If the bug involves a crash or a runaway command, `~/.halis/` (session logs, spill files) often holds the useful detail — attach the relevant bits if you can.

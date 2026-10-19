@@ -1,0 +1,42 @@
+name: Feature request
+description: An idea for the terminal ui, the desktop app or the core loop
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is the problem?
+      description: The situation you kept running into, not the solution you have in mind. Most features here started as a nuisance report.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: What should it do instead?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where does it belong?
+      options:
+        - Terminal (halis cli)
+        - Desktop app
+        - Both — it lives in the core
+        - Not sure
+      default: 3
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What did you try instead?
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else?
+      description: Screenshots of how another tool solved it are welcome.
