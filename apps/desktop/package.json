@@ -3,8 +3,11 @@
   "version": "0.1.0",
   "description": "Halis Code - desktop coding agent",
   "main": "dist/main/index.js",
+  "homepage": "https://github.com/binhdzs1tg/halis-code",
+  "desktopName": "halis-code.desktop",
   "private": true,
   "license": "UNLICENSED",
+  "author": "binhdzs1tg",
   "engines": {
     "node": ">=20"
   },
@@ -19,12 +22,9 @@
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
-    "electron": "^44.7.0",
+    "electron": "44.9.0",
+    "electron-builder": "^26.15.3",
     "esbuild": "^0.28.2",
     "typescript": "7.0.2"
-  },
-  "allowScripts": {
-    "esbuild@0.28.2": true,
-    "electron@44.7.0": true
   }
 }

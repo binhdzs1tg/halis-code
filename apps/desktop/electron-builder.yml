@@ -1,0 +1,41 @@
+appId: dev.halis.code
+productName: Halis Code
+executableName: halis-code
+
+directories:
+  # icon.png lives here already; electron-builder turns it into icns/ico
+  buildResources: resources
+  output: release
+
+files:
+  - dist/**/*
+  - resources/**/*
+  - package.json
+
+mac:
+  category: public.app-category.developer-tools
+  icon: resources/icon.png
+  identity: null
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+
+linux:
+  category: Development
+  icon: resources/icon.png
+  maintainer: binhdzs1tg
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  syncDesktopName: true
+  target:
+    - deb
+    - AppImage
+
+win:
+  icon: resources/icon.png
+  target:
+    - nsis
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  artifactName: ${productName}-Setup-${version}.${ext}

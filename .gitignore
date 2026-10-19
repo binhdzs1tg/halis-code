@@ -2,6 +2,7 @@ node_modules/
 dist/
 bin/
 out/
+release/
 *.log
 .DS_Store
 .env
