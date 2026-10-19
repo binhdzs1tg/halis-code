@@ -239,7 +239,9 @@ interface SiblingRule {
  */
 const SIBLING_CLOSES: Record<string, SiblingRule> = {
   li: { match: new Set(['li']), shield: new Set(['ul', 'ol', 'table', 'td', 'th', 'caption']) },
-  tr: { match: new Set(['tr']), shield: new Set(['table', 'thead', 'tbody', 'tfoot']) },
+  // Rows and cells close whatever of the row context is still open — a
+  // cell may sit on an implied row with no tr frame of its own.
+  tr: { match: new Set(['tr', 'td', 'th']), shield: new Set(['table', 'thead', 'tbody', 'tfoot']) },
   td: { match: new Set(['td', 'th']), shield: new Set(['table', 'thead', 'tbody', 'tfoot']) },
   th: { match: new Set(['td', 'th']), shield: new Set(['table', 'thead', 'tbody', 'tfoot']) },
   a: { match: new Set(['a']), through: INLINE_FRAMES }
@@ -249,11 +251,11 @@ for (const heading of Object.keys(HEADINGS)) {
   SIBLING_CLOSES[heading] = { match: new Set(Object.keys(HEADINGS)), through: INLINE_FRAMES }
 }
 for (const group of ['thead', 'tbody', 'tfoot']) {
-  // A row-group start tag closes the row still open above it (HTML5 makes
+  // A row-group start tag closes the row context above it (HTML5 makes
   // </tr>/</td>/</th> optional before the next group); without this the
   // group frame would shield the tr/td rules and the open row's text
   // would be dropped.
-  SIBLING_CLOSES[group] = { match: new Set(['tr']), shield: new Set(['table']) }
+  SIBLING_CLOSES[group] = { match: new Set(['tr', 'td', 'th']), shield: new Set(['table']) }
 }
 
 export function htmlToMarkdown(html: string): string {
@@ -366,13 +368,26 @@ function render(html: string, mode: Mode): string {
 
   const closeItem = (): void => {
     const list = currentList()
+    const item = openItems.pop() ?? null
     if (!list) {
-      openItems.pop()
+      // A bare <li> with no enclosing list still parked its text and its
+      // nested blocks; they must surface, not die with the item.
+      if (item) {
+        const rest = flushInline()
+        const text = [item.text, rest].filter((part) => part.length > 0).join(' ')
+        if (inCell()) {
+          // Inside a cell the item's text belongs to that cell's flush.
+          if (text) inline.push(` ${text}`)
+          for (const block of item.blocks) inline.push(`\n${block}`)
+        } else {
+          if (text) emitBlock(text)
+          for (const block of item.blocks) emitBlock(block)
+        }
+      }
       return
     }
     list.index += 1
     const rest = flushInline()
-    const item = openItems.pop() ?? null
     const marker = list.ordered ? `${list.index}. ` : '- '
     const indent = '  '.repeat(Math.max(0, lists.length - 1))
     const text = item ? `${item.text} ${rest}`.trim() : rest
@@ -616,7 +631,27 @@ function render(html: string, mode: Mode): string {
     if (name === 'tr') {
       const frame = currentTable()
       if (frame) {
+        if (frame.row && frame.row.length > 0) {
+          // An implied or group-orphaned row may already hold committed
+          // cells; reset the slot only after handing them to the table.
+          frame.rows.push(frame.row)
+          frame.headerFlags.push(frame.rowHeader.some(Boolean))
+        }
         frame.row = []
+        frame.rowHeader = []
+      }
+      return
+    }
+    if (name === 'thead' || name === 'tbody' || name === 'tfoot') {
+      // A row group starts a fresh row context; a pending implied or
+      // orphaned row must land in the table before it.
+      const frame = currentTable()
+      if (frame && frame.row && frame.row.length > 0) {
+        frame.rows.push(frame.row)
+        frame.headerFlags.push(frame.rowHeader.some(Boolean))
+      }
+      if (frame) {
+        frame.row = null
         frame.rowHeader = []
       }
       return
@@ -641,7 +676,6 @@ function render(html: string, mode: Mode): string {
       if (stray) emitBlock(stray)
       return
     }
-    if (name === 'thead') return
     if (name === 'strong' || name === 'b') {
       if (mode === 'markdown') inline.push('**')
       return
@@ -750,10 +784,11 @@ function render(html: string, mode: Mode): string {
         }
         renderTable(frame)
         // The surrounding cell, if any, resumes with the text it parked
-        // when this nested table opened.
+        // when this nested table opened; the trailing space keeps the
+        // following text from gluing onto it.
         const parent = currentTable()
         if (parent?.cellOpen && parent.cellStash) {
-          inline.push(parent.cellStash)
+          inline.push(`${parent.cellStash} `)
           parent.cellStash = ''
         }
       }

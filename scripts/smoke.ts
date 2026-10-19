@@ -236,6 +236,16 @@ check(
   'item text survives a nested table',
   htmlToMarkdown('<ul><li>a<table><tr><td>b</table></li></ul>') === '| b |\n\n- a'
 )
+// An implied row holds real cells; the next <tr> must commit, not reset it.
+check(
+  'implied row commits before the next tr',
+  htmlToMarkdown('<table><td>a<td>b<tr><td>c</table>') === '| a | b |\n| c |'
+)
+// A bare <li> keeps the text and nested blocks it parked.
+check(
+  'bare li keeps parked text',
+  htmlToMarkdown('<li>a<table><tr><td>b</table>c</li>') === '| b |\n\na c'
+)
 
 /* ---------- patch format ---------- */
 const addPatch = [
