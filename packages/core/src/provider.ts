@@ -50,6 +50,7 @@ interface DeltaToolCall {
 
 interface WireChunk {
   choices?: Array<{ delta?: { content?: string | null; tool_calls?: DeltaToolCall[] } }>
+  usage?: { prompt_tokens?: number; completion_tokens?: number } | null
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -67,6 +68,7 @@ export async function streamChat(req: StreamRequest): Promise<StreamResponse> {
       function: { name: t.name, description: t.description, parameters: t.parameters },
     }))
   }
+  if (req.wantUsage) body.stream_options = { include_usage: true }
 
   let lastError: ProviderError | undefined
   for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
@@ -78,6 +80,11 @@ export async function streamChat(req: StreamRequest): Promise<StreamResponse> {
       return await attemptOnce(req, body)
     } catch (err) {
       if (req.signal.aborted || !(err instanceof ProviderError) || err.status === undefined) throw err
+      if (err.status === 400 && body.stream_options !== undefined) {
+        // Some providers reject the usage extension outright — drop it and go on
+        delete body.stream_options
+        continue
+      }
       if (!RETRYABLE.has(err.status)) throw err
       lastError = err
     }
@@ -112,6 +119,7 @@ async function attemptOnce(req: StreamRequest, body: Record<string, unknown>): P
   const acc = new Map<number, { id: string; name: string; args: string }>()
   const decoder = new TextDecoder()
   let buffer = ''
+  let usage: { input: number; output: number } | undefined
 
   for await (const chunk of res.body) {
     buffer += decoder.decode(chunk as Uint8Array, { stream: true })
@@ -128,6 +136,12 @@ async function attemptOnce(req: StreamRequest, body: Record<string, unknown>): P
         parsed = JSON.parse(payload) as WireChunk
       } catch {
         continue
+      }
+      if (parsed.usage && (parsed.usage.prompt_tokens !== undefined || parsed.usage.completion_tokens !== undefined)) {
+        usage = {
+          input: parsed.usage.prompt_tokens ?? 0,
+          output: parsed.usage.completion_tokens ?? 0,
+        }
       }
       const delta = parsed.choices?.[0]?.delta
       if (!delta) continue
@@ -157,5 +171,5 @@ async function attemptOnce(req: StreamRequest, body: Record<string, unknown>): P
       return { id: slot.id || `call_${i}`, name: slot.name, input }
     })
 
-  return { text, toolCalls }
+  return { text, toolCalls, ...(usage ? { usage } : {}) }
 }

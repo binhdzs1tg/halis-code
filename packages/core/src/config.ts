@@ -23,12 +23,15 @@ export const PRESETS: Record<string, Preset> = {
 
 export const DEFAULT_PRESET = 'zai'
 export const DEFAULT_MAX_TURNS = 16
+/** Transcript token estimate that triggers compaction when the host does not set one. */
+export const DEFAULT_COMPACT_AT = 30_000
 
 export interface ConfigFile {
   provider?: string
   baseUrl?: string
   model?: string
   maxTurns?: number
+  compactAt?: number
 }
 
 export interface ResolvedConfig {
@@ -38,6 +41,7 @@ export interface ResolvedConfig {
   apiKey?: string
   model: string
   maxTurns: number
+  compactAt: number
   demo: boolean
   keyEnv: string | null
 }
@@ -68,6 +72,7 @@ export function resolveConfig(): ResolvedConfig {
   if (!apiKey && keyEnv) apiKey = process.env[keyEnv]?.trim() || undefined
 
   const demo = !apiKey && provider !== 'ollama' && !baseUrl.includes('localhost') && !baseUrl.includes('127.0.0.1')
+  const compactAt = file.compactAt ?? DEFAULT_COMPACT_AT
   return {
     provider,
     label: preset.label,
@@ -75,6 +80,7 @@ export function resolveConfig(): ResolvedConfig {
     ...(apiKey ? { apiKey } : {}),
     model,
     maxTurns: file.maxTurns ?? DEFAULT_MAX_TURNS,
+    compactAt,
     demo,
     keyEnv,
   }

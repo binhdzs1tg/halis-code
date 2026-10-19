@@ -1,3 +1,6 @@
+import { DEFAULT_COMPACT_AT, estimateTokens } from './config.js'
+import { compactTranscript } from './compact.js'
+import { RepeatGuard } from './guard.js'
 import { streamChat } from './provider.js'
 import type { AgentRunOptions, ToolResult } from './types.js'
 
@@ -6,9 +9,16 @@ import type { AgentRunOptions, ToolResult } from './types.js'
  * results back, repeat until the model answers without tools, the user aborts
  * or the turn budget runs out. Events drive the UI; the transcript array is
  * mutated in place so the caller keeps the full conversation.
+ *
+ * Guardrails that keep long sessions honest:
+ * - usage events report the provider's token counts each turn;
+ * - the transcript compacts itself once it crosses the token budget;
+ * - identical repeat calls earn an escalating reminder next to their result;
+ * - declined calls are fed back instead of being silently skipped.
  */
 export async function runAgent(opts: AgentRunOptions): Promise<void> {
   const { onEvent, signal } = opts
+  const guard = new RepeatGuard()
   let turn = 0
 
   try {
@@ -20,6 +30,29 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
         return
       }
 
+      const compactAt = opts.compactAt ?? DEFAULT_COMPACT_AT
+      if (compactAt > 0 && estimateTokens(opts.messages) > compactAt) {
+        try {
+          const replaced = await compactTranscript({
+            messages: opts.messages,
+            compactAt,
+            provider: opts.provider,
+            signal,
+          })
+          if (replaced > 0) {
+            onEvent({
+              type: 'notice',
+              text: `compacted ${replaced} old messages into a summary to stay inside the context budget`,
+            })
+          }
+        } catch (err) {
+          onEvent({
+            type: 'notice',
+            text: `compaction skipped (${err instanceof Error ? err.message : String(err)}) — continuing with full history`,
+          })
+        }
+      }
+
       const res = await streamChat({
         baseUrl: opts.provider.baseUrl,
         model: opts.provider.model,
@@ -27,9 +60,11 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
         messages: opts.messages,
         tools: opts.tools.map((t) => t.spec),
         signal,
+        wantUsage: true,
         onDelta: (text) => onEvent({ type: 'text-delta', text }),
         ...(opts.provider.apiKey ? { apiKey: opts.provider.apiKey } : {}),
       })
+      if (res.usage) onEvent({ type: 'usage', input: res.usage.input, output: res.usage.output })
 
       const assistant: typeof opts.messages[number] = {
         role: 'assistant',
@@ -55,14 +90,20 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
         } else {
           const tool = opts.tools.find((t) => t.spec.name === call.name)
           outcome = tool
-            ? await tool.run(call.input, { cwd: opts.cwd, signal, readFiles: opts.readFiles })
+            ? await tool.run(call.input, {
+                cwd: opts.cwd,
+                signal,
+                readFiles: opts.readFiles,
+                ...(opts.setTodos ? { setTodos: opts.setTodos } : {}),
+              })
             : { output: `error: unknown tool "${call.name}"`, ok: false }
         }
 
+        const reminder = guard.record(call.name, call.input)
         const result: ToolResult = {
           callId: call.id,
           name: call.name,
-          output: outcome.output,
+          output: reminder ? `${outcome.output}\n\n${reminder}` : outcome.output,
           ok: outcome.ok,
         }
         onEvent({ type: 'tool-end', call, result, ms: Date.now() - started })

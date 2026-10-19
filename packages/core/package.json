@@ -1,6 +1,6 @@
 {
   "name": "@halis/core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Agent loop, file tools and provider client for Halis Code",
   "private": true,
   "license": "UNLICENSED",
@@ -9,6 +9,10 @@
     "node": ">=20"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "smoke": "esbuild scripts/smoke.ts --bundle --platform=node --format=cjs --outfile=dist/smoke.cjs --log-level=error && node dist/smoke.cjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
   }
 }
