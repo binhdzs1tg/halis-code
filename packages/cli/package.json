@@ -1,6 +1,6 @@
 {
   "name": "@halis/cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Halis Code in the terminal",
   "private": true,
   "license": "UNLICENSED",
@@ -15,7 +15,7 @@
     "build": "node build.mjs",
     "dev": "node build.mjs --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "start": "node bin/halis.js"
+    "start": "node bin/halis.js",
   },
   "dependencies": {
     "@halis/core": "*",

@@ -133,6 +133,28 @@ export function Composer({ mode, placeholder, onSubmit, onInterrupt, onExit }: C
     }
     if (key.ctrl || key.meta) return
 
+    // A paste arrives as one chunk. When it ends with a newline the user
+    // pasted a command to run; otherwise it is just text for the composer.
+    if (input.length > 1 && /[\r\n]/.test(input)) {
+      const endsWithNewline = /[\r\n]\s*$/.test(input)
+      const cleaned = input
+        .replace(/[\r\n\s]+$/, '')
+        .replace(/[\r\n]+/g, ' ')
+        .replace(/[\u0000-\u001f\u007f]/g, '')
+      if (cleaned.length === 0) return
+      if (endsWithNewline) {
+        const text = (value.slice(0, cursor) + cleaned + value.slice(cursor)).trim()
+        if (text.length > 0) submit(text)
+      } else {
+        const next = value.slice(0, cursor) + cleaned + value.slice(cursor)
+        setValue(next)
+        setCursor(cursor + cleaned.length)
+        setBrowsing(-1)
+        setSelected(0)
+      }
+      return
+    }
+
     const printable = typeof input === 'string' ? input.replace(/[\r\n]+/g, '') : ''
     if (printable.length > 0 && printable >= ' ') {
       setValue(value.slice(0, cursor) + printable + value.slice(cursor))

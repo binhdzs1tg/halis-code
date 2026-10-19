@@ -12,6 +12,7 @@ import {
   type AgentEvent,
   type ChatMessage,
   type ResolvedConfig,
+  type TodoItem,
   type ToolCall,
 } from '@halis/core'
 import os from 'node:os'
@@ -19,6 +20,8 @@ import path from 'node:path'
 import { writeFile } from 'node:fs/promises'
 import { demoReply } from './demo.js'
 import { theme } from './theme.js'
+import { saveSession, type SessionSnapshot } from './sessions.js'
+import { VERSION } from './version.js'
 import { ApprovalCard, type ApprovalChoice } from './ui/approval.js'
 import { Composer } from './ui/composer.js'
 import { HistoryRow, type HistoryItem } from './ui/messages.js'
@@ -43,12 +46,13 @@ Instructions for coding agents working in this repository.
 function statusText(cfg: ResolvedConfig, cwd: string): string {
   const home = os.homedir()
   return [
-    `version    0.1.0`,
+    `version    ${VERSION}`,
     `provider   ${cfg.provider} (${cfg.label})`,
     `baseUrl    ${cfg.baseUrl}`,
     `model      ${cfg.model}`,
     `api key    ${cfg.apiKey ? 'set' : 'not set'}${cfg.keyEnv ? ` (${cfg.keyEnv})` : ''}`,
     `max turns  ${cfg.maxTurns}`,
+    `compact    ${cfg.compactAt === 0 ? 'off' : `at ~${cfg.compactAt} tok`}`,
     `cwd        ${cwd.replace(home, '~')}`,
     `mode       ${cfg.demo ? 'demo — no api key' : 'live'}`,
   ].join('\n')
@@ -59,12 +63,23 @@ function tail(text: string): string {
   return `…${text.slice(-1400)}`
 }
 
+/** 941 → '941', 12 300 → '12.3k', 4 210 000 → '4.2M' */
+export function fmtCount(n: number): string {
+  if (n < 1000) return String(n)
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`
+  return `${(n / 1_000_000).toFixed(1)}M`
+}
+
 export function App({
   initialPrompt,
   modelOverride,
+  initialSession,
+  continueRequested,
 }: {
   initialPrompt?: string | undefined
   modelOverride?: string | undefined
+  initialSession?: SessionSnapshot | undefined
+  continueRequested?: boolean | undefined
 }) {
   const { exit } = useApp()
   const cwd = process.cwd()
@@ -77,9 +92,12 @@ export function App({
   const [queue, setQueue] = useState<string[]>([])
   const [pending, setPending] = useState<{ call: ToolCall; resolve: (choice: ApprovalChoice) => void } | null>(null)
   const [systemReady, setSystemReady] = useState(false)
+  const [usage, setUsage] = useState({ input: 0, output: 0 })
 
   const cfgRef = useRef(cfg)
   cfgRef.current = cfg
+  const usageRef = useRef(usage)
+  usageRef.current = usage
   const messagesRef = useRef<ChatMessage[]>([])
   const readFilesRef = useRef<Set<string>>(new Set())
   const abortRef = useRef<AbortController | null>(null)
@@ -99,12 +117,21 @@ export function App({
 
   useEffect(() => {
     push({ kind: 'splash' })
+    if (initialSession) {
+      messagesRef.current = initialSession.messages
+      setUsage(initialSession.usage)
+      push({
+        kind: 'info',
+        text: `picked the session back up — ${initialSession.messages.length} messages are back in context (last saved ${initialSession.saved.slice(0, 16).replace('T', ' ')})`,
+      })
+    } else if (continueRequested) {
+      push({ kind: 'info', text: 'no earlier session for this directory — starting fresh' })
+    }
     void buildSystemPrompt({ cwd }).then((system) => {
       systemRef.current = system
       setSystemReady(true)
     })
-    // eslint guess: run once
-  }, [cwd, push])
+  }, [cwd, push, initialSession, continueRequested])
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -117,16 +144,35 @@ export function App({
     return () => clearInterval(timer)
   }, [])
 
-  const finalize = useCallback(() => {
+  const persist = useCallback(() => {
+    if (cfgRef.current.demo) return
+    if (messagesRef.current.length === 0) return
+    void saveSession({
+      cwd,
+      provider: cfgRef.current.provider,
+      model: cfgRef.current.model,
+      usage: usageRef.current,
+      messages: messagesRef.current,
+    })
+  }, [cwd])
+
+  const flushLive = useCallback(() => {
+    liveTextRef.current += deltaBufRef.current
+    deltaBufRef.current = ''
     const text = liveTextRef.current.trim()
     liveTextRef.current = ''
     if (text.length > 0) push({ kind: 'assistant', text })
+  }, [push])
+
+  const finalize = useCallback(() => {
+    flushLive()
     setLive(null)
     runningRef.current = false
+    persist()
     const next = queueRef.current.shift()
     setQueue([...queueRef.current])
     if (next) setTimeout(() => void sendRef.current(next), 30)
-  }, [push])
+  }, [flushLive, persist])
 
   const handleEvent = useCallback(
     (ev: AgentEvent) => {
@@ -135,16 +181,22 @@ export function App({
           deltaBufRef.current += ev.text
           break
         case 'tool-start':
-          setLive((l) => (l ? { ...l, tool: ev.call.name } : l))
+          // what the model said before reaching for a tool becomes its own row
+          flushLive()
+          setLive({ text: '', tool: ev.call.name })
           break
         case 'tool-end':
           push({ kind: 'tool', call: ev.call, output: ev.result.output, ok: ev.result.ok, ms: ev.ms })
           setLive((l) => (l ? { ...l, tool: null } : l))
           break
+        case 'usage':
+          setUsage((u) => ({ input: u.input + ev.input, output: u.output + ev.output }))
+          break
         case 'notice':
           push({ kind: 'info', text: ev.text })
           break
         case 'error':
+          flushLive()
           push({ kind: 'error', text: ev.message })
           break
         case 'done':
@@ -152,7 +204,7 @@ export function App({
           break
       }
     },
-    [finalize, push],
+    [finalize, flushLive, push],
   )
 
   const approveCall = useCallback((call: ToolCall): Promise<boolean> => {
@@ -196,6 +248,7 @@ export function App({
         maxTurns: cfgRef.current.maxTurns,
         signal: controller.signal,
         cwd,
+        compactAt: cfgRef.current.compactAt,
         provider: {
           baseUrl: cfgRef.current.baseUrl,
           model: cfgRef.current.model,
@@ -204,6 +257,7 @@ export function App({
         readFiles: readFilesRef.current,
         onEvent: handleEvent,
         approve: approveCall,
+        setTodos: (items: TodoItem[]) => push({ kind: 'todos', items }),
       })
     },
     [approveCall, cwd, finalize, handleEvent, push],
@@ -233,6 +287,7 @@ export function App({
         case '/clear':
           messagesRef.current = []
           readFilesRef.current = new Set()
+          setUsage({ input: 0, output: 0 })
           push({ kind: 'info', text: 'context cleared — the penguin forgot everything above' })
           break
         case '/model': {
@@ -318,7 +373,10 @@ export function App({
   }, [exit])
 
   const running = live !== null
-  const tokens = estimateTokens(messagesRef.current)
+  const tokenLabel =
+    usage.input + usage.output > 0
+      ? `${fmtCount(usage.input)} in · ${fmtCount(usage.output)} out`
+      : `~${fmtCount(estimateTokens(messagesRef.current))} tok`
 
   return (
     <>
@@ -359,7 +417,7 @@ export function App({
           </Text>
           <Text color={theme.faint}>
             {cfg.demo ? 'demo · ' : ''}
-            {cfg.model} · ~{tokens} tok
+            {cfg.model} · {tokenLabel}
           </Text>
         </Box>
       </Box>

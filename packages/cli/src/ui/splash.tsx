@@ -2,6 +2,7 @@ import { Box, Text } from 'ink'
 import { MASCOT_MID } from '../mascot-art.js'
 import { theme } from '../theme.js'
 import type { ResolvedConfig } from '@halis/core'
+import { VERSION } from '../version.js'
 import { PixelArt } from './pixel-art.js'
 
 export function Splash({ cfg, cwd }: { cfg: ResolvedConfig; cwd: string }) {
@@ -9,7 +10,7 @@ export function Splash({ cfg, cwd }: { cfg: ResolvedConfig; cwd: string }) {
     <Box borderStyle="round" borderColor={theme.border} flexDirection="row" columnGap={2} paddingX={1}>
       <Box flexDirection="column" justifyContent="center" rowGap={1} flexGrow={1}>
         <Text color={theme.primary} bold>
-          ✻ Welcome to Halis Code! <Text color={theme.dim}>v0.1.0</Text>
+          ✻ Welcome to Halis Code! <Text color={theme.dim}>v{VERSION}</Text>
         </Text>
         <Text color={theme.text}>cwd: {cwd}</Text>
         <Text color={theme.text}>

@@ -2,9 +2,9 @@ import { render } from 'ink'
 import { runAgent, buildSystemPrompt, defaultTools, resolveConfig, type ChatMessage } from '@halis/core'
 import { App } from './app.js'
 import { DEMO_REPLIES } from './demo.js'
+import { loadLatestSession } from './sessions.js'
+import { VERSION } from './version.js'
 import { MASCOT_FULL, renderAnsi } from './mascot-art.js'
-
-const VERSION = '0.1.0'
 
 const HELP = `  Halis Code ${VERSION} — the blue penguin for your terminal
 
@@ -12,6 +12,7 @@ const HELP = `  Halis Code ${VERSION} — the blue penguin for your terminal
     halis                    interactive session
     halis "prompt"           start with a first prompt
     halis -p "prompt"        answer once and print it
+    halis -c                 continue the last session in this folder
     halis mascot             show the penguin
     halis --model <id>       model for this session
 
@@ -51,6 +52,7 @@ async function printMode(prompt: string, modelOverride?: string | undefined): Pr
       ...(cfg.apiKey ? { apiKey: cfg.apiKey } : {}),
     },
     readFiles: new Set<string>(),
+    compactAt: cfg.compactAt,
     onEvent: (ev) => {
       if (ev.type === 'text-delta') {
         sawText = true
@@ -97,12 +99,14 @@ async function main(): Promise<void> {
   }
 
   let print = false
+  let cont = false
   let modelOverride: string | undefined
   const words: string[] = []
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     if (arg === undefined) break
     if (arg === '-p' || arg === '--print') print = true
+    else if (arg === '-c' || arg === '--continue') cont = true
     else if (arg === '--model') {
       i++
       modelOverride = argv[i]
@@ -119,9 +123,16 @@ async function main(): Promise<void> {
     process.exitCode = 1
     return
   }
-  render(<App initialPrompt={prompt.length > 0 ? prompt : undefined} modelOverride={modelOverride} />, {
-    exitOnCtrlC: false,
-  })
+  const session = cont ? await loadLatestSession(process.cwd()) : null
+  render(
+    <App
+      initialPrompt={prompt.length > 0 ? prompt : undefined}
+      modelOverride={modelOverride}
+      initialSession={session ?? undefined}
+      continueRequested={cont}
+    />,
+    { exitOnCtrlC: false },
+  )
 }
 
 void main()

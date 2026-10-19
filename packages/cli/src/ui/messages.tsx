@@ -1,5 +1,5 @@
 import { Box, Text } from 'ink'
-import type { ResolvedConfig, ToolCall } from '@halis/core'
+import type { ResolvedConfig, TodoItem, ToolCall } from '@halis/core'
 import { MASCOT_FULL } from '../mascot-art.js'
 import { theme } from '../theme.js'
 import { COMMANDS } from '../commands.js'
@@ -12,6 +12,7 @@ export type HistoryItem =
   | { id: number; kind: 'user'; text: string }
   | { id: number; kind: 'assistant'; text: string }
   | { id: number; kind: 'tool'; call: ToolCall; output: string; ok: boolean; ms: number }
+  | { id: number; kind: 'todos'; items: TodoItem[] }
   | { id: number; kind: 'info'; text: string }
   | { id: number; kind: 'error'; text: string }
   | { id: number; kind: 'status'; text: string }
@@ -50,14 +51,44 @@ function ToolCard({ item }: { item: Extract<HistoryItem, { kind: 'tool' }> }) {
 }
 
 function summarizeArgsInline(call: ToolCall): string {
+  if (call.name === 'todo_write' && Array.isArray(call.input.todos)) {
+    return `plan of ${(call.input.todos as unknown[]).length} rows`
+  }
   if (typeof call.input.file_path === 'string') return call.input.file_path
   if (typeof call.input.command === 'string') {
     const one = call.input.command.replace(/\s+/g, ' ')
     return one.length > 72 ? `${one.slice(0, 72)}…` : one
   }
   if (typeof call.input.pattern === 'string') return call.input.pattern
+  if (typeof call.input.url === 'string') return call.input.url
   const json = JSON.stringify(call.input)
+  if (json === '{}') return ''
   return json.length > 72 ? `${json.slice(0, 72)}…` : json
+}
+
+function TodosCard({ items }: { items: TodoItem[] }) {
+  const done = items.filter((t) => t.status === 'done').length
+  return (
+    <Box borderStyle="round" borderColor={theme.border} paddingX={1} flexDirection="column">
+      <Text color={theme.primary} bold>
+        plan{' '}
+        <Text color={theme.faint}>
+          ({done}/{items.length})
+        </Text>
+      </Text>
+      {items.map((item, i) => {
+        const mark = item.status === 'done' ? '[x]' : item.status === 'in_progress' ? '[~]' : '[ ]'
+        const color = item.status === 'done' ? theme.faint : item.status === 'in_progress' ? theme.primary : theme.text
+        return (
+          <Text key={i} color={color} strikethrough={item.status === 'done'}>
+            {'  '}
+            {mark} {item.text}
+            {item.status === 'in_progress' ? <Text color={theme.faint}> ←</Text> : null}
+          </Text>
+        )
+      })}
+    </Box>
+  )
 }
 
 function HelpPanel() {
@@ -102,6 +133,8 @@ export function HistoryRow({ item, cfg, cwd }: { item: HistoryItem; cfg: Resolve
       )
     case 'tool':
       return <ToolCard item={item} />
+    case 'todos':
+      return <TodosCard items={item.items} />
     case 'info':
       return <Text color={theme.dim}>{item.text}</Text>
     case 'error':
