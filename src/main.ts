@@ -275,7 +275,7 @@ async function boot(): Promise<void> {
   // follow or the picker and the send gate would answer from stale data
   // until something else happens to refresh it.
   window.halis.onKeysChanged(() => {
-    void refreshKeyStatuses()
+    void refreshKeyStatuses().catch(() => undefined)
   })
 
   installKeymap()
