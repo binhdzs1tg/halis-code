@@ -231,6 +231,11 @@ check(
   'thead then tbody keeps the header',
   htmlToMarkdown('<table><thead><tr><th>H<tbody><tr><td>d</table>') === '| H |\n| --- |\n| d |'
 )
+// Valid HTML: text before a nested table inside a list item must survive.
+check(
+  'item text survives a nested table',
+  htmlToMarkdown('<ul><li>a<table><tr><td>b</table></li></ul>') === '| b |\n\n- a'
+)
 
 /* ---------- patch format ---------- */
 const addPatch = [

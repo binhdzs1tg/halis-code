@@ -587,7 +587,10 @@ function render(html: string, mode: Mode): string {
       return
     }
     if (name === 'li') {
-      flushInline()
+      // Whatever the sibling rule left behind is list-external stray
+      // text; it must surface, not die with the buffer.
+      const stray = flushInline()
+      if (stray) emitBlock(stray)
       openItems.push({ text: '', blocks: [] })
       return
     }
@@ -598,7 +601,14 @@ function render(html: string, mode: Mode): string {
         // back on close; the cell keeps its content instead of losing it.
         parent.cellStash = `${parent.cellStash} ${flushInline()}`.trim()
       } else {
-        endInlineBlock()
+        const item = openItems[openItems.length - 1]
+        if (item) {
+          // A table inside a list item defers the item's text the same way
+          // a nested list does, or the first cell would flush it away.
+          item.text = `${item.text} ${flushInline()}`.trim()
+        } else {
+          endInlineBlock()
+        }
       }
       tables.push({ rows: [], headerFlags: [], row: null, rowHeader: [], colspanPad: [], cellStash: '', cellOpen: false })
       return
@@ -612,11 +622,23 @@ function render(html: string, mode: Mode): string {
       return
     }
     if (name === 'td' || name === 'th') {
-      // An unclosed previous cell was committed by the sibling rule above;
-      // this branch only opens the new one.
       const frame = currentTable()
-      if (frame) frame.cellOpen = true
-      flushInline()
+      if (frame) {
+        // A cell with no open row implies one, the way browsers do;
+        // without it the cell's close would find row === null and drop
+        // its text.
+        if (frame.row === null) {
+          frame.row = []
+          frame.rowHeader = []
+        }
+        frame.cellOpen = true
+      }
+      // In the normal sloppy-cell case the sibling rule above already
+      // committed the buffer into the previous cell; anything left here
+      // is table-external text browsers would foster-parent out — it
+      // must surface, not die with the buffer.
+      const stray = flushInline()
+      if (stray) emitBlock(stray)
       return
     }
     if (name === 'thead') return
