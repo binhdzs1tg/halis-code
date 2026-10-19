@@ -158,6 +158,27 @@ npm install          # everything, including electron
 npm run dev:desktop  # build + launch electron
 ```
 
+## Cross-platform
+
+The same code runs on macOS, Linux and Windows. The terminal side adapts
+to wherever it finds itself:
+
+- **Shell**: commands go through the user's login shell on unix
+  (`$SHELL`, falling back to the account shell, then `/bin/bash`) and
+  through `cmd.exe` on Windows (`%ComSpec%`). Set `HALIS_SHELL` to force
+  one — a posix-style `bash.exe` (git bash) is invoked with `-c`,
+  `pwsh.exe` with `-NoProfile -NonInteractive -Command`, anything else
+  must speak cmd. The system prompt tells the model which shell it has,
+  so on Windows it writes `dir` and `%VAR%` instead of `ls` and `$VAR`.
+- **Process trees**: timeouts and cancels kill the whole tree — process
+  groups with SIGTERM-to-SIGKILL escalation on unix, `taskkill /T` on
+  Windows — and a foreground command that outlives its timeout is
+  promoted to a background job on every platform.
+- **Files**: `read` shows CRLF files without the carriage returns,
+  `edit` folds the replacement into the line endings the file already
+  uses, and `grep` matches across both. Glob matching follows the
+  filesystem: case-insensitive on Windows and macOS, strict on Linux.
+
 ## Layout
 
 ```
@@ -191,6 +212,9 @@ npm run dev:desktop    # watch + launch the desktop app
 npm run smoke -w @halis/core      # the terminal-side loop against a scripted provider
 npm run smoke -w @halis/desktop   # algorithm smoke tests
 ```
+
+The `ci` workflow runs the typecheck and both smoke suites on macOS,
+Linux and Windows for every push and pull request.
 
 ## Releases
 

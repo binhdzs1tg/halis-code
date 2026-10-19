@@ -35,6 +35,12 @@ From the repo root:
 
 ## Conventions
 
+- Shell commands spawn through `resolveShell()` / `spawnShellCommand()` in
+  `packages/core/src/shell.ts` — never hardcode `bash`, posix-only signals or
+  a bare `child.kill()` (grandchildren survive both). `killTree()` reaches
+  the whole tree on every platform; the smoke suites run on the ci matrix
+  for windows and macos too, so keep new cases quote-free or branch by
+  platform.
 - TypeScript everywhere, strict, `noUnusedLocals`/`noUnusedParameters` and
   `exactOptionalPropertyTypes` on. Do not loosen the compiler options —
   spread optional fields conditionally instead of assigning undefined.
