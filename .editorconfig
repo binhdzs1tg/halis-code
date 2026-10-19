@@ -1,0 +1,15 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.md]
+# markdown hard line breaks live on trailing spaces — keep them
+trim_trailing_whitespace = false
+
+[*.{ts,tsx,mjs,js,json,yml,yaml}]
+indent_style = space
+indent_size = 2

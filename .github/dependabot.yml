@@ -1,0 +1,33 @@
+# Dependabot keeps the tree current but polite: one weekly pass over npm
+# and the pinned actions, minor-and-patch grouped into single pull
+# requests, majors left for a human to review on their own.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor and patch:
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # typescript is pinned deliberately — 7.0.2 across every workspace.
+      # Moving it is a decision, not a bump.
+      - dependency-name: typescript
+    commit-message:
+      prefix: deps
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      minor and patch:
+        update-types:
+          - minor
+          - patch
+    commit-message:
+      prefix: ci deps
