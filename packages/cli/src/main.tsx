@@ -6,9 +6,11 @@ import {
   loadCatalog,
   resolveConfig,
   resolveTarget,
+  assessCommand,
+  denialText,
   type ChatMessage,
 } from '@halis/core'
-import { App } from './app.js'
+import { App, variantFrom } from './app.js'
 import { DEMO_REPLIES } from './demo.js'
 import { loadLatestSession, listSessions } from './sessions.js'
 import { VERSION } from './version.js'
@@ -37,7 +39,12 @@ function jsonEventLine(event: Record<string, unknown>): void {
   console.log(JSON.stringify(event))
 }
 
-async function printMode(prompt: string, modelOverride?: string | undefined, asJson = false): Promise<void> {
+async function printMode(
+  prompt: string,
+  modelOverride: string | undefined,
+  asJson: boolean,
+  yolo: boolean,
+): Promise<void> {
   if (prompt.length === 0) {
     console.error('nothing to ask — usage: halis -p "your prompt"')
     process.exitCode = 1
@@ -48,7 +55,12 @@ async function printMode(prompt: string, modelOverride?: string | undefined, asJ
     console.log(`(demo mode — no api key)\n\n${DEMO_REPLIES[0]}`)
     return
   }
-  const specCandidate = modelOverride ?? cfg.spec ?? (cfg.model.includes('/') || cfg.model.includes('#') ? cfg.model : null)
+  // A bare model id rides the configured endpoint, same as interactive mode;
+  // only a real spec (provider/model, optional #variant) goes catalog hunting.
+  const specCandidate =
+    (modelOverride && (modelOverride.includes('/') || modelOverride.includes('#')) ? modelOverride : null) ??
+    cfg.spec ??
+    (cfg.model.includes('/') || cfg.model.includes('#') ? cfg.model : null)
   const system = await buildSystemPrompt({ cwd: process.cwd() })
   const messages: ChatMessage[] = [{ role: 'user', content: prompt }]
   const controller = new AbortController()
@@ -82,24 +94,19 @@ async function printMode(prompt: string, modelOverride?: string | undefined, asJ
       providerId: target.provider.id,
       maxTokens: target.model.limit.output,
       ...(target.apiKey ? { apiKey: target.apiKey } : {}),
-      ...(target.variant
-        ? {
-            variant: {
-              ...(target.variant.reasoningEffort ? { reasoningEffort: target.variant.reasoningEffort } : {}),
-              ...(target.variant.thinking !== undefined ? { thinking: target.variant.thinking } : {}),
-              ...(target.variant.budgetTokens ? { budgetTokens: target.variant.budgetTokens } : {}),
-              ...(target.variant.body ? { body: target.variant.body } : {}),
-              ...(target.variant.headers ? { headers: target.variant.headers } : {}),
-            },
-          }
-        : {}),
+      // The config's variant applies here too, not just the catalog's —
+      // a configured "high" must not vanish the moment -p shows up.
+      ...(() => {
+        const variant = target.variant ?? variantFrom(target.model, cfg.variant)
+        return variant && Object.keys(variant).length > 0 ? { variant } : {}
+      })(),
       ...(target.model.modeHeaders ? { extraHeaders: { ...target.model.modeHeaders } } : {}),
       ...(target.model.modeBody ? { extraBody: { ...target.model.modeBody } } : {}),
     }
   } else {
     provider = {
       baseUrl: cfg.baseUrl,
-      model: cfg.model,
+      model: modelOverride ?? cfg.model,
       ...(cfg.apiKey ? { apiKey: cfg.apiKey } : {}),
     }
   }
@@ -118,6 +125,23 @@ async function printMode(prompt: string, modelOverride?: string | undefined, asJ
     provider,
     readFiles: new Set<string>(),
     compactAt: cfg.compactAt,
+    // Print mode has no user on the line to ask, so it runs in the same
+    // stance as auto mode: ordinary commands go, flagged ones are declined
+    // with the reason. --yolo is the documented way to lift even that.
+    approve: async (call) => {
+      if (call.name !== 'bash') return true
+      if (yolo) return true
+      const command = typeof call.input.command === 'string' ? call.input.command : ''
+      if (command.length === 0) return true
+      const risky = assessCommand(command)
+      if (!risky) return true
+      const note = denialText(risky)
+      if (!asJson) {
+        process.stdout.write(`✗ blocked: ${command.replace(/\s+/g, ' ').slice(0, 80)} — ${risky}\n`)
+      }
+      emit({ type: 'notice', text: note })
+      return false
+    },
     onEvent: (ev) => {
       if (ev.type === 'text-delta') {
         sawText = true
@@ -147,6 +171,9 @@ async function printMode(prompt: string, modelOverride?: string | undefined, asJ
         }
         if (!asJson) process.stdout.write(`✗ ${ev.message}\n`)
         emit({ type: 'error', message: ev.message })
+        // Scripts and CI pipe halis -p; a provider failure must not look
+        // like success to whatever reads the exit code.
+        process.exitCode = 1
       } else if (ev.type === 'done') {
         emit({ type: 'done', reason: ev.reason })
       }
@@ -202,14 +229,22 @@ async function main(): Promise<void> {
     else if (arg === '--yolo') yolo = true
     else if (arg === '--auto' || arg === '--dangerously-skip-permissions') yolo = true
     else if (arg === '-m' || arg === '--model') {
+      // The next token is only the value when it exists and is not itself a
+      // flag — `-p -m --json "…"` used to eat --json as the model name.
+      const next = argv[i + 1]
+      if (next === undefined || next.startsWith('-')) {
+        console.error('error: -m needs a model, e.g. -m anthropic/claude-sonnet-4-5')
+        process.exitCode = 1
+        return
+      }
       i++
-      modelOverride = argv[i]
+      modelOverride = next
     } else words.push(arg)
   }
   const prompt = words.join(' ').trim()
 
   if (print) {
-    await printMode(prompt, modelOverride, asJson)
+    await printMode(prompt, modelOverride, asJson, yolo)
     return
   }
   if (!process.stdout.isTTY || !process.stdin.isTTY) {
