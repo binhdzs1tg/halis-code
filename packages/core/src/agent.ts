@@ -3,7 +3,7 @@ import { compactTranscript } from './compact.js'
 import { RepeatGuard } from './guard.js'
 import { fitToolOutput } from './spill.js'
 import { streamChat } from './provider.js'
-import type { AgentRunOptions, ToolResult } from './types.js'
+import type { AgentRunOptions, ToolCall, ToolResult } from './types.js'
 
 /**
  * The tool loop: stream an assistant turn, run the requested tools, feed the
@@ -24,6 +24,22 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
   const { onEvent, signal } = opts
   const guard = new RepeatGuard()
   let turn = 0
+  // Tool calls of the batch currently being executed, kept so the catch block
+  // can close any that never got a result (a throwing tool must not leave a
+  // tool_use without its tool result in the transcript).
+  let pendingBatch: ToolCall[] = []
+
+  const closePendingCalls = (): void => {
+    for (const pending of pendingBatch) {
+      if (opts.messages.some((m) => m.role === 'tool' && m.toolCallId === pending.id)) continue
+      opts.messages.push({
+        role: 'tool',
+        toolCallId: pending.id,
+        content: 'the run was interrupted before this call executed',
+      })
+    }
+    pendingBatch = []
+  }
 
   try {
     while (true) {
@@ -89,13 +105,19 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
         return
       }
 
+      pendingBatch = res.toolCalls
       let stopped = false
       for (const call of res.toolCalls) {
         const started = Date.now()
         onEvent({ type: 'tool-start', call })
 
         let allowed = true
-        if (opts.approve) allowed = await opts.approve(call)
+        try {
+          if (opts.approve) allowed = await opts.approve(call)
+        } catch (err) {
+          allowed = false
+          onEvent({ type: 'notice', text: `approval check failed (${err instanceof Error ? err.message : String(err)}) — the call was declined` })
+        }
         let outcome: { output: string; ok: boolean }
         if (signal.aborted) {
           outcome = { output: 'the run was interrupted before this call executed', ok: false }
@@ -103,15 +125,26 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
           outcome = { output: 'the user declined this call — continue without it or explain what you need', ok: false }
         } else {
           const tool = opts.tools.find((t) => t.spec.name === call.name)
-          outcome = tool
-            ? await tool.run(call.input, {
+          if (!tool) {
+            outcome = { output: `error: unknown tool "${call.name}"`, ok: false }
+          } else {
+            try {
+              outcome = await tool.run(call.input, {
                 cwd: opts.cwd,
                 signal,
                 readFiles: opts.readFiles,
                 ...(opts.setTodos ? { setTodos: opts.setTodos } : {}),
                 ...(opts.askUser ? { askUser: opts.askUser } : {}),
               })
-            : { output: `error: unknown tool "${call.name}"`, ok: false }
+            } catch (err) {
+              // A throwing tool is a failed call, not a failed run — report it
+              // back so the transcript stays valid and the model can recover.
+              outcome = {
+                output: `error: ${err instanceof Error ? err.message : String(err)}`,
+                ok: false,
+              }
+            }
+          }
         }
 
         const reminder = guard.record(call.name, call.input)
@@ -129,6 +162,9 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
             type: 'notice',
             text: 'the same tool call kept repeating — ending the run here instead of burning more tokens',
           })
+          // The rest of the batch never ran; close it before leaving so the
+          // transcript never carries a tool_use without its result.
+          closePendingCalls()
           onEvent({ type: 'done', reason: 'repeat' })
           return
         }
@@ -141,19 +177,14 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
       if (stopped) {
         // Close every call that never ran, so the transcript never carries a
         // tool_use without its result — the next request would be invalid.
-        for (const pending of res.toolCalls) {
-          if (opts.messages.some((m) => m.role === 'tool' && m.toolCallId === pending.id)) continue
-          opts.messages.push({
-            role: 'tool',
-            toolCallId: pending.id,
-            content: 'the run was interrupted before this call executed',
-          })
-        }
+        closePendingCalls()
         onEvent({ type: 'done', reason: 'aborted' })
         return
       }
+      pendingBatch = []
     }
   } catch (err) {
+    closePendingCalls()
     if (signal.aborted || (err instanceof Error && err.name === 'AbortError')) {
       onEvent({ type: 'done', reason: 'aborted' })
       return
