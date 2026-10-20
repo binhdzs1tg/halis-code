@@ -1,8 +1,10 @@
 name: desktop release
 
-# Runs when a release is published (and on demand for a dry run). Builds the
-# Electron app on all three platforms in parallel and attaches the installers
-# to the release: dmg (mac, arm64 + x64), deb + AppImage (linux), exe (windows).
+# Runs when a release is published (and on demand for a dry run). Builds
+# the Electron app on all three platforms in parallel and attaches the
+# installers to the release: dmg (mac, arm64 + x64), deb + AppImage
+# (linux), exe (windows). Upstream of this workflow, release-create turns
+# a pushed tag into the published release.
 
 on:
   release:
@@ -12,19 +14,24 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: desktop-release-${{ github.event.release.tag_name || github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
@@ -64,9 +71,22 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
+      - name: Job summary
+        if: github.event_name == 'release'
+        shell: bash
+        run: |
+          shopt -s nullglob
+          {
+            echo "### Desktop installers (${{ matrix.os }})"
+            echo
+            for f in apps/desktop/release/*.dmg apps/desktop/release/*.exe apps/desktop/release/*.deb apps/desktop/release/*.AppImage; do
+              echo "- \`$(basename "$f")\` — $(du -h "$f" | cut -f1)"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload artifacts (manual runs)
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: halis-code-desktop-${{ matrix.os }}
           path: |
