@@ -5,6 +5,9 @@ name: release create
 # release is published, and the two downstream pipelines — npm publish and
 # desktop release — pick it up and attach their artifacts. Nothing in
 # this workflow knows how to build; its only job is the paper trail.
+# contents: write is what lets `gh release create` publish the release —
+# read-only here meant every tag push died on a 403 and the two downstream
+# pipelines never fired.
 
 on:
   push:
@@ -17,7 +20,7 @@ on:
         required: true
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: release-create-${{ github.ref }}
