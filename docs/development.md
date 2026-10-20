@@ -19,7 +19,7 @@ From the repo root:
 | command | what it does |
 | ------- | ------------ |
 | `npm run typecheck` | strict typecheck of every workspace |
-| `npm run build` | core, then cli, then desktop, in that order |
+| `npm run build` | cli (bundles core from source), then desktop |
 | `npm run dev:cli` | watch mode for the terminal ui |
 | `npm run dev:desktop` | build + launch the desktop app |
 | `npm run cli` | run the tui from the checkout, no global install |

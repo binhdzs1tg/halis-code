@@ -19,7 +19,7 @@ Monorepo, npm workspaces:
 From the repo root:
 
 - `npm run typecheck` — strict typecheck of every workspace (TypeScript 7).
-- `npm run build` — core, then cli, then desktop, in that order.
+- `npm run build` — cli (bundles core from source), then desktop.
 - `npm run dev:cli` — watch mode for the terminal ui.
 - `npm run dev:desktop` — build and launch the desktop app.
 - `npm run smoke -w @halis/desktop` — algorithm smoke tests (diff, guard,

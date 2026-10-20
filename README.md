@@ -226,9 +226,9 @@ TypeScript 7 everywhere, strict. From the root:
 
 ```sh
 npm run typecheck      # all workspaces
-npm run build          # core -> cli -> desktop
+npm run build          # cli (bundles core from source), then desktop
 npm run dev:cli        # watch mode for the terminal ui
-npm run dev:desktop    # watch + launch the desktop app
+npm run dev:desktop    # build + launch the desktop app
 npm run smoke -w @halis/core      # the terminal-side loop against a scripted provider
 npm run smoke -w @halis/desktop   # algorithm smoke tests
 npm run lint:md        # markdownlint over every md file
