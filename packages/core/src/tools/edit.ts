@@ -79,7 +79,10 @@ export const editTool: Tool = {
     }
 
     const replacement = adaptEndings(text, newString)
-    const updated = replaceAll ? text.split(needle).join(replacement) : text.replace(needle, replacement)
+    // The function form keeps `replacement` literal — the string form would
+    // interpret `$&`, `` $` `` and `$$` as replacement patterns and corrupt
+    // the file (split/join is already literal on the replace_all path).
+    const updated = replaceAll ? text.split(needle).join(replacement) : text.replace(needle, () => replacement)
     await writeFile(file, updated, 'utf8')
 
     const added = newString === '' ? 0 : newString.split('\n').length

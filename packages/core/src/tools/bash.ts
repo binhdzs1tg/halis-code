@@ -44,10 +44,11 @@ function runShell(
 
     const timer = setTimeout(() => {
       // Promote instead of killing: the work is not thrown away, the job
-      // reports back when it settles, and the output collected so far still
-      // goes inline so the model can react to it.
+      // reports back when it settles, and the output collected so far goes
+      // both inline (so the model can react) and into the job's file (so
+      // job_output sees the whole history, not just the post-promotion tail).
       timedOut = true
-      promoted = promoteToJob(command, child)
+      promoted = promoteToJob(command, child, `${stdout}${stderr}`)
       finish(null)
     }, timeoutMs)
 
@@ -63,8 +64,10 @@ function runShell(
       stderr += `\n${err.message}`
       finish(null)
     })
+    // 'close', not 'exit': exit fires before the piped stdio streams drain,
+    // so the tail of a big output would be raced away. close guarantees all
+    // data events have been delivered.
     child.on('close', (code) => finish(code))
-    child.on('exit', (code) => finish(code))
 
     const onAbort = () => {
       timedOut = false
@@ -134,7 +137,8 @@ export const bashTool: Tool = {
       return {
         output:
           `timed out after ${Math.round(timeoutMs / 1000)}s — the command is still running as background job ${promoted.id}\n` +
-          `output file: ${promoted.outputFile}\njob_output with its id shows progress.`,
+          `output file: ${promoted.outputFile}\njob_output with its id shows progress.` +
+          (body === '(no output)' ? '' : `\n\noutput so far:\n${body}`),
         ok: false,
       }
     }
