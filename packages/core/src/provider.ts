@@ -191,7 +191,8 @@ function applyReasoning(body: Record<string, unknown>, req: StreamRequest): void
   if (!variant) return
   if (variant.reasoningEffort) {
     body.reasoning_effort = variant.reasoningEffort
-    return
+    // No early return — a variant may carry both an effort level and body
+    // overrides, and dropping the body silently changed the wire request.
   }
   if (variant.thinking) {
     switch (compat(req.providerId).thinkingFormat) {
@@ -579,17 +580,23 @@ async function readAnthropic(
     } catch {
       continue
     }
-    if (event.event === 'error') {
+    // Gateways that re-emit bare `data:` frames lose the SSE event name —
+    // the payload's own type field carries the same signal, so fall back
+    // to it instead of dropping every frame on the floor.
+    const type = event.event === 'message' ? (payload.type ?? 'message') : event.event
+    // A failure frame must read as an error wherever it appears, the same
+    // way the OpenAI reader checks chunk.error on every chunk.
+    if (type === 'error' || payload.error) {
       throw new ProviderError(payload.error?.message ?? 'stream error', streamErrorStatus(payload.error))
     }
-    if (event.event === 'message_start' && payload.message?.usage?.input_tokens) {
+    if (type === 'message_start' && payload.message?.usage?.input_tokens) {
       inputTokens = payload.message.usage.input_tokens
     }
-    if (event.event === 'message_delta' && payload.usage?.output_tokens) {
+    if (type === 'message_delta' && payload.usage?.output_tokens) {
       outputTokens = payload.usage.output_tokens
     }
-    if (event.event === 'message_stop') break
-    if (event.event === 'content_block_start' && payload.content_block?.type === 'tool_use') {
+    if (type === 'message_stop') break
+    if (type === 'content_block_start' && payload.content_block?.type === 'tool_use') {
       // Gateways may inline the full input instead of streaming json deltas.
       const seed = payload.content_block.input
       const initial =
@@ -601,13 +608,13 @@ async function readAnthropic(
         seeded: initial !== '',
       })
     }
-    if (event.event === 'content_block_start' && payload.content_block?.type === 'thinking') {
+    if (type === 'content_block_start' && payload.content_block?.type === 'thinking') {
       thinkingSlots.set(payload.index ?? 0, { kind: 'thinking', thinking: '', signature: '' })
     }
-    if (event.event === 'content_block_start' && payload.content_block?.type === 'redacted_thinking') {
+    if (type === 'content_block_start' && payload.content_block?.type === 'redacted_thinking') {
       thinkingSlots.set(payload.index ?? 0, { kind: 'redacted', data: payload.content_block.data ?? '' })
     }
-    if (event.event === 'content_block_delta') {
+    if (type === 'content_block_delta') {
       const delta = payload.delta ?? {}
       if (delta.type === 'text_delta' && delta.text) {
         text += delta.text

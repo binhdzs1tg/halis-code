@@ -87,14 +87,16 @@ export async function compactTranscript(opts: CompactOptions): Promise<number> {
   // Old tool results are the bulk of a long session and the summary does
   // not need their full text — bound them before the summarizer sees them,
   // so the summary call itself stays cheap (the deepseek harness trick).
-  for (let i = 0; i < cut; i++) {
-    const message = messages[i]
-    if (message && message.role === 'tool' && message.content.length > PRUNE_AT) {
-      messages[i] = { ...message, content: pruneToolText(message.content) }
-    }
-  }
+  // The pruning works on a copy: if the summarizer throws, the caller's
+  // history must come out of this untouched (the agent loop then just
+  // continues with the full history it already has).
+  const summaryInput = messages.slice(0, cut).map((message) =>
+    message && message.role === 'tool' && message.content.length > PRUNE_AT
+      ? { ...message, content: pruneToolText(message.content) }
+      : message,
+  )
 
-  const summary = await summarize(messages.slice(0, cut), provider, signal)
+  const summary = await summarize(summaryInput, provider, signal)
   messages.splice(0, cut, {
     role: 'user',
     content:

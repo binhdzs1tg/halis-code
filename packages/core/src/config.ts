@@ -80,7 +80,6 @@ export function resolveConfig(): ResolvedConfig {
   const keyEnv = preset.keyEnv ?? 'HALIS_API_KEY'
 
   let apiKey = process.env.HALIS_API_KEY?.trim() || undefined
-  if (!apiKey && keyEnv && provider !== DEFAULT_PRESET) apiKey = process.env[keyEnv]?.trim() || undefined
   if (!apiKey && keyEnv) apiKey = process.env[keyEnv]?.trim() || undefined
 
   const demo = !apiKey && provider !== 'ollama' && !baseUrl.includes('localhost') && !baseUrl.includes('127.0.0.1')
@@ -130,6 +129,14 @@ export function maskKey(apiKey?: string): string {
 
 export function estimateTokens(messages: ChatMessage[]): number {
   let chars = 0
-  for (const m of messages) chars += m.content.length + (m.toolCalls?.length ?? 0) * 64
+  for (const m of messages) {
+    chars += m.content.length
+    for (const call of m.toolCalls ?? []) {
+      // The argument payload is where a write or edit call hides its bulk —
+      // flat-rating every call at 64 chars left the estimate blind to
+      // write-heavy sessions and compaction never fired.
+      chars += call.name.length + 32 + JSON.stringify(call.input ?? {}).length
+    }
+  }
   return Math.round(chars / 4)
 }
