@@ -123,15 +123,18 @@ export function startBackgroundJob(command: string, cwd: string): { id: string; 
   jobs.set(id, job)
   children.set(id, child)
   attachOutput(id, child, outputFile)
-  child.once('close', (code) => settleJob(id, code))
+  child.once('close', (code, signal) => settleJob(id, code, signal))
   return { id, outputFile }
 }
 
-/** Attach output collection to a child that may have started in the foreground. */
-function attachOutput(id: string, child: ChildProcess, outputFile: string): void {
+/** Attach output collection to a child that may have started in the foreground.
+ *  `seed` pre-fills the file — a promoted job keeps the output its foreground
+ *  life had already produced. */
+function attachOutput(id: string, child: ChildProcess, outputFile: string, seed = ''): void {
   try {
     const stream = fs.createWriteStream(outputFile, { flags: 'w', mode: 0o600 })
     streams.set(id, stream)
+    if (seed) stream.write(seed)
     child.stdout?.on('data', (chunk: Buffer) => stream.write(chunk))
     child.stderr?.on('data', (chunk: Buffer) => stream.write(chunk))
   } catch {
@@ -139,8 +142,9 @@ function attachOutput(id: string, child: ChildProcess, outputFile: string): void
   }
 }
 
-/** Promote a timed-out foreground child into a job instead of killing it. */
-export function promoteToJob(command: string, child: ChildProcess): JobHandle {
+/** Promote a timed-out foreground child into a job instead of killing it.
+ *  `preOutput` is the output the foreground run already collected. */
+export function promoteToJob(command: string, child: ChildProcess, preOutput = ''): JobHandle {
   const id = nextId()
   const outputFile = path.join(jobsDir(), `${id}.out`)
   const job: ShellJob = {
@@ -154,34 +158,40 @@ export function promoteToJob(command: string, child: ChildProcess): JobHandle {
   }
   jobs.set(id, job)
   children.set(id, child)
-  attachOutput(id, child, outputFile)
-  child.once('close', (code) => settleJob(id, code))
+  attachOutput(id, child, outputFile, preOutput)
+  child.once('close', (code, signal) => settleJob(id, code, signal))
   return { id, outputFile }
 }
 
-function settleJob(id: string, code: number | null): void {
+function settleJob(id: string, code: number | null, signal?: string | null): void {
   const job = jobs.get(id)
   if (!job || job.status !== 'running') return
   const stream = streams.get(id)
-  if (stream && !stream.destroyed && !stream.writableFinished) {
-    // The completion notice carries the output tail, so the last bytes must
-    // be on disk before the status moves — end the stream and wait for it.
-    stream.end()
-  }
   streams.delete(id)
   children.delete(id)
-  job.status = code === 0 ? 'completed' : 'failed'
+  job.status = code === 0 ? 'completed' : signal ? 'killed' : 'failed'
   job.exitCode = code
   job.finishedAt = Date.now()
-  // Trim the settled shelf: the oldest finished jobs fall off first.
-  const settled = [...jobs.values()].filter((j) => j.status !== 'running')
-  if (settled.length > MAX_SETTLED_JOBS) {
-    settled
-      .sort((a, b) => (a.finishedAt ?? 0) - (b.finishedAt ?? 0))
-      .slice(0, settled.length - MAX_SETTLED_JOBS)
-      .forEach((j) => jobs.delete(j.id))
+
+  const finishSettle = (): void => {
+    // Trim the settled shelf: the oldest finished jobs fall off first.
+    const settled = [...jobs.values()].filter((j) => j.status !== 'running')
+    if (settled.length > MAX_SETTLED_JOBS) {
+      settled
+        .sort((a, b) => (a.finishedAt ?? 0) - (b.finishedAt ?? 0))
+        .slice(0, settled.length - MAX_SETTLED_JOBS)
+        .forEach((j) => jobs.delete(j.id))
+    }
+    settleSink?.(job)
   }
-  settleSink?.(job)
+
+  if (stream && !stream.destroyed && !stream.writableFinished) {
+    // The completion notice carries the output tail, so the last bytes must
+    // be on disk before the notice fires — end the stream and wait for it.
+    stream.end(() => finishSettle())
+  } else {
+    finishSettle()
+  }
 }
 
 export function getJob(id: string): ShellJob | null {
@@ -192,19 +202,23 @@ export function listJobs(): ShellJob[] {
   return [...jobs.values()].sort((a, b) => a.startedAt - b.startedAt)
 }
 
-/** Kill one job's process tree; resolves true when something was running. */
-export function killJob(id: string): boolean {
+/** Kill one job's process tree. 'killed' when a running job got the signal,
+ *  'settled' when the job had already finished, 'unknown' for a bad id. */
+export function killJob(id: string): 'killed' | 'settled' | 'unknown' {
   const job = jobs.get(id)
-  if (!job) return false
+  if (!job) return 'unknown'
   const child = children.get(id)
   if (child) {
     killTree(child)
-  } else if (job.status === 'running') {
+    return 'killed'
+  }
+  if (job.status === 'running') {
     job.status = 'killed'
     job.finishedAt = Date.now()
     settleSink?.(job)
+    return 'killed'
   }
-  return true
+  return 'settled'
 }
 
 /** Output characters job_output keeps inline around a page cut. */

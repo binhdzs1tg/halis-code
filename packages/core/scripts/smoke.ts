@@ -601,7 +601,7 @@ async function main(): Promise<void> {
     const id = res.output.match(/job (sh-[0-9a-f]+)/)?.[1]
     assert.ok(id, 'the notice carries the job id')
     assert.ok(listJobs().some((j) => j.id === id), 'the promoted job is listed')
-    assert.equal(killJob(id), true)
+    assert.equal(killJob(id), 'killed')
   })
 
   await test('edit folds line endings to what the file already uses', async () => {

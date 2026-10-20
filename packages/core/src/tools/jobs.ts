@@ -45,9 +45,13 @@ export const jobKillTool: Tool = {
   async run(input): Promise<ToolOutcome> {
     const id = typeof input.id === 'string' ? input.id.trim() : ''
     if (!id) return { output: 'error: id is required', ok: false }
-    if (!killJob(id)) {
+    const outcome = killJob(id)
+    if (outcome === 'unknown') {
       const known = listJobs().map((job) => `${job.id} (${job.status})`).join(', ')
       return { output: `error: unknown job "${id}"${known ? ` — known: ${known}` : ''}`, ok: false }
+    }
+    if (outcome === 'settled') {
+      return { output: `job ${id} had already finished — nothing to stop`, ok: true }
     }
     return { output: `sent SIGTERM to job ${id}`, ok: true }
   },
