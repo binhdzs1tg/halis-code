@@ -42,11 +42,15 @@ export function CommandPopup({
   const word = filter.slice(1).toLowerCase()
   const items = COMMANDS.filter((c) => c.name.slice(1).startsWith(word))
   if (items.length === 0) return null
-  const shown = items.slice(0, 8)
+  // A scrolling window that follows the selection — the popup always shows
+  // eight rows, so selecting past the first screen must scroll, or Enter
+  // would execute a command the user never saw highlighted.
+  const windowStart = Math.max(0, Math.min(selected, items.length - 8))
+  const shown = items.slice(windowStart, windowStart + 8)
   return (
     <Box borderStyle="round" borderColor={theme.border} flexDirection="column" paddingX={1}>
       {shown.map((cmd, i) => {
-        const active = i === selected
+        const active = windowStart + i === selected
         return (
           <Text key={cmd.name}>
             <Text color={active ? theme.primary : theme.faint}>{active ? '❯ ' : '  '}</Text>

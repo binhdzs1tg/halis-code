@@ -114,8 +114,15 @@ export function ModelPicker({ onPick, onClose }: { onPick: (spec: string) => voi
     // choose() is stable enough inside the memo — it closes over onPick only.
     function choose(provider: ProviderEntry, model: ModelEntry): void {
       const spec = `${provider.id}/${model.id}`
-      if (model.variants.length > 0) setVariantsOf({ model, spec })
-      else onPick(spec)
+      if (model.variants.length > 0) {
+        // The rows list shrinks to a handful of variants; a stale selection
+        // index from a long favorites list would point off the list — dead
+        // Enter, no highlight — so it starts over at the top.
+        setSelected(0)
+        setVariantsOf({ model, spec })
+      } else {
+        onPick(spec)
+      }
     }
   }, [providers, query, variantsOf, onPick])
 
@@ -123,6 +130,7 @@ export function ModelPicker({ onPick, onClose }: { onPick: (spec: string) => voi
     if (key.escape) {
       if (variantsOf) {
         setVariantsOf(null)
+        setSelected(0)
         return
       }
       onClose()
@@ -131,7 +139,10 @@ export function ModelPicker({ onPick, onClose }: { onPick: (spec: string) => voi
     if (key.downArrow) return setSelected((s) => Math.min(rows.length - 1, s + 1))
     if (key.upArrow) return setSelected((s) => Math.max(0, s - 1))
     if (key.return) {
-      const row = rows[selected]
+      // Clamp against the live list: a selection left past the end after a
+      // list change must not make Enter a no-op.
+      const sel = Math.min(selected, rows.length - 1)
+      const row = rows[sel]
       if (row?.pick) row.pick()
       return
     }

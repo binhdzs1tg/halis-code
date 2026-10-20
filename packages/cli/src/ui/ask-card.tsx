@@ -49,7 +49,9 @@ export function AskCard({ request, onAnswer }: { request: AskRequest; onAnswer: 
       </Text>
       <Text color={theme.text}>{request.question}</Text>
       {choices.map((choice, i) => (
-        <Text key={choice} color={i === selected ? theme.primary : theme.dim}>
+        // The model supplies these strings and they may repeat — the index
+        // keeps React's keys unique where choice alone would collide.
+        <Text key={`${i}-${choice}`} color={i === selected ? theme.primary : theme.dim}>
           {i === selected ? '❯ ' : '  '}
           {i + 1}. {choice}
         </Text>

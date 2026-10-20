@@ -48,11 +48,14 @@ export function Composer({ mode, placeholder, onSubmit, onInterrupt, onExit }: C
     }
     if (mode === 'approval') return
     if (mode === 'running') {
-      if (key.escape) onInterrupt()
-      return
-    }
-
-    if (key.escape) {
+      // Esc interrupts the run; everything else falls through so the user
+      // can keep typing — the app queues what gets submitted instead of
+      // silently swallowing it.
+      if (key.escape) {
+        onInterrupt()
+        return
+      }
+    } else if (key.escape) {
       if (value.length > 0) reset()
       return
     }

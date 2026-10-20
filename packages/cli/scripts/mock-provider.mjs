@@ -106,6 +106,13 @@ const server = http.createServer((req, res) => {
     return
   }
   let raw = ''
+  let clientGone = false
+  // An Esc abort tears the connection down mid-stream; without this the
+  // next res.write on the dead socket throws an uncaught 'error' and takes
+  // the whole mock server with it.
+  res.on('error', () => {
+    clientGone = true
+  })
   req.on('data', (c) => (raw += c))
   req.on('end', async () => {
     let body = {}
@@ -120,9 +127,11 @@ const server = http.createServer((req, res) => {
     const promptChars = (body.messages ?? []).reduce((n, m) => n + (m.content?.length ?? 0), 0)
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
     for (const payload of chunkify(reply, promptChars)) {
+      if (clientGone) return
       res.write(`data: ${JSON.stringify(payload)}\n\n`)
       await sleep(CHAR_DELAY)
     }
+    if (clientGone) return
     res.write('data: [DONE]\n\n')
     res.end()
   })
