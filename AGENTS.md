@@ -32,6 +32,9 @@ From the repo root:
   parsing, the tool wiring, the anthropic wire format, spill, the model
   spec parser and the bundled catalog). Run it after touching
   `packages/core` or anything in `packages/cli` that feeds the loop.
+- `npm run lint:md` — markdownlint over every md file; the ci lint job
+  runs it on the same config (`.markdownlint-cli2.jsonc`), so run it
+  after writing docs.
 
 ## Conventions
 

@@ -1,0 +1,15 @@
+{
+  // every md file in the repo lints against one config; the tolerances
+  // below are the ones the existing docs rely on — prose wraps where it
+  // wants to, the readme header centers itself with html, and sections
+  // may repeat a heading like "What changed" across documents.
+  "config": {
+    "default": true,
+    "MD013": false, // line length — the tui already enforces its own widths
+    "MD033": false, // inline html — the centered readme header uses it
+    "MD041": false, // first-line heading — same reason
+    "MD024": { "siblings_only": true },
+    "MD029": false // ordered list prefix style — numbered steps stay hand-written
+  },
+  "ignores": ["node_modules/**", "**/node_modules/**"]
+}

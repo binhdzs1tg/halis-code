@@ -2,7 +2,7 @@
   "name": "@halis/monorepo",
   "version": "0.1.0",
   "private": true,
-  "description": "Halis Code \u2014 coding agent for the desktop and the terminal",
+  "description": "Halis Code — coding agent for the desktop and the terminal",
   "license": "MIT",
   "workspaces": [
     "apps/*",
@@ -16,10 +16,12 @@
     "build": "npm run build -w halis-code && npm run build -w @halis/desktop",
     "dev:desktop": "npm run dev -w @halis/desktop",
     "dev:cli": "npm run dev -w halis-code",
+    "lint:md": "markdownlint-cli2 '**/*.md'",
     "cli": "node packages/cli/bin/halis.js"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
+    "markdownlint-cli2": "^0.23.3",
     "typescript": "7.0.2"
   },
   "allowScripts": {

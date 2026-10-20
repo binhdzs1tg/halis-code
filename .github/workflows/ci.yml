@@ -1,32 +1,113 @@
 name: ci
 
-# Every push and pull request: typecheck and both smoke suites on the three
-# platforms the product ships on. The smoke tests are quote-free and
-# platform-aware on purpose — they run against cmd.exe on windows and the
-# login shell on unix, so a cross-platform regression fails here before it
-# ships, not in a user's terminal.
+# Every push and pull request runs the typecheck and both smoke suites on
+# the three platforms the product ships on — the smoke tests are
+# quote-free and platform-aware on purpose, so a cross-platform regression
+# fails here before it ships, not in a user's terminal.
+#
+# The jobs are path-gated: a core-only change skips the desktop matrix and
+# vice versa, and the "ok" job at the end stays green either way, so it is
+# the one check a branch protection rule needs. Everything runs on a
+# manual dispatch, no matter which paths it touches.
 
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  test:
-    name: ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+  changes:
+    name: changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      core: ${{ steps.manual.outputs.core || steps.filter.outputs.core }}
+      desktop: ${{ steps.manual.outputs.desktop || steps.filter.outputs.desktop }}
+      infra: ${{ steps.manual.outputs.infra || steps.filter.outputs.infra }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # the filter diffs against the base — make sure the base is there
+          fetch-depth: 0
+
+      - name: manual dispatch runs the whole matrix
+        id: manual
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          {
+            echo "core=true"
+            echo "desktop=true"
+            echo "infra=true"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: |
+            core:
+              - 'packages/core/**'
+              - 'packages/cli/**'
+            desktop:
+              - 'apps/desktop/**'
+            infra:
+              - '.github/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'tsconfig*.json'
+
+  typecheck:
+    name: typecheck (node ${{ matrix.node }})
+    needs: changes
+    if: needs.changes.outputs.core == 'true' || needs.changes.outputs.desktop == 'true' || needs.changes.outputs.infra == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+        env:
+          # the suites run in plain node; the electron binary would be
+          # dead weight here
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+
+      - name: Typecheck
+        run: npm run typecheck
+
+  smoke-core:
+    name: core smoke (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true'
     strategy:
       fail-fast: false
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
-
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
@@ -34,15 +115,169 @@ jobs:
       - name: Install
         run: npm ci --no-audit --no-fund
         env:
-          # the smoke suites run in plain node; the electron binary would be
-          # dead weight here
           ELECTRON_SKIP_BINARY_DOWNLOAD: 1
-
-      - name: Typecheck
-        run: npm run typecheck
 
       - name: Core smoke
         run: npm run smoke -w @halis/core
 
+  smoke-desktop:
+    name: desktop smoke (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true' || needs.changes.outputs.infra == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+
       - name: Desktop smoke
         run: npm run smoke -w @halis/desktop
+
+  cli-bundle:
+    name: cli bundle
+    needs: changes
+    if: needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+
+      - name: Build
+        run: npm run build -w halis-code
+
+      - name: Bundle sanity
+        working-directory: packages/cli
+        run: node bin/halis.js --version
+
+      # the whole agent loop, end to end, from the bundle the npm package
+      # actually ships — against the scripted provider, so no key and no
+      # network. If the bundle forgot the catalog snapshot or broke a
+      # tool import, this catches it before the publish workflow does.
+      - name: End-to-end against the mock provider
+        working-directory: packages/cli
+        run: |
+          set -e
+          home="$(mktemp -d)"
+          node scripts/mock-provider.mjs > "$home/mock.log" 2>&1 &
+          mock=$!
+          trap 'kill "$mock" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 20); do
+            curl -fsS http://127.0.0.1:8787/v1/models > /dev/null 2>&1 && break
+            sleep 0.5
+          done
+          HALIS_HOME="$home" HALIS_BASE_URL=http://127.0.0.1:8787/v1 HALIS_API_KEY=mock \
+            node bin/halis.js -p --json "look around with ls, then answer" > "$home/run.jsonl"
+          tail -n 1 "$home/run.jsonl" | grep -q '"type":"done"'
+          grep -q '"type":"tool-start"' "$home/run.jsonl"
+          echo "the bundled cli streamed a full agent turn against the mock provider"
+
+      - name: Package preview
+        working-directory: packages/cli
+        run: npm pack --dry-run
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cli-bundle
+          path: packages/cli/bin
+          retention-days: 7
+          if-no-files-found: error
+
+  desktop-build:
+    name: desktop build
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true' || needs.changes.outputs.infra == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+
+      - name: Build
+        run: npm run build -w @halis/desktop
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-dist
+          path: apps/desktop/dist
+          retention-days: 7
+          if-no-files-found: error
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+
+      - name: Markdown
+        run: npm run lint:md
+
+      # actionlint reads the workflow files the way github does — a
+      # broken expression or an unused secret fails here, not on main
+      - name: Workflows
+        run: |
+          curl -fsSL -o actionlint.tar.gz \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          tar -xzf actionlint.tar.gz actionlint
+          ./actionlint -color
+
+  # One check for branch protection to require: never skipped, red if
+  # anything above failed or was cancelled, green when the path-gated
+  # jobs were rightly skipped.
+  ok:
+    name: ok
+    needs: [changes, typecheck, smoke-core, smoke-desktop, cli-bundle, desktop-build, lint]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: All checks green
+        run: |
+          results='${{ toJSON(needs.*.result) }}'
+          if printf '%s' "$results" | grep -Eq '"(failure|cancelled)"'; then
+            echo "some checks failed or were cancelled:"
+            printf '%s\n' "$results"
+            exit 1
+          fi
