@@ -3,6 +3,26 @@
   "version": "0.2.0",
   "description": "Halis Code in the terminal \u2014 a coding agent TUI built on Ink",
   "license": "MIT",
+  "author": "binhdzs1tg",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/binhdzs1tg/halis-code.git",
+    "directory": "packages/cli"
+  },
+  "bugs": "https://github.com/binhdzs1tg/halis-code/issues",
+  "homepage": "https://github.com/binhdzs1tg/halis-code#readme",
+  "keywords": [
+    "ai",
+    "agent",
+    "coding-agent",
+    "cli",
+    "tui",
+    "terminal",
+    "ink",
+    "react",
+    "llm",
+    "developer-tools"
+  ],
   "type": "module",
   "bin": {
     "halis": "bin/halis.js"
