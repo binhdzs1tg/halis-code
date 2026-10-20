@@ -11,8 +11,10 @@ const RISKY_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   // -fn, +branch and a global -f force the push just like --force does.
   { pattern: /\bgit\b[^;&|]*\bpush\b[^;&|]*(?:--force(?:-with-lease)?\b|\s-f[a-z]*\b|\s\+\S)/i, reason: 'it force-pushes to a remote' },
   { pattern: /\bgit\s+-f\b[^;&|]*\bpush\b/i, reason: 'it force-pushes to a remote' },
-  { pattern: /\bgit\s+reset\s+--hard\b/i, reason: 'it discards local changes permanently' },
-  { pattern: /\bgit\s+clean\b/i, reason: 'it deletes untracked files' },
+  // Loose like the push rule: `git -C ../other reset --hard` must be caught
+  // just as surely as the plain spelling.
+  { pattern: /\bgit\b[^;&|]*\breset\s+--hard\b/i, reason: 'it discards local changes permanently' },
+  { pattern: /\bgit\b[^;&|]*\bclean\b(?!\.)/i, reason: 'it deletes untracked files' },
   { pattern: /\bmkfs(?:\.\w+)?\b|\bdd\s+(?:[^;&|]*\s)?(?:if|of)=\s*\/dev\//i, reason: 'it can overwrite disk contents' },
   { pattern: /\bfind\b[^;&|]*\s-delete\b/i, reason: 'it deletes files in bulk' },
   // Anything piped into a shell or interpreter runs text the upstream
@@ -82,10 +84,11 @@ export function assessCommand(command: string): string | null {
     if (pattern.test(command) || pattern.test(literal)) return reason
   }
   // A substitution body runs at execution time, so a destructive verb parked
-  // inside $( ) or backticks must not hide from the heuristics above.
+  // inside $( ) or backticks must not hide from the heuristics above — check
+  // the raw string and the quote-stripped literal alike.
   if (/\$\(|`/.test(command)) {
     for (const { pattern, reason } of SUBSTITUTION_PATTERNS) {
-      if (pattern.test(command)) return reason
+      if (pattern.test(command) || pattern.test(literal)) return reason
     }
   }
   return null

@@ -651,8 +651,12 @@ body[data-halis-dark-theme] .tok-lit {
   color: var(--hal-alias-label-secondary);
 }
 
+/* The live row carries `tool-row live` on itself (conversation.ts), so the
+ * compound selector is .tool-row.live — .tool-row .tool-live matched a
+ * child class no element ever had, and streaming rows fell back to the
+ * stacked column layout. */
 .tool-row summary,
-.tool-row .tool-live {
+.tool-row.live {
   display: flex;
   align-items: center;
   min-height: 24px;

@@ -76,9 +76,12 @@ function splitTopLevel(body: string): string[] {
  * number of directories, and a trailing slash reads as "everything below".
  */
 export function globToRegExp(pattern: string): RegExp {
-  let normalized = pattern.replace(/\/+$/, '')
+  // Windows spellings arrive with backslash separators (`src\**\*.ts`) —
+  // the walker joins with '/', so the pattern must match that or it
+  // compiles into one literal segment and matches nothing.
+  let normalized = pattern.replace(/\\/g, '/').replace(/\/+$/, '')
   if (normalized === '') normalized = '**'
-  else if (normalized !== pattern) normalized += '/**'
+  else if (normalized !== pattern.replace(/\\/g, '/')) normalized += '/**'
   const segments = normalized.split('/')
   let source = '^'
   // A `**` owns its separators: it carries the slash before it (unless it
@@ -128,8 +131,9 @@ export interface GlobResult {
  */
 export function globFiles(pattern: string, scope: string, limit: number): GlobResult {
   const root = resolveInWorkspace(scope)
-  // A trailing separator would glue into 'src//a.ts' downstream; drop it once, here.
-  const normalizedScope = scope.replace(/\/+$/, '')
+  // Backslashes fold to '/', then a trailing separator would glue into
+  // 'src//a.ts' downstream — dropped once, here.
+  const normalizedScope = scope.replace(/\\/g, '/').replace(/\/+$/, '')
   const regexes = expandBraces(pattern).map((candidate) => globToRegExp(candidate))
   const hits: { rel: string; mtime: number }[] = []
   let visited = 0

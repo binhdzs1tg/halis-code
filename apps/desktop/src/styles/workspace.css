@@ -751,3 +751,37 @@ body[data-halis-dark-theme] .term-out .ansi-fg7 {
 .term-out .ansi-bg7 {
   background: rgba(173, 178, 184, 0.2);
 }
+
+/* Bright backgrounds (SGR 100-107) and 256-color indices 8-15 — the class
+ * was emitted without a rule, so those backgrounds silently vanished. */
+.term-out .ansi-bg8 {
+  background: rgba(129, 133, 140, 0.28);
+}
+
+.term-out .ansi-bg9 {
+  background: rgba(255, 107, 107, 0.3);
+}
+
+.term-out .ansi-bg10 {
+  background: rgba(105, 219, 124, 0.3);
+}
+
+.term-out .ansi-bg11 {
+  background: rgba(255, 213, 128, 0.3);
+}
+
+.term-out .ansi-bg12 {
+  background: rgba(122, 170, 255, 0.3);
+}
+
+.term-out .ansi-bg13 {
+  background: rgba(197, 160, 255, 0.3);
+}
+
+.term-out .ansi-bg14 {
+  background: rgba(116, 216, 235, 0.3);
+}
+
+.term-out .ansi-bg15 {
+  background: rgba(249, 250, 251, 0.3);
+}
