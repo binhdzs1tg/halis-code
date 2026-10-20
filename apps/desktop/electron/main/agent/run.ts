@@ -314,7 +314,8 @@ async function execute(
       const notice: ChatNoticeEvent = {
         runId,
         kind: 'compacted',
-        text: 'Context compacted — the older span of this conversation now lives in a checkpoint.'
+        text: 'Context compacted — the older span of this conversation now lives in a checkpoint.',
+        ...(compacted.checkpoint ? { checkpoint: compacted.checkpoint } : {})
       }
       emit(IpcChannel.ChatNotice, notice)
     }
@@ -396,7 +397,8 @@ async function execute(
           const notice: ChatNoticeEvent = {
             runId,
             kind: 'compacted',
-            text: 'Context compacted mid-run — the older span now lives in a checkpoint.'
+            text: 'Context compacted mid-run — the older span now lives in a checkpoint.',
+            ...(compacted.checkpoint ? { checkpoint: compacted.checkpoint } : {})
           }
           emit(IpcChannel.ChatNotice, notice)
         }

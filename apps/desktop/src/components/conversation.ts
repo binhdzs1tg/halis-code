@@ -852,6 +852,29 @@ export function mountConversation(): HTMLElement {
     const todos = [...messages].reverse().find((message) => message.todos && message.todos.length > 0)?.todos ?? []
     const assistant = makeMessage('assistant', '')
     const node = renderMessage(assistant)
+    let pendingCheckpoint: string | null = null
+
+    /** Fold a buffered compaction checkpoint into the stored history: the
+     *  older span becomes one system message, the recent tail stays
+     *  verbatim. Runs after the run settles — mid-run the column holds live
+     *  nodes that a repaint would destroy. */
+    const applyPendingCheckpoint = (): void => {
+      const checkpointText = pendingCheckpoint
+      pendingCheckpoint = null
+      if (!checkpointText) return
+      const keep = Math.min(12, Math.ceil(messages.length / 2))
+      if (messages.length <= keep + 1) return
+      const cut = messages.length - keep
+      const checkpoint = makeMessage('system', checkpointText)
+      messages.splice(0, cut, checkpoint)
+      clear(column)
+      exitHero()
+      for (const message of messages) {
+        column.appendChild(renderMessage(message))
+      }
+      syncCrumb(messages)
+      scrollToBottom(scroll)
+    }
     const bubble = node.querySelector<HTMLElement>('.bubble')
     bubble?.classList.add('streaming')
     messages.push(assistant)
@@ -947,6 +970,13 @@ export function mountConversation(): HTMLElement {
             paintTodos()
           },
           onNotice: (event) => {
+            // An automatic compaction hands over its checkpoint — buffered
+            // here and folded into the stored history once the run settles,
+            // so the next turn starts from it instead of re-summarizing the
+            // same span every time.
+            if (event.kind === 'compacted' && event.checkpoint) {
+              pendingCheckpoint = event.checkpoint
+            }
             appendSystemNote(event.text)
           },
           onApproval: (event) => {
@@ -972,6 +1002,7 @@ export function mountConversation(): HTMLElement {
         if (liveTodos.length > 0) assistant.todos = [...liveTodos]
         node.replaceWith(renderMessage(assistant))
       }
+      applyPendingCheckpoint()
       const firstExchange =
         !customTitle && messages.filter((message) => message.role === 'user').length === 1
       // The queue drains only after persistence settles: a brand-new chat
@@ -992,6 +1023,7 @@ export function mountConversation(): HTMLElement {
       if (placeholder !== -1) {
         messages.splice(placeholder, 1)
       }
+      applyPendingCheckpoint()
       const agentErr = err instanceof AgentError ? err : null
       let saved: Promise<void> = Promise.resolve()
       if (agentErr && (agentErr.partial.trim() || traces.length > 0)) {

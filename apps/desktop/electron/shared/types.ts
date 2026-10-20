@@ -260,6 +260,10 @@ export interface ChatNoticeEvent {
   runId: string
   kind: 'compacted' | 'info'
   text: string
+  /** The framed checkpoint for 'compacted' notices. The renderer folds it
+   *  into the stored history, so the next turn starts from the checkpoint
+   *  instead of replaying — and re-summarizing — the same older span. */
+  checkpoint?: string
 }
 
 export type CommandApprovalMode = 'ask' | 'fullAccess'
