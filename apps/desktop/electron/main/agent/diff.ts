@@ -143,15 +143,43 @@ export function computeHunks(oldText: string, newText: string): Hunk[] {
   return wholeFileDiff(before, after)
 }
 
+/** Line budget for one file's diff. The card renders these lines and the
+ *  session save stores them; a rewritten lockfile or a deleted fixture
+ *  must not ship a megabyte of DiffLine through IPC and blow past the
+ *  8 MB session cap, which would make the chat permanently unsavable. */
+const MAX_DIFF_LINES = 2_000
+
+function capDiffLines(lines: DiffLine[]): DiffLine[] {
+  if (lines.length <= MAX_DIFF_LINES) return lines
+  const kept = lines.slice(0, MAX_DIFF_LINES)
+  kept.push({
+    kind: 'del',
+    text: `… diff truncated — ${(lines.length - MAX_DIFF_LINES).toLocaleString('en-US')} more lines changed`
+  })
+  return kept
+}
+
+/** A gap or truncation marker, not real diff content — the renderer paints
+ *  both as separator rows. */
+function isGapMarker(line: DiffLine): boolean {
+  return line.kind === 'del' && (line.text === '…' || line.text.startsWith('… diff truncated'))
+}
+
 /**
  * Diffs for one file mutation: creates render as pure additions, updates
  * as real hunks against the previous content.
  */
 export function fileDiff(path: string, before: string | null, after: string): FileDiff | null {
   if (before === null) {
-    const lines = splitLines(after).map((text): DiffLine => ({ kind: 'add', text }))
+    const lines = capDiffLines(splitLines(after).map((text): DiffLine => ({ kind: 'add', text })))
     if (lines.length === 0) return null
-    return { path, op: 'create', lines, added: lines.length, removed: 0 }
+    return {
+      path,
+      op: 'create',
+      lines,
+      added: lines.filter((line) => line.kind === 'add').length,
+      removed: 0
+    }
   }
   const hunks = computeHunks(before, after)
   if (hunks.length === 0) return null
@@ -162,11 +190,12 @@ export function fileDiff(path: string, before: string | null, after: string): Fi
     if (index > 0) merged.push({ kind: 'del', text: '…' })
     merged.push(...hunk.lines)
   })
+  const lines = capDiffLines(merged)
   return {
     path,
     op: 'update',
-    lines: merged,
-    added: hunks.reduce((sum, hunk) => sum + hunk.added, 0),
-    removed: hunks.reduce((sum, hunk) => sum + hunk.removed, 0)
+    lines,
+    added: lines.filter((line) => line.kind === 'add').length,
+    removed: lines.filter((line) => line.kind === 'del' && !isGapMarker(line)).length
   }
 }

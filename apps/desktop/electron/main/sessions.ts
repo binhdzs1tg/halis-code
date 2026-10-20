@@ -2,7 +2,7 @@
  * Chat session persistence: every conversation is a JSON document under
  * `userData/sessions`, listed by recency and pruned to a bounded set.
  */
-import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 import type { ChatMessage, ChatSession, ChatSessionMeta, TodoItem } from '../shared/types'
@@ -223,37 +223,41 @@ export function saveSession(raw: unknown): ChatSessionMeta {
   }
 }
 
-/** Keep the newest MAX_SESSIONS files, judged by the timestamps inside them. */
+/** Keep the newest MAX_SESSIONS files, judged by mtime. Every save rewrites
+ *  its file, so mtime tracks recency without parsing up to 50 × 8 MB
+ *  documents on the main thread after every message — the full re-parse
+ *  used to stall the ui for seconds on long histories. Malformed files no
+ *  longer get swept here; they age out with the mtime order and listSessions
+ *  skips them. */
 function pruneSessions(directory: string): void {
-  const entries: Array<{ file: string; updatedAt: number }> = []
-  for (const file of readdirSync(directory)) {
+  let files: string[]
+  try {
+    files = readdirSync(directory)
+  } catch {
+    return
+  }
+  const candidates: Array<{ file: string; mtime: number }> = []
+  for (const file of files) {
+    const full = join(directory, file)
     if (file.endsWith('.json.tmp')) {
       // Saves are synchronous, so a leftover temp file means a crashed
       // write — no reader wants it, sweep it.
       try {
-        rmSync(join(directory, file), { force: true })
+        rmSync(full, { force: true })
       } catch {
         // best effort
       }
       continue
     }
     if (!file.endsWith('.json')) continue
-    const read = readSessionFile(join(directory, file))
-    if (read.kind === 'ok') {
-      entries.push({ file, updatedAt: read.session.updatedAt })
-    } else if (read.kind === 'malformed') {
-      // A file that will not parse has no value; drop it so the folder
-      // stays clean. Unreadable files are left alone — see the tri-state
-      // note on readSessionFile.
-      try {
-        rmSync(join(directory, file))
-      } catch {
-        // best effort
-      }
+    try {
+      candidates.push({ file, mtime: statSync(full).mtimeMs })
+    } catch {
+      // vanished mid-listing — nothing to prune
     }
   }
-  entries.sort((a, b) => b.updatedAt - a.updatedAt)
-  for (const entry of entries.slice(MAX_SESSIONS)) {
+  candidates.sort((a, b) => b.mtime - a.mtime)
+  for (const entry of candidates.slice(MAX_SESSIONS)) {
     try {
       rmSync(join(directory, entry.file))
     } catch {
