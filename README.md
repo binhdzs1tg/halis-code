@@ -7,7 +7,7 @@ approvals, repeat-call guards) already built in.
 
 This repository is a monorepo:
 
-```
+```text
 apps/desktop    the Electron desktop app (sidebar, workspace rail, editor,
                 terminal, streaming chat, tool cards)
 packages/cli    the terminal UI — bin: halis
@@ -181,7 +181,7 @@ to wherever it finds itself:
 
 ## Layout
 
-```
+```text
 apps/desktop/
   electron/main/          main process: windows, ipc, sessions, agent runtime
   electron/main/agent/    run loop, providers, tools, compaction, guard,
