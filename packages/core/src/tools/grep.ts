@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import type { Tool, ToolContext, ToolOutcome } from '../types.js'
 import { fsIgnoresCase, globToRegExp, truncateLine, walk } from '../util.js'
@@ -38,9 +38,19 @@ export const grepTool: Tool = {
         : null
     const base = path.resolve(ctx.cwd, typeof input.path === 'string' && input.path.trim() ? input.path : '.')
 
+    // The path may be a single file — walk() only handles directories, and
+    // readdir on a file would just fail its way to a confident "no matches".
+    let scope: AsyncGenerator<string> | string[]
+    try {
+      const st = await stat(base)
+      scope = st.isFile() ? [base] : walk(base, ctx.signal)
+    } catch {
+      return { output: `error: cannot search ${base}: no such file or directory`, ok: false }
+    }
+
     const out: string[] = []
     let truncated = false
-    for await (const file of walk(base, ctx.signal)) {
+    for await (const file of scope) {
       if (includeRe && !includeRe.test(path.basename(file))) continue
       let text: string
       try {

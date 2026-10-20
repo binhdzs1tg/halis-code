@@ -31,7 +31,18 @@ export const askUserTool: Tool = {
     const question = typeof input.question === 'string' ? input.question.trim() : ''
     if (!question) return { ok: false, output: 'Parameter "question" is required.' }
     const rawChoices = Array.isArray(input.choices) ? input.choices : []
-    const choices = rawChoices.filter((c): c is string => typeof c === 'string' && c.trim().length > 0).slice(0, 4)
+    // Trimmed, deduped and capped: duplicate options would render as double
+    // rows and the number shortcuts would answer an arbitrary twin.
+    const seen = new Set<string>()
+    const choices: string[] = []
+    for (const raw of rawChoices) {
+      if (typeof raw !== 'string') continue
+      const trimmed = raw.trim()
+      if (trimmed.length === 0 || seen.has(trimmed)) continue
+      seen.add(trimmed)
+      choices.push(trimmed)
+      if (choices.length === 4) break
+    }
 
     if (!ctx.askUser) {
       return {

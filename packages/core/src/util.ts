@@ -13,11 +13,14 @@ export const SKIP_DIRS = new Set([
 
 export async function* walk(root: string, signal?: AbortSignal): AsyncGenerator<string> {
   const queue: string[] = [root]
+  const visited = new Set<string>()
   let seen = 0
   while (queue.length > 0) {
     if (signal?.aborted) return
     const dir = queue.shift()
     if (!dir) return
+    if (visited.has(dir)) continue // symlink cycles must not spin forever
+    visited.add(dir)
     let entries
     try {
       entries = await readdir(dir, { withFileTypes: true })
@@ -33,6 +36,20 @@ export async function* walk(root: string, signal?: AbortSignal): AsyncGenerator<
         continue
       }
       if (entry.isFile()) yield full
+      if (entry.isSymbolicLink()) {
+        // A link to a directory joins the walk; a link to a file is a hit.
+        // The visited set plus the entry cap keep cycles bounded.
+        try {
+          const target = await stat(full)
+          if (target.isDirectory()) {
+            if (!SKIP_DIRS.has(entry.name)) queue.push(full)
+          } else if (target.isFile()) {
+            yield full
+          }
+        } catch {
+          // dangling symlink — nothing to yield
+        }
+      }
     }
   }
 }
@@ -48,10 +65,15 @@ export function globToRegExp(pattern: string, options: { ignoreCase?: boolean } 
     if (ch === undefined) break
     if (ch === '*') {
       if (pattern[i + 1] === '*') {
-        // ** crosses directory boundaries, optionally eating the slash around it
-        re += '(?:.*)'
         i++
-        if (pattern[i + 1] === '/') i++
+        if (pattern[i + 1] === '/') {
+          // `**/` crosses any number of directories, or none at all —
+          // a/**/b must match a/b and a/x/y/b but not ab or axb.
+          re += '(?:.*/)?'
+          i++
+        } else {
+          re += '(?:.*)'
+        }
       } else {
         re += '[^/]*'
       }

@@ -38,6 +38,16 @@ export const lsTool: Tool = {
         } catch {
           files.push({ name: entry.name, size: 0 })
         }
+      } else if (entry.isSymbolicLink()) {
+        // Links used to vanish from the listing entirely — resolve them so
+        // the model sees the symlinked dir or file like the user does.
+        try {
+          const info = await stat(path.join(dir, entry.name))
+          if (info.isDirectory()) dirs.push(`${entry.name}/`)
+          else files.push({ name: entry.name, size: info.size })
+        } catch {
+          files.push({ name: entry.name, size: 0 }) // dangling link
+        }
       }
     }
     dirs.sort((a, b) => a.localeCompare(b))
