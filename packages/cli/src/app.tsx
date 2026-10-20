@@ -38,6 +38,7 @@ import { theme } from './theme.js'
 import {
   loadSessionFile,
   saveSession,
+  clearStoredSession,
   transcriptToMarkdown,
   type SessionEntry,
   type SessionSnapshot,
@@ -121,13 +122,19 @@ export function fmtCount(n: number): string {
 }
 
 /** Approval "always" sticks for the command's leading words, so `npm run`
- *  approved once covers every later `npm run …` this session. */
+ *  approved once covers every later `npm run …` this session — regular
+ *  ones, that is; a flagged command always asks again no matter what a
+ *  prefix earned. */
 function commandPrefix(command: string): string {
   const words = command.trim().split(/\s+/)
-  return words.length > 1 ? words.slice(0, 2).join(' ') : (words[0] ?? command)
+  // A leading flag is not an identity: `rm -rf …` must never freeze into a
+  // reusable "always" prefix, so the prefix keeps real words only.
+  const meaningful = words.filter((w) => !w.startsWith('-'))
+  return meaningful.length > 1 ? meaningful.slice(0, 2).join(' ') : (meaningful[0] ?? command)
 }
 
-function variantFrom(entry: ModelEntry, cfgVariant: string | undefined): ProviderVariant | undefined {
+/** Map the config's variant id onto a catalog entry's variant knobs. */
+export function variantFrom(entry: ModelEntry, cfgVariant: string | undefined): ProviderVariant | undefined {
   if (!cfgVariant) return undefined
   const variant = entry.variants.find((v) => v.id === cfgVariant)
   if (!variant) return undefined
@@ -243,6 +250,10 @@ export function App({
   const idRef = useRef(0)
   const runningRef = useRef(false)
   const approvedPrefixesRef = useRef<Set<string>>(new Set())
+  // Cost accrues per usage event at the rates of the model that produced
+  // those tokens — repricing the whole session at whichever model is live
+  // now would overstate it by orders of magnitude after a /model switch.
+  const sessionCostRef = useRef(0)
   const demoIdxRef = useRef(0)
   const queueRef = useRef<string[]>([])
   const systemRef = useRef<string | null>(null)
@@ -266,9 +277,12 @@ export function App({
     return () => setJobSink(null)
   }, [push])
 
-  const refreshTarget = useCallback(async () => {
+  const refreshTarget = useCallback(async (override?: ResolvedConfig) => {
     try {
-      const next = await computeTarget(cfgRef.current)
+      // The override exists because setCfg only lands on the next render —
+      // reading cfgRef.current right after a setCfg would resolve the old
+      // config and silently keep the old model/provider.
+      const next = await computeTarget(override ?? cfgRef.current)
       targetRef.current = next
       setTarget(next)
     } catch (err) {
@@ -379,7 +393,10 @@ export function App({
     if (!titleRef.current && messagesRef.current.length >= 2) void autoTitle()
     const next = queueRef.current.shift()
     setQueue([...queueRef.current])
-    if (next) setTimeout(() => void sendRef.current(next), 30)
+    // Routed through the same submit path as a fresh entry, so a queued
+    // slash command executes as a command instead of leaking into the
+    // transcript as a user message.
+    if (next) setTimeout(() => submitRef.current(next), 30)
   }, [flushLive, persist, autoTitle])
 
   const handleEvent = useCallback(
@@ -397,9 +414,14 @@ export function App({
           push({ kind: 'tool', call: ev.call, output: ev.result.output, ok: ev.result.ok, ms: ev.ms })
           setLive((l) => (l ? { ...l, tool: null } : l))
           break
-        case 'usage':
+        case 'usage': {
+          const rates = targetRef.current?.entry?.cost
+          if (rates && (rates.input > 0 || rates.output > 0)) {
+            sessionCostRef.current += (ev.input / 1_000_000) * rates.input + (ev.output / 1_000_000) * rates.output
+          }
           setUsage((u) => ({ input: u.input + ev.input, output: u.output + ev.output }))
           break
+        }
         case 'notice':
           push({ kind: 'info', text: ev.text })
           break
@@ -424,14 +446,17 @@ export function App({
       const command = typeof call.input.command === 'string' ? call.input.command : ''
       const mode = permissionsRef.current
       if (mode === 'yolo') return Promise.resolve(true)
-      if (approvedPrefixesRef.current.has(commandPrefix(command))) return Promise.resolve(true)
       const risky = command.length > 0 ? assessCommand(command) : null
+      // The prefix check runs after the risk assessment: a prefix earned by
+      // `npm run build` covers the ordinary follow-ups, but a flagged command
+      // (`npm run publish`, `rm -rf …`) always sees the dialog again.
+      if (!risky && approvedPrefixesRef.current.has(commandPrefix(command))) return Promise.resolve(true)
       if (mode === 'auto' && !risky) return Promise.resolve(true)
       return new Promise((resolve) => {
         setPending({
           call,
           resolve: (choice) => {
-            if (choice === 'always') approvedPrefixesRef.current.add(commandPrefix(command))
+            if (choice === 'always' && !risky) approvedPrefixesRef.current.add(commandPrefix(command))
             setPending(null)
             resolve(choice !== 'no')
           },
@@ -504,6 +529,9 @@ export function App({
   )
 
   sendRef.current = send
+  // Same ref pattern one level up: the queue drain goes through whatever
+  // submit routing is current, not straight into send.
+  const submitRef = useRef<(value: string) => void>((value) => void sendRef.current(value))
 
   const sentInitialRef = useRef(false)
   useEffect(() => {
@@ -571,9 +599,10 @@ export function App({
           return
         }
         await saveConfig({ model: spec })
-        setCfg((c) => ({ ...c, model: spec, spec }))
+        const nextCfg: ResolvedConfig = { ...cfgRef.current, model: spec, spec }
+        setCfg(nextCfg)
         push({ kind: 'info', text: `model set to ${spec} — ${resolved.provider.name}, ${resolved.baseUrl}` })
-        await refreshTarget()
+        await refreshTarget(nextCfg)
       } catch (err) {
         push({ kind: 'error', text: `catalog unavailable (${err instanceof Error ? err.message : String(err)}) — set HALIS_BASE_URL to keep the preset path` })
       }
@@ -592,23 +621,28 @@ export function App({
       messagesRef.current = snapshot.messages
       readFilesRef.current = new Set()
       setUsage(snapshot.usage)
-      if (snapshot.title) {
-        titleRef.current = snapshot.title
-        setTitle(snapshot.title)
-      }
+      // Reset unconditionally: keeping the previous session's title would
+      // stamp it onto this one at the next persist, and the auto-namer only
+      // runs while the title is empty.
+      titleRef.current = snapshot.title ?? null
+      setTitle(snapshot.title ?? null)
+      sessionCostRef.current = 0
+      let nextCfg: ResolvedConfig | null = null
       if (snapshot.model) {
         const spec = snapshot.model.includes('/') || snapshot.model.includes('#') ? snapshot.model : null
         if (spec) {
           await saveConfig({ model: spec })
-          setCfg((c) => ({ ...c, model: spec, spec }))
+          nextCfg = { ...cfgRef.current, model: spec, spec }
+          setCfg(nextCfg)
         }
       }
+      await refreshTarget(nextCfg ?? undefined)
       push({
         kind: 'info',
         text: `loaded “${entry.title}” — ${snapshot.messages.length} messages back in context`,
       })
     },
-    [push],
+    [push, refreshTarget],
   )
 
   const runDiff = useCallback(async () => {
@@ -709,6 +743,10 @@ export function App({
           setUsage({ input: 0, output: 0 })
           titleRef.current = null
           setTitle(null)
+          sessionCostRef.current = 0
+          // Forget the stored transcript too, or the next `halis -c`
+          // resurrects the exact conversation the user just dropped.
+          void clearStoredSession(cwd)
           push({ kind: 'info', text: 'context cleared — the penguin forgot everything above' })
           break
         case '/model': {
@@ -728,9 +766,10 @@ export function App({
             })
           } else {
             await saveConfig({ provider: arg, model: preset.model })
-            setCfg(resolveConfig())
+            const fresh = resolveConfig()
+            setCfg(fresh)
             push({ kind: 'info', text: `provider set to ${arg} (${preset.label}), model ${preset.model}` })
-            await refreshTarget()
+            await refreshTarget(fresh)
           }
           break
         }
@@ -759,11 +798,7 @@ export function App({
           break
         case '/usage': {
           const entry = targetRef.current?.entry
-          const cost =
-            entry && (entry.cost.input > 0 || entry.cost.output > 0)
-              ? (usageRef.current.input / 1_000_000) * entry.cost.input +
-                (usageRef.current.output / 1_000_000) * entry.cost.output
-              : 0
+          const cost = sessionCostRef.current
           const turns = messagesRef.current.filter((m) => m.role === 'assistant').length
           push({
             kind: 'status',
@@ -838,13 +873,16 @@ export function App({
 
   const handleSubmit = useCallback(
     (value: string) => {
-      if (value.startsWith('!') && value.trim().length > 1) {
-        void runLocalShell(value.trim().slice(1).trim())
-        return
-      }
+      // The queue check comes first: a `!` shell command typed mid-run must
+      // wait its turn like any other input, or it would run concurrently
+      // with the agent and clobber the live spinner / transcript.
       if (runningRef.current) {
         queueRef.current.push(value)
         setQueue([...queueRef.current])
+        return
+      }
+      if (value.startsWith('!') && value.trim().length > 1) {
+        void runLocalShell(value.trim().slice(1).trim())
         return
       }
       if (value.startsWith('/')) void executeCommand(value)
@@ -852,6 +890,8 @@ export function App({
     },
     [executeCommand, runLocalShell, send],
   )
+
+  submitRef.current = handleSubmit
 
   const interrupt = useCallback(() => {
     abortRef.current?.abort()
@@ -873,10 +913,7 @@ export function App({
   const running = live !== null
   const entry = target?.entry
   const contextPct = entry && entry.limit.context > 0 ? Math.min(100, Math.round((estimateTokens(messagesRef.current) / entry.limit.context) * 100)) : null
-  const sessionCost =
-    entry && (entry.cost.input > 0 || entry.cost.output > 0)
-      ? (usage.input / 1_000_000) * entry.cost.input + (usage.output / 1_000_000) * entry.cost.output
-      : 0
+  const sessionCost = sessionCostRef.current
   const tokenLabel =
     usage.input + usage.output > 0
       ? `${fmtCount(usage.input)} in · ${fmtCount(usage.output)} out`
