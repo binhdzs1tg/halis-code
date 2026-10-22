@@ -1,6 +1,4 @@
-MIT License
-
-Copyright (c) 2026 binhdzs1tg
+Copyright (c) 2026 Hieu Louis (binhdzs1tg)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -9,8 +7,34 @@ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 copies of the Software, and to permit persons to whom the Software is
 furnished to do so, subject to the following conditions:
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. ATTRIBUTION
+   The above copyright notice, this permission notice, and the name of the
+   original author "Hieu Louis" (together with a link to the original
+   repository, if applicable) shall be included in all copies, forks,
+   substantial portions, and derivative works of the Software.
+
+   In addition, any public distribution, deployment, or demonstration of the
+   Software or a derivative work (including but not limited to user
+   interfaces, documentation, README files, package metadata, and "About"
+   screens) must clearly state that the original author of the Software is
+   "Hieu Louis" and provide a reference to the original repository.
+
+2. NO FALSE AUTHORSHIP
+   You may not claim, imply, or represent yourself as the original author or
+   creator of the Software. You may not remove, obscure, or alter any
+   copyright notice, author attribution, or reference to the original
+   repository contained in the Software.
+
+3. MODIFIED VERSIONS
+   Any modified, forked, or derivative version of the Software must be
+   clearly and prominently marked as "modified from the original work by
+   Hieu Louis", and must not be presented as the original, official, or
+   unmodified version of the Software.
+
+4. NO ENDORSEMENT
+   The name "Hieu Louis" and any associated project names or logos may not
+   be used to endorse or promote products derived from this Software without
+   prior written permission from the original author.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
