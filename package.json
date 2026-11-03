@@ -20,8 +20,8 @@
     "cli": "node packages/cli/bin/halis.js"
   },
   "devDependencies": {
-    "@types/node": "^26.6.5",
-    "markdownlint-cli2": "^0.23.3",
+    "@types/node": "^26.6.6",
+    "markdownlint-cli2": "^0.24.0",
     "typescript": "7.0.2"
   },
   "allowScripts": {
